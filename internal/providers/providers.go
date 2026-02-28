@@ -34,7 +34,9 @@ func NewRegistry(cfg config.ProvidersConfig) (*Registry, error) {
 	if cfg.Anthropic.APIKey != "" {
 		reg.providers[anthropicprovider.Name] = anthropicprovider.New(cfg.Anthropic)
 	}
-	if cfg.OpenAI.APIKey != "" {
+	if cfg.AzureOpenAI.APIKey != "" && cfg.AzureOpenAI.Endpoint != "" {
+		reg.providers[openaiprovider.Name] = openaiprovider.NewAzure(cfg.AzureOpenAI)
+	} else if cfg.OpenAI.APIKey != "" {
 		reg.providers[openaiprovider.Name] = openaiprovider.New(cfg.OpenAI)
 	}
 
@@ -55,7 +57,7 @@ func (r *Registry) Get(name string) (Provider, bool) {
 func (r *Registry) Default(model string) (Provider, error) {
 	if model != "" {
 		switch {
-		case strings.HasPrefix(model, "gpt") || strings.HasPrefix(model, "o1"):
+		case strings.HasPrefix(model, "gpt") || strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3"):
 			if p, ok := r.providers[openaiprovider.Name]; ok {
 				return p, nil
 			}

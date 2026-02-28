@@ -7,9 +7,10 @@ A lightweight LLM proxy gateway written in Go that provides a unified API interf
 ## Purpose
 
 Simplify LLM integration by exposing a single, consistent API that routes requests to different providers:
-- **Google Generative AI** (Gemini)
-- **Anthropic** (Claude)
 - **OpenAI** (GPT models)
+- **Azure OpenAI** (Azure-deployed models)
+- **Anthropic** (Claude)
+- **Google Generative AI** (Gemini)
 
 Instead of managing multiple SDK integrations in your application, call one endpoint and let the gateway handle provider-specific implementations.
 
@@ -20,9 +21,10 @@ Client Request
     ↓
 Go LLM Gateway (unified API)
     ↓
-├─→ Google Gen AI SDK
+├─→ OpenAI SDK
+├─→ Azure OpenAI (OpenAI SDK + Azure auth)
 ├─→ Anthropic SDK
-└─→ OpenAI SDK
+└─→ Google Gen AI SDK
 ```
 
 ## Key Features
@@ -43,13 +45,14 @@ Go LLM Gateway (unified API)
 
 ## 🎉 Status: **WORKING!**
 
-✅ **All three providers integrated with official Go SDKs:**
+✅ **All four providers integrated with official Go SDKs:**
 - OpenAI → `github.com/openai/openai-go`
+- Azure OpenAI → `github.com/openai/openai-go` (with Azure auth)
 - Anthropic → `github.com/anthropics/anthropic-sdk-go`
 - Google → `google.golang.org/genai`
 
 ✅ **Compiles successfully** (36MB binary)
-✅ **Provider auto-selection** (gpt→OpenAI, claude→Anthropic, gemini→Google)
+✅ **Provider auto-selection** (gpt→Azure/OpenAI, claude→Anthropic, gemini→Google)
 ✅ **Configuration system** (YAML with env var support)
 ✅ **Streaming support** (Server-Sent Events for all providers)
 ✅ **OAuth2/OIDC authentication** (Google, Auth0, any OIDC provider)
@@ -201,6 +204,28 @@ The gateway implements conversation tracking using `previous_response_id` from t
 - ⏰ **Auto-expire** - Conversations expire after 1 hour
 
 See **[CONVERSATIONS.md](./CONVERSATIONS.md)** for details.
+
+## Azure OpenAI
+
+The gateway supports Azure OpenAI with the same interface as standard OpenAI:
+
+```yaml
+providers:
+  azureopenai:
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    endpoint: "https://your-resource.openai.azure.com"
+    deployment_id: "your-deployment-name"
+```
+
+```bash
+export AZURE_OPENAI_API_KEY="..."
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
+export AZURE_OPENAI_DEPLOYMENT_ID="gpt-4o"
+
+./gateway
+```
+
+The gateway prefers Azure OpenAI for `gpt-*` models if configured. See **[AZURE_OPENAI.md](./AZURE_OPENAI.md)** for complete setup guide.
 
 ## Authentication
 

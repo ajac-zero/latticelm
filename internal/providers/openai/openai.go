@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/azure"
 	"github.com/openai/openai-go/option"
 
 	"github.com/yourusername/go-llm-gateway/internal/api"
@@ -15,12 +16,14 @@ import (
 const Name = "openai"
 
 // Provider implements the OpenAI SDK integration.
+// It supports both direct OpenAI API and Azure-hosted endpoints.
 type Provider struct {
 	cfg    config.ProviderConfig
 	client *openai.Client
+	azure  bool
 }
 
-// New constructs a Provider from configuration.
+// New constructs a Provider for the direct OpenAI API.
 func New(cfg config.ProviderConfig) *Provider {
 	var client *openai.Client
 	if cfg.APIKey != "" {
@@ -30,6 +33,32 @@ func New(cfg config.ProviderConfig) *Provider {
 	return &Provider{
 		cfg:    cfg,
 		client: client,
+	}
+}
+
+// NewAzure constructs a Provider targeting Azure OpenAI.
+// Azure OpenAI uses the OpenAI SDK with the azure subpackage for proper
+// endpoint routing, api-version query parameter, and API key header.
+func NewAzure(azureCfg config.AzureOpenAIConfig) *Provider {
+	var client *openai.Client
+	if azureCfg.APIKey != "" && azureCfg.Endpoint != "" {
+		apiVersion := azureCfg.APIVersion
+		if apiVersion == "" {
+			apiVersion = "2024-12-01-preview"
+		}
+		c := openai.NewClient(
+			azure.WithEndpoint(azureCfg.Endpoint, apiVersion),
+			azure.WithAPIKey(azureCfg.APIKey),
+		)
+		client = &c
+	}
+	return &Provider{
+		cfg: config.ProviderConfig{
+			APIKey: azureCfg.APIKey,
+			Model:  azureCfg.DeploymentID,
+		},
+		client: client,
+		azure:  true,
 	}
 }
 

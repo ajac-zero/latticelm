@@ -28,9 +28,10 @@ type ServerConfig struct {
 
 // ProvidersConfig wraps supported provider settings.
 type ProvidersConfig struct {
-	Google    ProviderConfig `yaml:"google"`
-	Anthropic ProviderConfig `yaml:"anthropic"`
-	OpenAI    ProviderConfig `yaml:"openai"`
+	Google       ProviderConfig       `yaml:"google"`
+	Anthropic    ProviderConfig       `yaml:"anthropic"`
+	OpenAI       ProviderConfig       `yaml:"openai"`
+	AzureOpenAI  AzureOpenAIConfig    `yaml:"azureopenai"`
 }
 
 // ProviderConfig contains shared provider configuration fields.
@@ -38,6 +39,14 @@ type ProviderConfig struct {
 	APIKey   string `yaml:"api_key"`
 	Model    string `yaml:"model"`
 	Endpoint string `yaml:"endpoint"`
+}
+
+// AzureOpenAIConfig contains Azure-specific settings.
+type AzureOpenAIConfig struct {
+	APIKey       string `yaml:"api_key"`
+	Endpoint     string `yaml:"endpoint"`
+	DeploymentID string `yaml:"deployment_id"`
+	APIVersion   string `yaml:"api_version"`
 }
 
 // Load reads and parses a YAML configuration file and applies env overrides.
@@ -60,6 +69,20 @@ func (cfg *Config) applyEnvOverrides() {
 	overrideAPIKey(&cfg.Providers.Google, "GOOGLE_API_KEY")
 	overrideAPIKey(&cfg.Providers.Anthropic, "ANTHROPIC_API_KEY")
 	overrideAPIKey(&cfg.Providers.OpenAI, "OPENAI_API_KEY")
+	
+	// Azure OpenAI overrides
+	if v := os.Getenv("AZURE_OPENAI_API_KEY"); v != "" {
+		cfg.Providers.AzureOpenAI.APIKey = v
+	}
+	if v := os.Getenv("AZURE_OPENAI_ENDPOINT"); v != "" {
+		cfg.Providers.AzureOpenAI.Endpoint = v
+	}
+	if v := os.Getenv("AZURE_OPENAI_DEPLOYMENT_ID"); v != "" {
+		cfg.Providers.AzureOpenAI.DeploymentID = v
+	}
+	if v := os.Getenv("AZURE_OPENAI_API_VERSION"); v != "" {
+		cfg.Providers.AzureOpenAI.APIVersion = v
+	}
 }
 
 func overrideAPIKey(cfg *ProviderConfig, envKey string) {
