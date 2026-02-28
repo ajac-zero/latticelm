@@ -1,0 +1,64 @@
+package config
+
+import (
+	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config describes the full gateway configuration file.
+type Config struct {
+	Server    ServerConfig    `yaml:"server"`
+	Providers ProvidersConfig `yaml:"providers"`
+}
+
+// ServerConfig controls HTTP server values.
+type ServerConfig struct {
+	Address string `yaml:"address"`
+}
+
+// ProvidersConfig wraps supported provider settings.
+type ProvidersConfig struct {
+	Google    ProviderConfig `yaml:"google"`
+	Anthropic ProviderConfig `yaml:"anthropic"`
+	OpenAI    ProviderConfig `yaml:"openai"`
+}
+
+// ProviderConfig contains shared provider configuration fields.
+type ProviderConfig struct {
+	APIKey   string `yaml:"api_key"`
+	Model    string `yaml:"model"`
+	Endpoint string `yaml:"endpoint"`
+}
+
+// Load reads and parses a YAML configuration file and applies env overrides.
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	cfg.applyEnvOverrides()
+	return &cfg, nil
+}
+
+func (cfg *Config) applyEnvOverrides() {
+	overrideAPIKey(&cfg.Providers.Google, "GOOGLE_API_KEY")
+	overrideAPIKey(&cfg.Providers.Anthropic, "ANTHROPIC_API_KEY")
+	overrideAPIKey(&cfg.Providers.OpenAI, "OPENAI_API_KEY")
+}
+
+func overrideAPIKey(cfg *ProviderConfig, envKey string) {
+	if cfg == nil {
+		return
+	}
+	if v := os.Getenv(envKey); v != "" {
+		cfg.APIKey = v
+	}
+}

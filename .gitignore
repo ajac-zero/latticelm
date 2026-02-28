@@ -1,0 +1,52 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/gateway
+/cmd/gateway/gateway
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# Environment variables and secrets
+.env
+.env.local
+*.key
+*.pem
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Build output
+/bin/
+/dist/
+/build/
+
+# Configuration files with secrets
+config.yaml
+config.json
+*-local.yaml
+*-local.json
+
+# Logs
+*.log
+logs/

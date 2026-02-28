@@ -1,0 +1,16 @@
+server:
+  address: ":8080"
+
+providers:
+  google:
+    api_key: "YOUR_GOOGLE_API_KEY"
+    model: "gemini-1.5-flash"
+    endpoint: "https://generativelanguage.googleapis.com"
+  anthropic:
+    api_key: "YOUR_ANTHROPIC_API_KEY"
+    model: "claude-3-5-sonnet"
+    endpoint: "https://api.anthropic.com"
+  openai:
+    api_key: "YOUR_OPENAI_API_KEY"
+    model: "gpt-4o-mini"
+    endpoint: "https://api.openai.com"
