@@ -52,6 +52,8 @@ Go LLM Gateway (unified API)
 ✅ **Provider auto-selection** (gpt→OpenAI, claude→Anthropic, gemini→Google)
 ✅ **Configuration system** (YAML with env var support)
 ✅ **Streaming support** (Server-Sent Events for all providers)
+✅ **OAuth2/OIDC authentication** (Google, Auth0, any OIDC provider)
+✅ **Terminal chat client** (Python with Rich UI, PEP 723)
 
 ## Quick Start
 
@@ -168,9 +170,52 @@ For full specification details, see: **https://www.openresponses.org**
 - `internal/server`: HTTP handlers that expose `/v1/responses`.
 - `internal/providers`: Provider abstractions plus provider-specific scaffolding in `google`, `anthropic`, and `openai` subpackages.
 
+## Chat Client
+
+Interactive terminal chat interface with beautiful Rich UI:
+
+```bash
+# Basic usage
+uv run chat.py
+
+# With authentication
+uv run chat.py --token "$(gcloud auth print-identity-token)"
+
+# Switch models on the fly
+You> /model claude
+You> /models  # List all available models
+```
+
+See **[CHAT_CLIENT.md](./CHAT_CLIENT.md)** for full documentation.
+
+## Authentication
+
+The gateway supports OAuth2/OIDC authentication. See **[AUTH.md](./AUTH.md)** for setup instructions.
+
+**Quick example with Google OAuth:**
+
+```yaml
+auth:
+  enabled: true
+  issuer: "https://accounts.google.com"
+  audience: "YOUR-CLIENT-ID.apps.googleusercontent.com"
+```
+
+```bash
+# Get token
+TOKEN=$(gcloud auth print-identity-token)
+
+# Make authenticated request
+curl -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gemini-2.0-flash-exp", ...}'
+```
+
 ## Next Steps
 
-- Implement the actual SDK calls inside each provider using the official Go clients.
-- Support streaming responses and tool invocation per the broader Open Responses spec.
-- Add structured logging, tracing, and request-level metrics.
-- Expand configuration to support routing policies (cost, latency, failover, etc.).
+- ✅ ~~Implement streaming responses~~
+- ✅ ~~Add OAuth2/OIDC authentication~~
+- ⬜ Add structured logging, tracing, and request-level metrics
+- ⬜ Support tool/function calling
+- ⬜ Expand configuration to support routing policies (cost, latency, failover)

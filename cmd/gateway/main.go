@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/yourusername/go-llm-gateway/internal/auth"
 	"github.com/yourusername/go-llm-gateway/internal/config"
 	"github.com/yourusername/go-llm-gateway/internal/providers"
 	"github.com/yourusername/go-llm-gateway/internal/server"
@@ -29,6 +30,23 @@ func main() {
 
 	logger := log.New(os.Stdout, "gateway ", log.LstdFlags|log.Lshortfile)
 
+	// Initialize authentication middleware
+	authConfig := auth.Config{
+		Enabled:  cfg.Auth.Enabled,
+		Issuer:   cfg.Auth.Issuer,
+		Audience: cfg.Auth.Audience,
+	}
+	authMiddleware, err := auth.New(authConfig)
+	if err != nil {
+		log.Fatalf("init auth: %v", err)
+	}
+
+	if cfg.Auth.Enabled {
+		logger.Printf("Authentication enabled (issuer: %s)", cfg.Auth.Issuer)
+	} else {
+		logger.Printf("Authentication disabled - WARNING: API is publicly accessible")
+	}
+
 	gatewayServer := server.New(registry, logger)
 	mux := http.NewServeMux()
 	gatewayServer.RegisterRoutes(mux)
@@ -38,9 +56,12 @@ func main() {
 		addr = ":8080"
 	}
 
+	// Build handler chain: logging -> auth -> routes
+	handler := loggingMiddleware(authMiddleware.Handler(mux), logger)
+
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      loggingMiddleware(mux, logger),
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,

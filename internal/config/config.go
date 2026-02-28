@@ -11,6 +11,14 @@ import (
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Providers ProvidersConfig `yaml:"providers"`
+	Auth      AuthConfig      `yaml:"auth"`
+}
+
+// AuthConfig holds OIDC authentication settings.
+type AuthConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Issuer   string `yaml:"issuer"`
+	Audience string `yaml:"audience"`
 }
 
 // ServerConfig controls HTTP server values.
