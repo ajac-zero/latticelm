@@ -52,7 +52,7 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 	for _, msg := range req.Input {
 		var content string
 		for _, block := range msg.Content {
-			if block.Type == "input_text" {
+			if block.Type == "input_text" || block.Type == "output_text" {
 				content += block.Text
 			}
 		}
@@ -127,22 +127,22 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 		for _, msg := range req.Input {
 			var content string
 			for _, block := range msg.Content {
-				if block.Type == "input_text" {
+				if block.Type == "input_text" || block.Type == "output_text" {
 					content += block.Text
 				}
-			}
-			
-			switch msg.Role {
-			case "user":
+				}
+				
+				switch msg.Role {
+				case "user":
 				messages = append(messages, openai.UserMessage(content))
-			case "assistant":
+				case "assistant":
 				messages = append(messages, openai.AssistantMessage(content))
-			case "system":
+				case "system":
 				messages = append(messages, openai.SystemMessage(content))
-			}
-		}
+				}
+				}
 
-		// Create streaming request
+				// Create streaming request
 		stream := p.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 			Model:    openai.ChatModel(model),
 			Messages: messages,

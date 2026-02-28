@@ -54,11 +54,21 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 
 	// Convert Open Responses messages to Gemini format
 	var contents []*genai.Content
+	var systemText string
 	
 	for _, msg := range req.Input {
+		if msg.Role == "system" {
+			for _, block := range msg.Content {
+				if block.Type == "input_text" || block.Type == "output_text" {
+					systemText += block.Text
+				}
+			}
+			continue
+		}
+
 		var parts []*genai.Part
 		for _, block := range msg.Content {
-			if block.Type == "input_text" {
+			if block.Type == "input_text" || block.Type == "output_text" {
 				parts = append(parts, genai.NewPartFromText(block.Text))
 			}
 		}
@@ -74,8 +84,18 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 		})
 	}
 
+	// Build config with system instruction if present
+	var config *genai.GenerateContentConfig
+	if systemText != "" {
+		config = &genai.GenerateContentConfig{
+			SystemInstruction: &genai.Content{
+				Parts: []*genai.Part{genai.NewPartFromText(systemText)},
+			},
+		}
+	}
+
 	// Generate content
-	resp, err := p.client.Models.GenerateContent(ctx, model, contents, nil)
+	resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("google api error: %w", err)
 	}
@@ -143,11 +163,21 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 
 		// Convert messages
 		var contents []*genai.Content
+		var systemText string
 		
 		for _, msg := range req.Input {
+			if msg.Role == "system" {
+				for _, block := range msg.Content {
+					if block.Type == "input_text" || block.Type == "output_text" {
+						systemText += block.Text
+					}
+				}
+				continue
+			}
+
 			var parts []*genai.Part
 			for _, block := range msg.Content {
-				if block.Type == "input_text" {
+				if block.Type == "input_text" || block.Type == "output_text" {
 					parts = append(parts, genai.NewPartFromText(block.Text))
 				}
 			}
@@ -163,8 +193,18 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			})
 		}
 
+		// Build config with system instruction if present
+		var config *genai.GenerateContentConfig
+		if systemText != "" {
+			config = &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{
+					Parts: []*genai.Part{genai.NewPartFromText(systemText)},
+				},
+			}
+		}
+
 		// Create stream
-		stream := p.client.Models.GenerateContentStream(ctx, model, contents, nil)
+		stream := p.client.Models.GenerateContentStream(ctx, model, contents, config)
 
 		// Process stream
 		for resp, err := range stream {

@@ -54,6 +54,7 @@ Go LLM Gateway (unified API)
 ✅ **Streaming support** (Server-Sent Events for all providers)
 ✅ **OAuth2/OIDC authentication** (Google, Auth0, any OIDC provider)
 ✅ **Terminal chat client** (Python with Rich UI, PEP 723)
+✅ **Conversation tracking** (previous_response_id for efficient context)
 
 ## Quick Start
 
@@ -186,7 +187,20 @@ You> /model claude
 You> /models  # List all available models
 ```
 
+The chat client automatically uses `previous_response_id` to reduce token usage by only sending new messages instead of the full conversation history.
+
 See **[CHAT_CLIENT.md](./CHAT_CLIENT.md)** for full documentation.
+
+## Conversation Management
+
+The gateway implements conversation tracking using `previous_response_id` from the Open Responses spec:
+
+- 📉 **Reduced token usage** - Only send new messages
+- ⚡ **Smaller requests** - Less bandwidth
+- 🧠 **Server-side context** - Gateway maintains history
+- ⏰ **Auto-expire** - Conversations expire after 1 hour
+
+See **[CONVERSATIONS.md](./CONVERSATIONS.md)** for details.
 
 ## Authentication
 
@@ -216,6 +230,8 @@ curl -X POST http://localhost:8080/v1/responses \
 
 - ✅ ~~Implement streaming responses~~
 - ✅ ~~Add OAuth2/OIDC authentication~~
+- ✅ ~~Implement conversation tracking with previous_response_id~~
 - ⬜ Add structured logging, tracing, and request-level metrics
 - ⬜ Support tool/function calling
+- ⬜ Persistent conversation storage (Redis/database)
 - ⬜ Expand configuration to support routing policies (cost, latency, failover)

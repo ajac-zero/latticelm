@@ -7,12 +7,13 @@ import (
 
 // ResponseRequest models the Open Responses create request payload.
 type ResponseRequest struct {
-	Model           string            `json:"model"`
-	Provider        string            `json:"provider,omitempty"`
-	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	Input           []Message         `json:"input"`
-	Stream          bool              `json:"stream,omitempty"`
+	Model              string            `json:"model"`
+	Provider           string            `json:"provider,omitempty"`
+	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+	Metadata           map[string]string `json:"metadata,omitempty"`
+	Input              []Message         `json:"input"`
+	Stream             bool              `json:"stream,omitempty"`
+	PreviousResponseID string            `json:"previous_response_id,omitempty"`
 }
 
 // Message captures user, assistant, or system roles.

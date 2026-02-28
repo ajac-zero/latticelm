@@ -53,7 +53,7 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 	for _, msg := range req.Input {
 		var content string
 		for _, block := range msg.Content {
-			if block.Type == "input_text" {
+			if block.Type == "input_text" || block.Type == "output_text" {
 				content += block.Text
 			}
 		}
@@ -147,22 +147,22 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 		for _, msg := range req.Input {
 			var content string
 			for _, block := range msg.Content {
-				if block.Type == "input_text" {
+				if block.Type == "input_text" || block.Type == "output_text" {
 					content += block.Text
 				}
-			}
-			
-			switch msg.Role {
-			case "user":
+				}
+				
+				switch msg.Role {
+				case "user":
 				messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
-			case "assistant":
+				case "assistant":
 				messages = append(messages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
-			case "system":
+				case "system":
 				system = content
-			}
-		}
+				}
+				}
 
-		// Build params
+				// Build params
 		params := anthropic.MessageNewParams{
 			Model:     anthropic.Model(model),
 			Messages:  messages,

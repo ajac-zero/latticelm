@@ -9,6 +9,7 @@ import (
 
 	"github.com/yourusername/go-llm-gateway/internal/auth"
 	"github.com/yourusername/go-llm-gateway/internal/config"
+	"github.com/yourusername/go-llm-gateway/internal/conversation"
 	"github.com/yourusername/go-llm-gateway/internal/providers"
 	"github.com/yourusername/go-llm-gateway/internal/server"
 )
@@ -47,7 +48,11 @@ func main() {
 		logger.Printf("Authentication disabled - WARNING: API is publicly accessible")
 	}
 
-	gatewayServer := server.New(registry, logger)
+	// Initialize conversation store (1 hour TTL)
+	convStore := conversation.NewStore(1 * time.Hour)
+	logger.Printf("Conversation store initialized (TTL: 1h)")
+
+	gatewayServer := server.New(registry, convStore, logger)
 	mux := http.NewServeMux()
 	gatewayServer.RegisterRoutes(mux)
 
