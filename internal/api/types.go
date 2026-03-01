@@ -64,6 +64,18 @@ type StreamDelta struct {
 	Content []ContentBlock `json:"content,omitempty"`
 }
 
+// ModelInfo describes a single model available through the gateway.
+type ModelInfo struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+}
+
+// ModelsResponse is returned by the GET /v1/models endpoint.
+type ModelsResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelInfo `json:"data"`
+}
+
 // Validate performs basic structural validation.
 func (r *ResponseRequest) Validate() error {
 	if r == nil {

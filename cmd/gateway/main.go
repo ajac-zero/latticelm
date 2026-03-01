@@ -24,7 +24,7 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	registry, err := providers.NewRegistry(cfg.Providers)
+	registry, err := providers.NewRegistry(cfg.Providers, cfg.Models)
 	if err != nil {
 		log.Fatalf("init providers: %v", err)
 	}

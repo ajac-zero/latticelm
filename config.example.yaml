@@ -3,19 +3,38 @@ server:
 
 providers:
   google:
+    type: "google"
     api_key: "YOUR_GOOGLE_API_KEY"
-    model: "gemini-1.5-flash"
     endpoint: "https://generativelanguage.googleapis.com"
   anthropic:
+    type: "anthropic"
     api_key: "YOUR_ANTHROPIC_API_KEY"
-    model: "claude-3-5-sonnet"
     endpoint: "https://api.anthropic.com"
   openai:
+    type: "openai"
     api_key: "YOUR_OPENAI_API_KEY"
-    model: "gpt-4o-mini"
     endpoint: "https://api.openai.com"
-  # Azure-hosted Anthropic (Microsoft Foundry) - optional, overrides anthropic if set
+  # Azure OpenAI - optional
+  # azureopenai:
+  #   type: "azureopenai"
+  #   api_key: "YOUR_AZURE_OPENAI_API_KEY"
+  #   endpoint: "https://your-resource.openai.azure.com"
+  #   api_version: "2024-12-01-preview"
+  # Azure-hosted Anthropic (Microsoft Foundry) - optional
   # azureanthropic:
+  #   type: "azureanthropic"
   #   api_key: "YOUR_AZURE_ANTHROPIC_API_KEY"
   #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
-  #   model: "claude-sonnet-4-5-20250514"
+
+models:
+  - name: "gemini-1.5-flash"
+    provider: "google"
+  - name: "claude-3-5-sonnet"
+    provider: "anthropic"
+  - name: "gpt-4o-mini"
+    provider: "openai"
+  # - name: "gpt-4o"
+  #   provider: "azureopenai"
+  #   provider_model_id: "my-gpt4o-deployment"  # optional: defaults to name
+  # - name: "claude-sonnet-4-5-20250514"
+  #   provider: "azureanthropic"

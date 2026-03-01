@@ -55,7 +55,6 @@ func NewAzure(azureCfg config.AzureOpenAIConfig) *Provider {
 	return &Provider{
 		cfg: config.ProviderConfig{
 			APIKey: azureCfg.APIKey,
-			Model:  azureCfg.DeploymentID,
 		},
 		client: client,
 		azure:  true,

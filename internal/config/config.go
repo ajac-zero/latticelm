@@ -9,9 +9,10 @@ import (
 
 // Config describes the full gateway configuration file.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Providers ProvidersConfig `yaml:"providers"`
-	Auth      AuthConfig      `yaml:"auth"`
+	Server    ServerConfig             `yaml:"server"`
+	Providers map[string]ProviderEntry `yaml:"providers"`
+	Models    []ModelEntry             `yaml:"models"`
+	Auth      AuthConfig               `yaml:"auth"`
 }
 
 // AuthConfig holds OIDC authentication settings.
@@ -26,89 +27,68 @@ type ServerConfig struct {
 	Address string `yaml:"address"`
 }
 
-// ProvidersConfig wraps supported provider settings.
-type ProvidersConfig struct {
-	Google         ProviderConfig       `yaml:"google"`
-	Anthropic      ProviderConfig       `yaml:"anthropic"`
-	OpenAI         ProviderConfig       `yaml:"openai"`
-	AzureOpenAI    AzureOpenAIConfig    `yaml:"azureopenai"`
-	AzureAnthropic AzureAnthropicConfig `yaml:"azureanthropic"`
+// ProviderEntry defines a named provider instance in the config file.
+type ProviderEntry struct {
+	Type       string `yaml:"type"`
+	APIKey     string `yaml:"api_key"`
+	Endpoint   string `yaml:"endpoint"`
+	APIVersion string `yaml:"api_version"`
 }
 
-// AzureAnthropicConfig contains Azure-specific settings for Anthropic (Microsoft Foundry).
-type AzureAnthropicConfig struct {
-	APIKey   string `yaml:"api_key"`
-	Endpoint string `yaml:"endpoint"`
-	Model    string `yaml:"model"`
+// ModelEntry maps a model name to a provider entry.
+type ModelEntry struct {
+	Name            string `yaml:"name"`
+	Provider        string `yaml:"provider"`
+	ProviderModelID string `yaml:"provider_model_id"`
 }
 
-// ProviderConfig contains shared provider configuration fields.
+// ProviderConfig contains shared provider configuration fields used internally by providers.
 type ProviderConfig struct {
 	APIKey   string `yaml:"api_key"`
 	Model    string `yaml:"model"`
 	Endpoint string `yaml:"endpoint"`
 }
 
-// AzureOpenAIConfig contains Azure-specific settings.
+// AzureOpenAIConfig contains Azure-specific settings used internally by the OpenAI provider.
 type AzureOpenAIConfig struct {
-	APIKey       string `yaml:"api_key"`
-	Endpoint     string `yaml:"endpoint"`
-	DeploymentID string `yaml:"deployment_id"`
-	APIVersion   string `yaml:"api_version"`
+	APIKey     string `yaml:"api_key"`
+	Endpoint   string `yaml:"endpoint"`
+	APIVersion string `yaml:"api_version"`
 }
 
-// Load reads and parses a YAML configuration file and applies env overrides.
+// AzureAnthropicConfig contains Azure-specific settings for Anthropic used internally.
+type AzureAnthropicConfig struct {
+	APIKey   string `yaml:"api_key"`
+	Endpoint string `yaml:"endpoint"`
+	Model    string `yaml:"model"`
+}
+
+// Load reads and parses a YAML configuration file, expanding ${VAR} env references.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	expanded := os.Expand(string(data), os.Getenv)
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	cfg.applyEnvOverrides()
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
 }
 
-func (cfg *Config) applyEnvOverrides() {
-	overrideAPIKey(&cfg.Providers.Google, "GOOGLE_API_KEY")
-	overrideAPIKey(&cfg.Providers.Anthropic, "ANTHROPIC_API_KEY")
-	overrideAPIKey(&cfg.Providers.OpenAI, "OPENAI_API_KEY")
-	
-	// Azure OpenAI overrides
-	if v := os.Getenv("AZURE_OPENAI_API_KEY"); v != "" {
-		cfg.Providers.AzureOpenAI.APIKey = v
+func (cfg *Config) validate() error {
+	for _, m := range cfg.Models {
+		if _, ok := cfg.Providers[m.Provider]; !ok {
+			return fmt.Errorf("model %q references unknown provider %q", m.Name, m.Provider)
+		}
 	}
-	if v := os.Getenv("AZURE_OPENAI_ENDPOINT"); v != "" {
-		cfg.Providers.AzureOpenAI.Endpoint = v
-	}
-	if v := os.Getenv("AZURE_OPENAI_DEPLOYMENT_ID"); v != "" {
-		cfg.Providers.AzureOpenAI.DeploymentID = v
-	}
-	if v := os.Getenv("AZURE_OPENAI_API_VERSION"); v != "" {
-		cfg.Providers.AzureOpenAI.APIVersion = v
-	}
-
-	// Azure Anthropic (Microsoft Foundry) overrides
-	if v := os.Getenv("AZURE_ANTHROPIC_API_KEY"); v != "" {
-		cfg.Providers.AzureAnthropic.APIKey = v
-	}
-	if v := os.Getenv("AZURE_ANTHROPIC_ENDPOINT"); v != "" {
-		cfg.Providers.AzureAnthropic.Endpoint = v
-	}
-	if v := os.Getenv("AZURE_ANTHROPIC_MODEL"); v != "" {
-		cfg.Providers.AzureAnthropic.Model = v
-	}
-}
-
-func overrideAPIKey(cfg *ProviderConfig, envKey string) {
-	if cfg == nil {
-		return
-	}
-	if v := os.Getenv(envKey); v != "" {
-		cfg.APIKey = v
-	}
+	return nil
 }

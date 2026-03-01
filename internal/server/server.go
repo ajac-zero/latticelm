@@ -30,6 +30,31 @@ func New(registry *providers.Registry, convs *conversation.Store, logger *log.Lo
 // RegisterRoutes wires the HTTP handlers onto the provided mux.
 func (s *GatewayServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
+	mux.HandleFunc("/v1/models", s.handleModels)
+}
+
+func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	models := s.registry.Models()
+	var data []api.ModelInfo
+	for _, m := range models {
+		data = append(data, api.ModelInfo{
+			ID:       m.Model,
+			Provider: m.Provider,
+		})
+	}
+
+	resp := api.ModelsResponse{
+		Object: "list",
+		Data:   data,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +90,9 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+
+	// Resolve provider_model_id (e.g., Azure deployment name) before sending to provider
+	fullReq.Model = s.registry.ResolveModelID(req.Model)
 
 	// Handle streaming vs non-streaming
 	if req.Stream {

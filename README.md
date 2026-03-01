@@ -212,20 +212,24 @@ The gateway supports Azure OpenAI with the same interface as standard OpenAI:
 ```yaml
 providers:
   azureopenai:
+    type: "azureopenai"
     api_key: "${AZURE_OPENAI_API_KEY}"
     endpoint: "https://your-resource.openai.azure.com"
-    deployment_id: "your-deployment-name"
+
+models:
+  - name: "gpt-4o"
+    provider: "azureopenai"
+    provider_model_id: "my-gpt4o-deployment"  # optional: defaults to name
 ```
 
 ```bash
 export AZURE_OPENAI_API_KEY="..."
 export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
-export AZURE_OPENAI_DEPLOYMENT_ID="gpt-4o"
 
 ./gateway
 ```
 
-The gateway prefers Azure OpenAI for `gpt-*` models if configured. See **[AZURE_OPENAI.md](./AZURE_OPENAI.md)** for complete setup guide.
+The `provider_model_id` field lets you map a friendly model name to the actual provider identifier (e.g., an Azure deployment name). If omitted, the model `name` is used directly. See **[AZURE_OPENAI.md](./AZURE_OPENAI.md)** for complete setup guide.
 
 ## Authentication
 

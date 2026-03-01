@@ -139,22 +139,25 @@ class ChatClient:
         self.messages = []
 
 
-def print_models_table():
-    """Print available models table."""
+def print_models_table(base_url: str, headers: dict):
+    """Fetch and print available models from the gateway."""
+    console = Console()
+    try:
+        resp = httpx.get(f"{base_url}/v1/models", headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+    except Exception as e:
+        console.print(f"[red]Failed to fetch models: {e}[/red]")
+        return
+
     table = Table(title="Available Models", show_header=True, header_style="bold magenta")
     table.add_column("Provider", style="cyan")
     table.add_column("Model ID", style="green")
-    table.add_column("Alias", style="yellow")
-    
-    table.add_row("OpenAI", "gpt-4o", "gpt4")
-    table.add_row("OpenAI", "gpt-4o-mini", "gpt4-mini")
-    table.add_row("OpenAI", "o1", "o1")
-    table.add_row("Anthropic", "claude-3-5-sonnet-20241022", "claude")
-    table.add_row("Anthropic", "claude-3-5-haiku-20241022", "haiku")
-    table.add_row("Google", "gemini-2.0-flash-exp", "gemini")
-    table.add_row("Google", "gemini-1.5-pro", "gemini-pro")
-    
-    Console().print(table)
+
+    for model in data:
+        table.add_row(model.get("provider", ""), model.get("id", ""))
+
+    console.print(table)
 
 
 def main():
@@ -227,7 +230,7 @@ def main():
                     ))
                 
                 elif cmd == "/models":
-                    print_models_table()
+                    print_models_table(args.url, client._headers())
                 
                 elif cmd == "/model":
                     if len(cmd_parts) < 2:
