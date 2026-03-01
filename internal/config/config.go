@@ -28,10 +28,18 @@ type ServerConfig struct {
 
 // ProvidersConfig wraps supported provider settings.
 type ProvidersConfig struct {
-	Google       ProviderConfig       `yaml:"google"`
-	Anthropic    ProviderConfig       `yaml:"anthropic"`
-	OpenAI       ProviderConfig       `yaml:"openai"`
-	AzureOpenAI  AzureOpenAIConfig    `yaml:"azureopenai"`
+	Google         ProviderConfig       `yaml:"google"`
+	Anthropic      ProviderConfig       `yaml:"anthropic"`
+	OpenAI         ProviderConfig       `yaml:"openai"`
+	AzureOpenAI    AzureOpenAIConfig    `yaml:"azureopenai"`
+	AzureAnthropic AzureAnthropicConfig `yaml:"azureanthropic"`
+}
+
+// AzureAnthropicConfig contains Azure-specific settings for Anthropic (Microsoft Foundry).
+type AzureAnthropicConfig struct {
+	APIKey   string `yaml:"api_key"`
+	Endpoint string `yaml:"endpoint"`
+	Model    string `yaml:"model"`
 }
 
 // ProviderConfig contains shared provider configuration fields.
@@ -82,6 +90,17 @@ func (cfg *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("AZURE_OPENAI_API_VERSION"); v != "" {
 		cfg.Providers.AzureOpenAI.APIVersion = v
+	}
+
+	// Azure Anthropic (Microsoft Foundry) overrides
+	if v := os.Getenv("AZURE_ANTHROPIC_API_KEY"); v != "" {
+		cfg.Providers.AzureAnthropic.APIKey = v
+	}
+	if v := os.Getenv("AZURE_ANTHROPIC_ENDPOINT"); v != "" {
+		cfg.Providers.AzureAnthropic.Endpoint = v
+	}
+	if v := os.Getenv("AZURE_ANTHROPIC_MODEL"); v != "" {
+		cfg.Providers.AzureAnthropic.Model = v
 	}
 }
 

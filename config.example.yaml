@@ -14,3 +14,8 @@ providers:
     api_key: "YOUR_OPENAI_API_KEY"
     model: "gpt-4o-mini"
     endpoint: "https://api.openai.com"
+  # Azure-hosted Anthropic (Microsoft Foundry) - optional, overrides anthropic if set
+  # azureanthropic:
+  #   api_key: "YOUR_AZURE_ANTHROPIC_API_KEY"
+  #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
+  #   model: "claude-sonnet-4-5-20250514"

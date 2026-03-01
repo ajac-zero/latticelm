@@ -31,7 +31,9 @@ func NewRegistry(cfg config.ProvidersConfig) (*Registry, error) {
 	if cfg.Google.APIKey != "" {
 		reg.providers[googleprovider.Name] = googleprovider.New(cfg.Google)
 	}
-	if cfg.Anthropic.APIKey != "" {
+	if cfg.AzureAnthropic.APIKey != "" && cfg.AzureAnthropic.Endpoint != "" {
+		reg.providers[anthropicprovider.Name] = anthropicprovider.NewAzure(cfg.AzureAnthropic)
+	} else if cfg.Anthropic.APIKey != "" {
 		reg.providers[anthropicprovider.Name] = anthropicprovider.New(cfg.Anthropic)
 	}
 	if cfg.AzureOpenAI.APIKey != "" && cfg.AzureOpenAI.Endpoint != "" {

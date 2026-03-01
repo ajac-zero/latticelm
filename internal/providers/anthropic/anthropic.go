@@ -15,12 +15,14 @@ import (
 const Name = "anthropic"
 
 // Provider implements the Anthropic SDK integration.
+// It supports both direct Anthropic API and Azure-hosted (Microsoft Foundry) endpoints.
 type Provider struct {
 	cfg    config.ProviderConfig
 	client *anthropic.Client
+	azure  bool
 }
 
-// New constructs a Provider from configuration.
+// New constructs a Provider for the direct Anthropic API.
 func New(cfg config.ProviderConfig) *Provider {
 	var client *anthropic.Client
 	if cfg.APIKey != "" {
@@ -30,6 +32,29 @@ func New(cfg config.ProviderConfig) *Provider {
 	return &Provider{
 		cfg:    cfg,
 		client: client,
+	}
+}
+
+// NewAzure constructs a Provider targeting Azure-hosted Anthropic (Microsoft Foundry).
+// The Azure endpoint uses api-key header auth and a base URL like
+// https://<resource>.services.ai.azure.com/anthropic.
+func NewAzure(azureCfg config.AzureAnthropicConfig) *Provider {
+	var client *anthropic.Client
+	if azureCfg.APIKey != "" && azureCfg.Endpoint != "" {
+		c := anthropic.NewClient(
+			option.WithBaseURL(azureCfg.Endpoint),
+			option.WithAPIKey("unused"),
+			option.WithAuthToken(azureCfg.APIKey),
+		)
+		client = &c
+	}
+	return &Provider{
+		cfg: config.ProviderConfig{
+			APIKey: azureCfg.APIKey,
+			Model:  azureCfg.Model,
+		},
+		client: client,
+		azure:  true,
 	}
 }
 
