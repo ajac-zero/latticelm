@@ -50,3 +50,6 @@ config.json
 # Logs
 *.log
 logs/
+
+# Python scripts
+__pycache__/*
