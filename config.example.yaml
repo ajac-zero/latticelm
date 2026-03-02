@@ -26,6 +26,18 @@ providers:
   #   api_key: "YOUR_AZURE_ANTHROPIC_API_KEY"
   #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
 
+# conversations:
+#   store: "sql"        # "memory" (default) or "sql"
+#   ttl: "1h"           # conversation expiration (default: 1h)
+#   driver: "sqlite3"   # SQL driver: "sqlite3", "mysql", "pgx"
+#   dsn: "conversations.db"  # connection string
+#   # MySQL example:
+#   # driver: "mysql"
+#   # dsn: "user:password@tcp(localhost:3306)/dbname?parseTime=true"
+#   # PostgreSQL example:
+#   # driver: "pgx"
+#   # dsn: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
+
 models:
   - name: "gemini-1.5-flash"
     provider: "google"

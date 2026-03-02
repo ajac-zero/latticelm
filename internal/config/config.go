@@ -9,10 +9,25 @@ import (
 
 // Config describes the full gateway configuration file.
 type Config struct {
-	Server    ServerConfig             `yaml:"server"`
-	Providers map[string]ProviderEntry `yaml:"providers"`
-	Models    []ModelEntry             `yaml:"models"`
-	Auth      AuthConfig               `yaml:"auth"`
+	Server        ServerConfig             `yaml:"server"`
+	Providers     map[string]ProviderEntry `yaml:"providers"`
+	Models        []ModelEntry             `yaml:"models"`
+	Auth          AuthConfig               `yaml:"auth"`
+	Conversations ConversationConfig       `yaml:"conversations"`
+}
+
+// ConversationConfig controls conversation storage.
+type ConversationConfig struct {
+	// Store is the storage backend: "memory" (default) or "sql".
+	Store string `yaml:"store"`
+	// TTL is the conversation expiration duration (e.g. "1h", "30m"). Defaults to "1h".
+	TTL string `yaml:"ttl"`
+	// DSN is the database connection string, required when store is "sql".
+	// Examples: "conversations.db" (SQLite), "postgres://user:pass@host/db".
+	DSN string `yaml:"dsn"`
+	// Driver is the SQL driver name, required when store is "sql".
+	// Examples: "sqlite3", "postgres", "mysql".
+	Driver string `yaml:"driver"`
 }
 
 // AuthConfig holds OIDC authentication settings.

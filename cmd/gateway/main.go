@@ -9,6 +9,10 @@ import (
 	"os"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/mattn/go-sqlite3"
+
 	"github.com/yourusername/go-llm-gateway/internal/auth"
 	"github.com/yourusername/go-llm-gateway/internal/config"
 	"github.com/yourusername/go-llm-gateway/internal/conversation"
@@ -50,9 +54,11 @@ func main() {
 		logger.Printf("Authentication disabled - WARNING: API is publicly accessible")
 	}
 
-	// Initialize conversation store (1 hour TTL)
-	convStore := conversation.NewMemoryStore(1 * time.Hour)
-	logger.Printf("Conversation store initialized (TTL: 1h)")
+	// Initialize conversation store
+	convStore, err := initConversationStore(cfg.Conversations, logger)
+	if err != nil {
+		log.Fatalf("init conversation store: %v", err)
+	}
 
 	gatewayServer := server.New(registry, convStore, logger)
 	mux := http.NewServeMux()
@@ -111,7 +117,6 @@ func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (c
 		return conversation.NewMemoryStore(ttl), nil
 	}
 }
-
 func loggingMiddleware(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
