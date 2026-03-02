@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
@@ -112,6 +114,22 @@ func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (c
 		}
 		logger.Printf("Conversation store initialized (sql/%s, TTL: %s)", driver, ttl)
 		return store, nil
+	case "redis":
+		opts, err := redis.ParseURL(cfg.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("parse redis dsn: %w", err)
+		}
+		client := redis.NewClient(opts)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := client.Ping(ctx).Err(); err != nil {
+			return nil, fmt.Errorf("connect to redis: %w", err)
+		}
+
+		logger.Printf("Conversation store initialized (redis, TTL: %s)", ttl)
+		return conversation.NewRedisStore(client, ttl), nil
 	default:
 		logger.Printf("Conversation store initialized (memory, TTL: %s)", ttl)
 		return conversation.NewMemoryStore(ttl), nil

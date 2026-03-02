@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	"github.com/ajac-zero/latticelm/internal/api"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 // parseTools converts Open Responses tools to OpenAI format
-func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolParam, error) {
+func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolUnionParam, error) {
 	if req.Tools == nil || len(req.Tools) == 0 {
 		return nil, nil
 	}
@@ -20,29 +20,27 @@ func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolParam, err
 		return nil, fmt.Errorf("unmarshal tools: %w", err)
 	}
 
-	var tools []openai.ChatCompletionToolParam
+	var tools []openai.ChatCompletionToolUnionParam
 	for _, td := range toolDefs {
-		// Convert Open Responses tool to OpenAI ChatCompletionToolParam
+		// Convert Open Responses tool to OpenAI function tool
 		// Extract: name, description, parameters
 		name, _ := td["name"].(string)
 		desc, _ := td["description"].(string)
 		params, _ := td["parameters"].(map[string]interface{})
 
-		tool := openai.ChatCompletionToolParam{
-			Function: shared.FunctionDefinitionParam{
-				Name: name,
-			},
+		funcDef := shared.FunctionDefinitionParam{
+			Name: name,
 		}
 
 		if desc != "" {
-			tool.Function.Description = openai.String(desc)
+			funcDef.Description = openai.String(desc)
 		}
 
 		if params != nil {
-			tool.Function.Parameters = shared.FunctionParameters(params)
+			funcDef.Parameters = shared.FunctionParameters(params)
 		}
 
-		tools = append(tools, tool)
+		tools = append(tools, openai.ChatCompletionFunctionTool(funcDef))
 	}
 
 	return tools, nil
@@ -67,17 +65,16 @@ func parseToolChoice(req *api.ResponseRequest) (openai.ChatCompletionToolChoiceO
 		return result, nil
 	}
 
-	// Handle specific function selection: {"type": "function", "name": "..."}
+	// Handle specific function selection: {"type": "function", "function": {"name": "..."}}
 	if obj, ok := choice.(map[string]interface{}); ok {
 		funcObj, _ := obj["function"].(map[string]interface{})
 		name, _ := funcObj["name"].(string)
 
-		result.OfChatCompletionNamedToolChoice = &openai.ChatCompletionNamedToolChoiceParam{
-			Function: openai.ChatCompletionNamedToolChoiceFunctionParam{
+		return openai.ToolChoiceOptionFunctionToolChoice(
+			openai.ChatCompletionNamedToolChoiceFunctionParam{
 				Name: name,
 			},
-		}
-		return result, nil
+		), nil
 	}
 
 	return result, fmt.Errorf("invalid tool_choice format")

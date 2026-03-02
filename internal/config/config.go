@@ -18,12 +18,12 @@ type Config struct {
 
 // ConversationConfig controls conversation storage.
 type ConversationConfig struct {
-	// Store is the storage backend: "memory" (default) or "sql".
+	// Store is the storage backend: "memory" (default), "sql", or "redis".
 	Store string `yaml:"store"`
 	// TTL is the conversation expiration duration (e.g. "1h", "30m"). Defaults to "1h".
 	TTL string `yaml:"ttl"`
-	// DSN is the database connection string, required when store is "sql".
-	// Examples: "conversations.db" (SQLite), "postgres://user:pass@host/db".
+	// DSN is the database/Redis connection string, required when store is "sql" or "redis".
+	// Examples: "conversations.db" (SQLite), "postgres://user:pass@host/db", "redis://:password@localhost:6379/0".
 	DSN string `yaml:"dsn"`
 	// Driver is the SQL driver name, required when store is "sql".
 	// Examples: "sqlite3", "postgres", "mysql".

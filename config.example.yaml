@@ -27,16 +27,19 @@ providers:
   #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
 
 # conversations:
-#   store: "sql"        # "memory" (default) or "sql"
+#   store: "sql"        # "memory" (default), "sql", or "redis"
 #   ttl: "1h"           # conversation expiration (default: 1h)
-#   driver: "sqlite3"   # SQL driver: "sqlite3", "mysql", "pgx"
-#   dsn: "conversations.db"  # connection string
+#   driver: "sqlite3"   # SQL driver: "sqlite3", "mysql", "pgx" (required for sql store)
+#   dsn: "conversations.db"  # connection string (required for sql/redis store)
 #   # MySQL example:
 #   # driver: "mysql"
 #   # dsn: "user:password@tcp(localhost:3306)/dbname?parseTime=true"
 #   # PostgreSQL example:
 #   # driver: "pgx"
 #   # dsn: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
+#   # Redis example:
+#   # store: "redis"
+#   # dsn: "redis://:password@localhost:6379/0"
 
 models:
   - name: "gemini-1.5-flash"
