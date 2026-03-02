@@ -1,0 +1,17 @@
+{
+  "name": "go-llm-gateway-compliance-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Open Responses compliance tests for go-llm-gateway",
+  "type": "module",
+  "scripts": {
+    "test:compliance": "node --experimental-strip-types bin/compliance-test.ts",
+    "test:compliance:verbose": "node --experimental-strip-types bin/compliance-test.ts --verbose",
+    "test:compliance:json": "node --experimental-strip-types bin/compliance-test.ts --json"
+  },
+  "devDependencies": {
+    "zod": "^3.24.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

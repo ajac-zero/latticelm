@@ -53,3 +53,6 @@ logs/
 
 # Python scripts
 __pycache__/*
+
+# Node.js (compliance tests)
+tests/node_modules/
