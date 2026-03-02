@@ -14,6 +14,12 @@ providers:
     type: "openai"
     api_key: "YOUR_OPENAI_API_KEY"
     endpoint: "https://api.openai.com"
+  # Vertex AI (Google Cloud) - optional
+  # Uses Application Default Credentials (ADC) or service account
+  # vertexai:
+  #   type: "vertexai"
+  #   project: "your-gcp-project-id"
+  #   location: "us-central1"  # or other GCP region
   # Azure OpenAI - optional
   # azureopenai:
   #   type: "azureopenai"
@@ -48,6 +54,8 @@ models:
     provider: "anthropic"
   - name: "gpt-4o-mini"
     provider: "openai"
+  # - name: "gemini-2.0-flash-exp"
+  #   provider: "vertexai"  # Use Vertex AI instead of Google AI API
   # - name: "gpt-4o"
   #   provider: "azureopenai"
   #   provider_model_id: "my-gpt4o-deployment"  # optional: defaults to name

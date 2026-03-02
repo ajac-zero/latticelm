@@ -60,7 +60,8 @@ func NewRegistry(entries map[string]config.ProviderEntry, models []config.ModelE
 }
 
 func buildProvider(entry config.ProviderEntry) (Provider, error) {
-	if entry.APIKey == "" {
+	// Vertex AI doesn't require APIKey, so check for it separately
+	if entry.Type != "vertexai" && entry.APIKey == "" {
 		return nil, nil
 	}
 
@@ -96,6 +97,14 @@ func buildProvider(entry config.ProviderEntry) (Provider, error) {
 		return googleprovider.New(config.ProviderConfig{
 			APIKey:   entry.APIKey,
 			Endpoint: entry.Endpoint,
+		}), nil
+	case "vertexai":
+		if entry.Project == "" || entry.Location == "" {
+			return nil, fmt.Errorf("project and location are required for vertexai")
+		}
+		return googleprovider.NewVertexAI(config.VertexAIConfig{
+			Project:  entry.Project,
+			Location: entry.Location,
 		}), nil
 	default:
 		return nil, fmt.Errorf("unknown provider type %q", entry.Type)

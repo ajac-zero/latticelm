@@ -48,6 +48,8 @@ type ProviderEntry struct {
 	APIKey     string `yaml:"api_key"`
 	Endpoint   string `yaml:"endpoint"`
 	APIVersion string `yaml:"api_version"`
+	Project    string `yaml:"project"`  // For Vertex AI
+	Location   string `yaml:"location"` // For Vertex AI
 }
 
 // ModelEntry maps a model name to a provider entry.
@@ -76,6 +78,12 @@ type AzureAnthropicConfig struct {
 	APIKey   string `yaml:"api_key"`
 	Endpoint string `yaml:"endpoint"`
 	Model    string `yaml:"model"`
+}
+
+// VertexAIConfig contains Vertex AI-specific settings used internally by the Google provider.
+type VertexAIConfig struct {
+	Project  string `yaml:"project"`
+	Location string `yaml:"location"`
 }
 
 // Load reads and parses a YAML configuration file, expanding ${VAR} env references.

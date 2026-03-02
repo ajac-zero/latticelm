@@ -11,6 +11,7 @@ Simplify LLM integration by exposing a single, consistent API that routes reques
 - **Azure OpenAI** (Azure-deployed models)
 - **Anthropic** (Claude)
 - **Google Generative AI** (Gemini)
+- **Vertex AI** (Google Cloud-hosted Gemini models)
 
 Instead of managing multiple SDK integrations in your application, call one endpoint and let the gateway handle provider-specific implementations.
 
@@ -24,7 +25,8 @@ latticelm (unified API)
 ├─→ OpenAI SDK
 ├─→ Azure OpenAI (OpenAI SDK + Azure auth)
 ├─→ Anthropic SDK
-└─→ Google Gen AI SDK
+├─→ Google Gen AI SDK
+└─→ Vertex AI (Google Gen AI SDK + GCP auth)
 ```
 
 ## Key Features
@@ -45,11 +47,12 @@ latticelm (unified API)
 
 ## 🎉 Status: **WORKING!**
 
-✅ **All four providers integrated with official Go SDKs:**
+✅ **All providers integrated with official Go SDKs:**
 - OpenAI → `github.com/openai/openai-go/v3`
 - Azure OpenAI → `github.com/openai/openai-go/v3` (with Azure auth)
 - Anthropic → `github.com/anthropics/anthropic-sdk-go`
 - Google → `google.golang.org/genai`
+- Vertex AI → `google.golang.org/genai` (with GCP auth)
 
 ✅ **Compiles successfully** (36MB binary)
 ✅ **Provider auto-selection** (gpt→Azure/OpenAI, claude→Anthropic, gemini→Google)
