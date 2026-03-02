@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -85,6 +86,11 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
 		case "assistant":
 			anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+		case "tool":
+			// Tool results must be in user message with tool_result blocks
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
+				anthropic.NewToolResultBlock(msg.CallID, content, false),
+			))
 		case "system", "developer":
 			system = content
 		}
@@ -116,24 +122,55 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		params.TopP = anthropic.Float(*req.TopP)
 	}
 
+	// Add tools if present
+	if req.Tools != nil && len(req.Tools) > 0 {
+		tools, err := parseTools(req)
+		if err != nil {
+			return nil, fmt.Errorf("parse tools: %w", err)
+		}
+		params.Tools = tools
+	}
+
+	// Add tool_choice if present
+	if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+		toolChoice, err := parseToolChoice(req)
+		if err != nil {
+			return nil, fmt.Errorf("parse tool_choice: %w", err)
+		}
+		params.ToolChoice = toolChoice
+	}
+
 	// Call Anthropic API
 	resp, err := p.client.Messages.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic api error: %w", err)
 	}
 
-	// Extract text from response
+	// Extract text and tool calls from response
 	var text string
+	var toolCalls []api.ToolCall
+
 	for _, block := range resp.Content {
-		if block.Type == "text" {
-			text += block.Text
+		switch block.Type {
+		case "text":
+			text += block.AsText().Text
+		case "tool_use":
+			// Extract tool calls
+			toolUse := block.AsToolUse()
+			argsJSON, _ := json.Marshal(toolUse.Input)
+			toolCalls = append(toolCalls, api.ToolCall{
+				ID:        toolUse.ID,
+				Name:      toolUse.Name,
+				Arguments: string(argsJSON),
+			})
 		}
 	}
 
 	return &api.ProviderResult{
-		ID:    resp.ID,
-		Model: string(resp.Model),
-		Text:  text,
+		ID:        resp.ID,
+		Model:     string(resp.Model),
+		Text:      text,
+		ToolCalls: toolCalls,
 		Usage: api.Usage{
 			InputTokens:  int(resp.Usage.InputTokens),
 			OutputTokens: int(resp.Usage.OutputTokens),
@@ -177,6 +214,11 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
 			case "assistant":
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+			case "tool":
+				// Tool results must be in user message with tool_result blocks
+				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
+					anthropic.NewToolResultBlock(msg.CallID, content, false),
+				))
 			case "system", "developer":
 				system = content
 			}
@@ -208,19 +250,77 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			params.TopP = anthropic.Float(*req.TopP)
 		}
 
+		// Add tools if present
+		if req.Tools != nil && len(req.Tools) > 0 {
+			tools, err := parseTools(req)
+			if err != nil {
+				errChan <- fmt.Errorf("parse tools: %w", err)
+				return
+			}
+			params.Tools = tools
+		}
+
+		// Add tool_choice if present
+		if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+			toolChoice, err := parseToolChoice(req)
+			if err != nil {
+				errChan <- fmt.Errorf("parse tool_choice: %w", err)
+				return
+			}
+			params.ToolChoice = toolChoice
+		}
+
 		// Create stream
 		stream := p.client.Messages.NewStreaming(ctx, params)
+
+		// Track content block index and tool call state
+		var contentBlockIndex int
 
 		// Process stream
 		for stream.Next() {
 			event := stream.Current()
 
-			if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" {
-				select {
-				case deltaChan <- &api.ProviderStreamDelta{Text: event.Delta.Text}:
-				case <-ctx.Done():
-					errChan <- ctx.Err()
-					return
+			switch event.Type {
+			case "content_block_start":
+				// New content block (text or tool_use)
+				contentBlockIndex = int(event.Index)
+				if event.ContentBlock.Type == "tool_use" {
+					// Send tool call delta with ID and name
+					toolUse := event.ContentBlock.AsToolUse()
+					delta := &api.ToolCallDelta{
+						Index: contentBlockIndex,
+						ID:    toolUse.ID,
+						Name:  toolUse.Name,
+					}
+					select {
+					case deltaChan <- &api.ProviderStreamDelta{ToolCallDelta: delta}:
+					case <-ctx.Done():
+						errChan <- ctx.Err()
+						return
+					}
+				}
+
+			case "content_block_delta":
+				if event.Delta.Type == "text_delta" {
+					// Text streaming
+					select {
+					case deltaChan <- &api.ProviderStreamDelta{Text: event.Delta.Text}:
+					case <-ctx.Done():
+						errChan <- ctx.Err()
+						return
+					}
+				} else if event.Delta.Type == "input_json_delta" {
+					// Tool arguments streaming
+					delta := &api.ToolCallDelta{
+						Index:     int(event.Index),
+						Arguments: event.Delta.PartialJSON,
+					}
+					select {
+					case deltaChan <- &api.ProviderStreamDelta{ToolCallDelta: delta}:
+					case <-ctx.Done():
+						errChan <- ctx.Err()
+						return
+					}
 				}
 			}
 		}

@@ -22,7 +22,7 @@ func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolUnionParam
 
 	var tools []openai.ChatCompletionToolUnionParam
 	for _, td := range toolDefs {
-		// Convert Open Responses tool to OpenAI function tool
+		// Convert Open Responses tool to OpenAI ChatCompletionFunctionToolParam
 		// Extract: name, description, parameters
 		name, _ := td["name"].(string)
 		desc, _ := td["description"].(string)
