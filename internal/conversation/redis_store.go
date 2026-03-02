@@ -31,22 +31,25 @@ func (s *RedisStore) key(id string) string {
 }
 
 // Get retrieves a conversation by ID from Redis.
-func (s *RedisStore) Get(id string) (*Conversation, bool) {
+func (s *RedisStore) Get(id string) (*Conversation, error) {
 	data, err := s.client.Get(s.ctx, s.key(id)).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 
 	var conv Conversation
 	if err := json.Unmarshal(data, &conv); err != nil {
-		return nil, false
+		return nil, err
 	}
 
-	return &conv, true
+	return &conv, nil
 }
 
 // Create creates a new conversation with the given messages.
-func (s *RedisStore) Create(id string, model string, messages []api.Message) *Conversation {
+func (s *RedisStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
 	now := time.Now()
 	conv := &Conversation{
 		ID:        id,
@@ -56,31 +59,46 @@ func (s *RedisStore) Create(id string, model string, messages []api.Message) *Co
 		UpdatedAt: now,
 	}
 
-	data, _ := json.Marshal(conv)
-	_ = s.client.Set(s.ctx, s.key(id), data, s.ttl).Err()
+	data, err := json.Marshal(conv)
+	if err != nil {
+		return nil, err
+	}
 
-	return conv
+	if err := s.client.Set(s.ctx, s.key(id), data, s.ttl).Err(); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
 }
 
 // Append adds new messages to an existing conversation.
-func (s *RedisStore) Append(id string, messages ...api.Message) (*Conversation, bool) {
-	conv, ok := s.Get(id)
-	if !ok {
-		return nil, false
+func (s *RedisStore) Append(id string, messages ...api.Message) (*Conversation, error) {
+	conv, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, nil
 	}
 
 	conv.Messages = append(conv.Messages, messages...)
 	conv.UpdatedAt = time.Now()
 
-	data, _ := json.Marshal(conv)
-	_ = s.client.Set(s.ctx, s.key(id), data, s.ttl).Err()
+	data, err := json.Marshal(conv)
+	if err != nil {
+		return nil, err
+	}
 
-	return conv, true
+	if err := s.client.Set(s.ctx, s.key(id), data, s.ttl).Err(); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
 }
 
 // Delete removes a conversation from Redis.
-func (s *RedisStore) Delete(id string) {
-	_ = s.client.Del(s.ctx, s.key(id)).Err()
+func (s *RedisStore) Delete(id string) error {
+	return s.client.Del(s.ctx, s.key(id)).Err()
 }
 
 // Size returns the number of active conversations in Redis.

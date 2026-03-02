@@ -65,28 +65,36 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 	return s, nil
 }
 
-func (s *SQLStore) Get(id string) (*Conversation, bool) {
+func (s *SQLStore) Get(id string) (*Conversation, error) {
 	row := s.db.QueryRow(s.dialect.getByID, id)
 
 	var conv Conversation
 	var msgJSON string
 	err := row.Scan(&conv.ID, &conv.Model, &msgJSON, &conv.CreatedAt, &conv.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 
 	if err := json.Unmarshal([]byte(msgJSON), &conv.Messages); err != nil {
-		return nil, false
+		return nil, err
 	}
 
-	return &conv, true
+	return &conv, nil
 }
 
-func (s *SQLStore) Create(id string, model string, messages []api.Message) *Conversation {
+func (s *SQLStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
 	now := time.Now()
-	msgJSON, _ := json.Marshal(messages)
+	msgJSON, err := json.Marshal(messages)
+	if err != nil {
+		return nil, err
+	}
 
-	_, _ = s.db.Exec(s.dialect.upsert, id, model, string(msgJSON), now, now)
+	if _, err := s.db.Exec(s.dialect.upsert, id, model, string(msgJSON), now, now); err != nil {
+		return nil, err
+	}
 
 	return &Conversation{
 		ID:        id,
@@ -94,26 +102,36 @@ func (s *SQLStore) Create(id string, model string, messages []api.Message) *Conv
 		Model:     model,
 		CreatedAt: now,
 		UpdatedAt: now,
-	}
+	}, nil
 }
 
-func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, bool) {
-	conv, ok := s.Get(id)
-	if !ok {
-		return nil, false
+func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, error) {
+	conv, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, nil
 	}
 
 	conv.Messages = append(conv.Messages, messages...)
 	conv.UpdatedAt = time.Now()
 
-	msgJSON, _ := json.Marshal(conv.Messages)
-	_, _ = s.db.Exec(s.dialect.update, string(msgJSON), conv.UpdatedAt, id)
+	msgJSON, err := json.Marshal(conv.Messages)
+	if err != nil {
+		return nil, err
+	}
 
-	return conv, true
+	if _, err := s.db.Exec(s.dialect.update, string(msgJSON), conv.UpdatedAt, id); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
 }
 
-func (s *SQLStore) Delete(id string) {
-	_, _ = s.db.Exec(s.dialect.deleteByID, id)
+func (s *SQLStore) Delete(id string) error {
+	_, err := s.db.Exec(s.dialect.deleteByID, id)
+	return err
 }
 
 func (s *SQLStore) Size() int {

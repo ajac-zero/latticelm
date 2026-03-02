@@ -84,8 +84,13 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	// Build full message history from previous conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
-		conv, ok := s.convs.Get(*req.PreviousResponseID)
-		if !ok {
+		conv, err := s.convs.Get(*req.PreviousResponseID)
+		if err != nil {
+			s.logger.Printf("error retrieving conversation: %v", err)
+			http.Error(w, "error retrieving conversation", http.StatusInternalServerError)
+			return
+		}
+		if conv == nil {
 			http.Error(w, "conversation not found", http.StatusNotFound)
 			return
 		}
@@ -140,7 +145,10 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 		Content: []api.ContentBlock{{Type: "output_text", Text: result.Text}},
 	}
 	allMsgs := append(storeMsgs, assistantMsg)
-	s.convs.Create(responseID, result.Model, allMsgs)
+	if _, err := s.convs.Create(responseID, result.Model, allMsgs); err != nil {
+		s.logger.Printf("error storing conversation: %v", err)
+		// Don't fail the response if storage fails
+	}
 
 	// Build spec-compliant response
 	resp := s.buildResponse(origReq, result, provider.Name(), responseID)
@@ -458,7 +466,10 @@ loop:
 			Content: []api.ContentBlock{{Type: "output_text", Text: fullText}},
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		s.convs.Create(responseID, model, allMsgs)
+		if _, err := s.convs.Create(responseID, model, allMsgs); err != nil {
+			s.logger.Printf("error storing conversation: %v", err)
+			// Don't fail the response if storage fails
+		}
 	}
 }
 

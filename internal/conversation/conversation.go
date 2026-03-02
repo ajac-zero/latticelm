@@ -9,10 +9,10 @@ import (
 
 // Store defines the interface for conversation storage backends.
 type Store interface {
-	Get(id string) (*Conversation, bool)
-	Create(id string, model string, messages []api.Message) *Conversation
-	Append(id string, messages ...api.Message) (*Conversation, bool)
-	Delete(id string)
+	Get(id string) (*Conversation, error)
+	Create(id string, model string, messages []api.Message) (*Conversation, error)
+	Append(id string, messages ...api.Message) (*Conversation, error)
+	Delete(id string) error
 	Size() int
 }
 
@@ -47,55 +47,93 @@ func NewMemoryStore(ttl time.Duration) *MemoryStore {
 	return s
 }
 
-// Get retrieves a conversation by ID.
-func (s *MemoryStore) Get(id string) (*Conversation, bool) {
+// Get retrieves a conversation by ID. Returns a deep copy to prevent data races.
+func (s *MemoryStore) Get(id string) (*Conversation, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	conv, ok := s.conversations[id]
-	return conv, ok
+	if !ok {
+		return nil, nil
+	}
+
+	// Return a deep copy to prevent data races
+	msgsCopy := make([]api.Message, len(conv.Messages))
+	copy(msgsCopy, conv.Messages)
+
+	return &Conversation{
+		ID:        conv.ID,
+		Messages:  msgsCopy,
+		Model:     conv.Model,
+		CreatedAt: conv.CreatedAt,
+		UpdatedAt: conv.UpdatedAt,
+	}, nil
 }
 
 // Create creates a new conversation with the given messages.
-func (s *MemoryStore) Create(id string, model string, messages []api.Message) *Conversation {
+func (s *MemoryStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	now := time.Now()
+
+	// Store a copy to prevent external modifications
+	msgsCopy := make([]api.Message, len(messages))
+	copy(msgsCopy, messages)
+
 	conv := &Conversation{
+		ID:        id,
+		Messages:  msgsCopy,
+		Model:     model,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	s.conversations[id] = conv
+
+	// Return a copy
+	return &Conversation{
 		ID:        id,
 		Messages:  messages,
 		Model:     model,
 		CreatedAt: now,
 		UpdatedAt: now,
-	}
-	
-	s.conversations[id] = conv
-	return conv
+	}, nil
 }
 
 // Append adds new messages to an existing conversation.
-func (s *MemoryStore) Append(id string, messages ...api.Message) (*Conversation, bool) {
+func (s *MemoryStore) Append(id string, messages ...api.Message) (*Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	conv, ok := s.conversations[id]
 	if !ok {
-		return nil, false
+		return nil, nil
 	}
-	
+
 	conv.Messages = append(conv.Messages, messages...)
 	conv.UpdatedAt = time.Now()
-	
-	return conv, true
+
+	// Return a deep copy
+	msgsCopy := make([]api.Message, len(conv.Messages))
+	copy(msgsCopy, conv.Messages)
+
+	return &Conversation{
+		ID:        conv.ID,
+		Messages:  msgsCopy,
+		Model:     conv.Model,
+		CreatedAt: conv.CreatedAt,
+		UpdatedAt: conv.UpdatedAt,
+	}, nil
 }
 
 // Delete removes a conversation from the store.
-func (s *MemoryStore) Delete(id string) {
+func (s *MemoryStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	delete(s.conversations, id)
+	return nil
 }
 
 // cleanup periodically removes expired conversations.
