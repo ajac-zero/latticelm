@@ -7,8 +7,17 @@ import (
 	"github.com/yourusername/go-llm-gateway/internal/api"
 )
 
-// Store manages conversation history with automatic expiration.
-type Store struct {
+// Store defines the interface for conversation storage backends.
+type Store interface {
+	Get(id string) (*Conversation, bool)
+	Create(id string, model string, messages []api.Message) *Conversation
+	Append(id string, messages ...api.Message) (*Conversation, bool)
+	Delete(id string)
+	Size() int
+}
+
+// MemoryStore manages conversation history in-memory with automatic expiration.
+type MemoryStore struct {
 	conversations map[string]*Conversation
 	mu            sync.RWMutex
 	ttl           time.Duration
@@ -23,21 +32,23 @@ type Conversation struct {
 	UpdatedAt time.Time
 }
 
-// NewStore creates a conversation store with the given TTL.
-func NewStore(ttl time.Duration) *Store {
-	s := &Store{
+// NewMemoryStore creates an in-memory conversation store with the given TTL.
+func NewMemoryStore(ttl time.Duration) *MemoryStore {
+	s := &MemoryStore{
 		conversations: make(map[string]*Conversation),
 		ttl:           ttl,
 	}
 	
-	// Start cleanup goroutine
-	go s.cleanup()
+	// Start cleanup goroutine if TTL is set
+	if ttl > 0 {
+		go s.cleanup()
+	}
 	
 	return s
 }
 
 // Get retrieves a conversation by ID.
-func (s *Store) Get(id string) (*Conversation, bool) {
+func (s *MemoryStore) Get(id string) (*Conversation, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
@@ -46,7 +57,7 @@ func (s *Store) Get(id string) (*Conversation, bool) {
 }
 
 // Create creates a new conversation with the given messages.
-func (s *Store) Create(id string, model string, messages []api.Message) *Conversation {
+func (s *MemoryStore) Create(id string, model string, messages []api.Message) *Conversation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
@@ -64,7 +75,7 @@ func (s *Store) Create(id string, model string, messages []api.Message) *Convers
 }
 
 // Append adds new messages to an existing conversation.
-func (s *Store) Append(id string, messages ...api.Message) (*Conversation, bool) {
+func (s *MemoryStore) Append(id string, messages ...api.Message) (*Conversation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
@@ -80,7 +91,7 @@ func (s *Store) Append(id string, messages ...api.Message) (*Conversation, bool)
 }
 
 // Delete removes a conversation from the store.
-func (s *Store) Delete(id string) {
+func (s *MemoryStore) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
@@ -88,7 +99,7 @@ func (s *Store) Delete(id string) {
 }
 
 // cleanup periodically removes expired conversations.
-func (s *Store) cleanup() {
+func (s *MemoryStore) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	
@@ -105,7 +116,7 @@ func (s *Store) cleanup() {
 }
 
 // Size returns the number of active conversations.
-func (s *Store) Size() int {
+func (s *MemoryStore) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.conversations)

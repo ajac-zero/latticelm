@@ -14,12 +14,12 @@ import (
 // GatewayServer hosts the Open Responses API for the gateway.
 type GatewayServer struct {
 	registry *providers.Registry
-	convs    *conversation.Store
+	convs    conversation.Store
 	logger   *log.Logger
 }
 
 // New creates a GatewayServer bound to the provider registry.
-func New(registry *providers.Registry, convs *conversation.Store, logger *log.Logger) *GatewayServer {
+func New(registry *providers.Registry, convs conversation.Store, logger *log.Logger) *GatewayServer {
 	return &GatewayServer{
 		registry: registry,
 		convs:    convs,

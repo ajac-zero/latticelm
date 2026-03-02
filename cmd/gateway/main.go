@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -49,7 +51,7 @@ func main() {
 	}
 
 	// Initialize conversation store (1 hour TTL)
-	convStore := conversation.NewStore(1 * time.Hour)
+	convStore := conversation.NewMemoryStore(1 * time.Hour)
 	logger.Printf("Conversation store initialized (TTL: 1h)")
 
 	gatewayServer := server.New(registry, convStore, logger)
@@ -75,6 +77,38 @@ func main() {
 	logger.Printf("Open Responses gateway listening on %s", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("server error: %v", err)
+	}
+}
+
+func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (conversation.Store, error) {
+	var ttl time.Duration
+	if cfg.TTL != "" {
+		parsed, err := time.ParseDuration(cfg.TTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid conversation ttl %q: %w", cfg.TTL, err)
+		}
+		ttl = parsed
+	}
+
+	switch cfg.Store {
+	case "sql":
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "sqlite3"
+		}
+		db, err := sql.Open(driver, cfg.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("open database: %w", err)
+		}
+		store, err := conversation.NewSQLStore(db, driver, ttl)
+		if err != nil {
+			return nil, fmt.Errorf("init sql store: %w", err)
+		}
+		logger.Printf("Conversation store initialized (sql/%s, TTL: %s)", driver, ttl)
+		return store, nil
+	default:
+		logger.Printf("Conversation store initialized (memory, TTL: %s)", ttl)
+		return conversation.NewMemoryStore(ttl), nil
 	}
 }
 
