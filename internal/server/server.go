@@ -141,8 +141,9 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 
 	// Build assistant message for conversation store
 	assistantMsg := api.Message{
-		Role:    "assistant",
-		Content: []api.ContentBlock{{Type: "output_text", Text: result.Text}},
+		Role:      "assistant",
+		Content:   []api.ContentBlock{{Type: "output_text", Text: result.Text}},
+		ToolCalls: result.ToolCalls,
 	}
 	allMsgs := append(storeMsgs, assistantMsg)
 	if _, err := s.convs.Create(responseID, result.Model, allMsgs); err != nil {
@@ -460,10 +461,11 @@ loop:
 	})
 
 	// Store conversation
-	if fullText != "" {
+	if fullText != "" || len(toolCalls) > 0 {
 		assistantMsg := api.Message{
-			Role:    "assistant",
-			Content: []api.ContentBlock{{Type: "output_text", Text: fullText}},
+			Role:      "assistant",
+			Content:   []api.ContentBlock{{Type: "output_text", Text: fullText}},
+			ToolCalls: toolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
 		if _, err := s.convs.Create(responseID, model, allMsgs); err != nil {
