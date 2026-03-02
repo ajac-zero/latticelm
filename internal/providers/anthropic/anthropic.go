@@ -3,7 +3,6 @@ package anthropic
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -60,8 +59,8 @@ func NewAzure(azureCfg config.AzureAnthropicConfig) *Provider {
 
 func (p *Provider) Name() string { return Name }
 
-// Generate routes the Open Responses request to Anthropic's API.
-func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api.Response, error) {
+// Generate routes the request to Anthropic's API.
+func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 	if p.cfg.APIKey == "" {
 		return nil, fmt.Errorf("anthropic api key missing")
 	}
@@ -69,42 +68,52 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 		return nil, fmt.Errorf("anthropic client not initialized")
 	}
 
-	model := chooseModel(req.Model, p.cfg.Model)
-
-	// Convert Open Responses messages to Anthropic format
-	messages := make([]anthropic.MessageParam, 0, len(req.Input))
+	// Convert messages to Anthropic format
+	anthropicMsgs := make([]anthropic.MessageParam, 0, len(messages))
 	var system string
-	
-	for _, msg := range req.Input {
+
+	for _, msg := range messages {
 		var content string
 		for _, block := range msg.Content {
 			if block.Type == "input_text" || block.Type == "output_text" {
 				content += block.Text
 			}
 		}
-		
+
 		switch msg.Role {
 		case "user":
-			messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
 		case "assistant":
-			messages = append(messages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
-		case "system":
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+		case "system", "developer":
 			system = content
 		}
 	}
 
 	// Build request params
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(model),
-		Messages:  messages,
-		MaxTokens: int64(4096),
+	maxTokens := int64(4096)
+	if req.MaxOutputTokens != nil {
+		maxTokens = int64(*req.MaxOutputTokens)
 	}
-	
+
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(req.Model),
+		Messages:  anthropicMsgs,
+		MaxTokens: maxTokens,
+	}
+
 	if system != "" {
 		systemBlocks := []anthropic.TextBlockParam{
 			{Text: system, Type: "text"},
 		}
 		params.System = systemBlocks
+	}
+
+	if req.Temperature != nil {
+		params.Temperature = anthropic.Float(*req.Temperature)
+	}
+	if req.TopP != nil {
+		params.TopP = anthropic.Float(*req.TopP)
 	}
 
 	// Call Anthropic API
@@ -113,30 +122,18 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 		return nil, fmt.Errorf("anthropic api error: %w", err)
 	}
 
-	// Convert Anthropic response to Open Responses format
-	output := make([]api.Message, 0, 1)
+	// Extract text from response
 	var text string
-	
 	for _, block := range resp.Content {
 		if block.Type == "text" {
 			text += block.Text
 		}
 	}
-	
-	output = append(output, api.Message{
-		Role: "assistant",
-		Content: []api.ContentBlock{
-			{Type: "output_text", Text: text},
-		},
-	})
 
-	return &api.Response{
-		ID:       resp.ID,
-		Object:   "response",
-		Created:  time.Now().Unix(),
-		Model:    string(resp.Model),
-		Provider: Name,
-		Output:   output,
+	return &api.ProviderResult{
+		ID:    resp.ID,
+		Model: string(resp.Model),
+		Text:  text,
 		Usage: api.Usage{
 			InputTokens:  int(resp.Usage.InputTokens),
 			OutputTokens: int(resp.Usage.OutputTokens),
@@ -146,12 +143,12 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 }
 
 // GenerateStream handles streaming requests to Anthropic.
-func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest) (<-chan *api.StreamChunk, <-chan error) {
-	chunkChan := make(chan *api.StreamChunk)
+func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
+	deltaChan := make(chan *api.ProviderStreamDelta)
 	errChan := make(chan error, 1)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(deltaChan)
 		defer close(errChan)
 
 		if p.cfg.APIKey == "" {
@@ -163,42 +160,52 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			return
 		}
 
-		model := chooseModel(req.Model, p.cfg.Model)
-
-		// Convert messages
-		messages := make([]anthropic.MessageParam, 0, len(req.Input))
+		// Convert messages to Anthropic format
+		anthropicMsgs := make([]anthropic.MessageParam, 0, len(messages))
 		var system string
-		
-		for _, msg := range req.Input {
+
+		for _, msg := range messages {
 			var content string
 			for _, block := range msg.Content {
 				if block.Type == "input_text" || block.Type == "output_text" {
 					content += block.Text
 				}
-				}
-				
-				switch msg.Role {
-				case "user":
-				messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
-				case "assistant":
-				messages = append(messages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
-				case "system":
-				system = content
-				}
-				}
+			}
 
-				// Build params
-		params := anthropic.MessageNewParams{
-			Model:     anthropic.Model(model),
-			Messages:  messages,
-			MaxTokens: int64(4096),
+			switch msg.Role {
+			case "user":
+				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
+			case "assistant":
+				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+			case "system", "developer":
+				system = content
+			}
 		}
-		
+
+		// Build params
+		maxTokens := int64(4096)
+		if req.MaxOutputTokens != nil {
+			maxTokens = int64(*req.MaxOutputTokens)
+		}
+
+		params := anthropic.MessageNewParams{
+			Model:     anthropic.Model(req.Model),
+			Messages:  anthropicMsgs,
+			MaxTokens: maxTokens,
+		}
+
 		if system != "" {
 			systemBlocks := []anthropic.TextBlockParam{
 				{Text: system, Type: "text"},
 			}
 			params.System = systemBlocks
+		}
+
+		if req.Temperature != nil {
+			params.Temperature = anthropic.Float(*req.Temperature)
+		}
+		if req.TopP != nil {
+			params.TopP = anthropic.Float(*req.TopP)
 		}
 
 		// Create stream
@@ -207,35 +214,14 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 		// Process stream
 		for stream.Next() {
 			event := stream.Current()
-			
-			delta := &api.StreamDelta{}
-			var text string
-			
-			// Handle different event types
+
 			if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" {
-				text = event.Delta.Text
-				delta.Content = []api.ContentBlock{
-					{Type: "output_text", Text: text},
+				select {
+				case deltaChan <- &api.ProviderStreamDelta{Text: event.Delta.Text}:
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
 				}
-			}
-			
-			if event.Type == "message_start" {
-				delta.Role = "assistant"
-			}
-
-			streamChunk := &api.StreamChunk{
-				Object:   "response.chunk",
-				Created:  time.Now().Unix(),
-				Model:    string(model),
-				Provider: Name,
-				Delta:    delta,
-			}
-
-			select {
-			case chunkChan <- streamChunk:
-			case <-ctx.Done():
-				errChan <- ctx.Err()
-				return
 			}
 		}
 
@@ -244,15 +230,15 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			return
 		}
 
-		// Send final chunk
+		// Send final delta
 		select {
-		case chunkChan <- &api.StreamChunk{Object: "response.chunk", Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}
 	}()
 
-	return chunkChan, errChan
+	return deltaChan, errChan
 }
 
 func chooseModel(requested, defaultModel string) string {

@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/azure"
@@ -64,8 +63,8 @@ func NewAzure(azureCfg config.AzureOpenAIConfig) *Provider {
 // Name returns the provider identifier.
 func (p *Provider) Name() string { return Name }
 
-// Generate routes the Open Responses request to OpenAI.
-func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api.Response, error) {
+// Generate routes the request to OpenAI and returns a ProviderResult.
+func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 	if p.cfg.APIKey == "" {
 		return nil, fmt.Errorf("openai api key missing")
 	}
@@ -73,55 +72,57 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 		return nil, fmt.Errorf("openai client not initialized")
 	}
 
-	model := chooseModel(req.Model, p.cfg.Model)
-
-	// Convert Open Responses messages to OpenAI format
-	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(req.Input))
-	for _, msg := range req.Input {
+	// Convert messages to OpenAI format
+	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
+	for _, msg := range messages {
 		var content string
 		for _, block := range msg.Content {
 			if block.Type == "input_text" || block.Type == "output_text" {
 				content += block.Text
 			}
 		}
-		
+
 		switch msg.Role {
 		case "user":
-			messages = append(messages, openai.UserMessage(content))
+			oaiMessages = append(oaiMessages, openai.UserMessage(content))
 		case "assistant":
-			messages = append(messages, openai.AssistantMessage(content))
+			oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
 		case "system":
-			messages = append(messages, openai.SystemMessage(content))
+			oaiMessages = append(oaiMessages, openai.SystemMessage(content))
+		case "developer":
+			oaiMessages = append(oaiMessages, openai.SystemMessage(content))
 		}
 	}
 
+	params := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(req.Model),
+		Messages: oaiMessages,
+	}
+	if req.MaxOutputTokens != nil {
+		params.MaxTokens = openai.Int(int64(*req.MaxOutputTokens))
+	}
+	if req.Temperature != nil {
+		params.Temperature = openai.Float(*req.Temperature)
+	}
+	if req.TopP != nil {
+		params.TopP = openai.Float(*req.TopP)
+	}
+
 	// Call OpenAI API
-	resp, err := p.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(model),
-		Messages: messages,
-	})
+	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("openai api error: %w", err)
 	}
 
-	// Convert OpenAI response to Open Responses format
-	output := make([]api.Message, 0, len(resp.Choices))
+	var combinedText string
 	for _, choice := range resp.Choices {
-		output = append(output, api.Message{
-			Role: "assistant",
-			Content: []api.ContentBlock{
-				{Type: "output_text", Text: choice.Message.Content},
-			},
-		})
+		combinedText += choice.Message.Content
 	}
 
-	return &api.Response{
-		ID:       resp.ID,
-		Object:   "response",
-		Created:  time.Now().Unix(),
-		Model:    resp.Model,
-		Provider: Name,
-		Output:   output,
+	return &api.ProviderResult{
+		ID:    resp.ID,
+		Model: resp.Model,
+		Text:  combinedText,
 		Usage: api.Usage{
 			InputTokens:  int(resp.Usage.PromptTokens),
 			OutputTokens: int(resp.Usage.CompletionTokens),
@@ -131,12 +132,12 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 }
 
 // GenerateStream handles streaming requests to OpenAI.
-func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest) (<-chan *api.StreamChunk, <-chan error) {
-	chunkChan := make(chan *api.StreamChunk)
+func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
+	deltaChan := make(chan *api.ProviderStreamDelta)
 	errChan := make(chan error, 1)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(deltaChan)
 		defer close(errChan)
 
 		if p.cfg.APIKey == "" {
@@ -148,62 +149,60 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			return
 		}
 
-		model := chooseModel(req.Model, p.cfg.Model)
-
-		// Convert messages
-		messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(req.Input))
-		for _, msg := range req.Input {
+		// Convert messages to OpenAI format
+		oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
+		for _, msg := range messages {
 			var content string
 			for _, block := range msg.Content {
 				if block.Type == "input_text" || block.Type == "output_text" {
 					content += block.Text
 				}
-				}
-				
-				switch msg.Role {
-				case "user":
-				messages = append(messages, openai.UserMessage(content))
-				case "assistant":
-				messages = append(messages, openai.AssistantMessage(content))
-				case "system":
-				messages = append(messages, openai.SystemMessage(content))
-				}
-				}
+			}
 
-				// Create streaming request
-		stream := p.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-			Model:    openai.ChatModel(model),
-			Messages: messages,
-		})
+			switch msg.Role {
+			case "user":
+				oaiMessages = append(oaiMessages, openai.UserMessage(content))
+			case "assistant":
+				oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+			case "system":
+				oaiMessages = append(oaiMessages, openai.SystemMessage(content))
+			case "developer":
+				oaiMessages = append(oaiMessages, openai.SystemMessage(content))
+			}
+		}
+
+		params := openai.ChatCompletionNewParams{
+			Model:    openai.ChatModel(req.Model),
+			Messages: oaiMessages,
+		}
+		if req.MaxOutputTokens != nil {
+			params.MaxTokens = openai.Int(int64(*req.MaxOutputTokens))
+		}
+		if req.Temperature != nil {
+			params.Temperature = openai.Float(*req.Temperature)
+		}
+		if req.TopP != nil {
+			params.TopP = openai.Float(*req.TopP)
+		}
+
+		// Create streaming request
+		stream := p.client.Chat.Completions.NewStreaming(ctx, params)
 
 		// Process stream
 		for stream.Next() {
 			chunk := stream.Current()
-			
-			for _, choice := range chunk.Choices {
-				delta := &api.StreamDelta{}
-				
-				if choice.Delta.Role != "" {
-					delta.Role = string(choice.Delta.Role)
-				}
-				
-				if choice.Delta.Content != "" {
-					delta.Content = []api.ContentBlock{
-						{Type: "output_text", Text: choice.Delta.Content},
-					}
-				}
 
-				streamChunk := &api.StreamChunk{
-					ID:       chunk.ID,
-					Object:   "response.chunk",
-					Created:  time.Now().Unix(),
-					Model:    chunk.Model,
-					Provider: Name,
-					Delta:    delta,
+			for _, choice := range chunk.Choices {
+				if choice.Delta.Content == "" {
+					continue
 				}
 
 				select {
-				case chunkChan <- streamChunk:
+				case deltaChan <- &api.ProviderStreamDelta{
+					ID:    chunk.ID,
+					Model: chunk.Model,
+					Text:  choice.Delta.Content,
+				}:
 				case <-ctx.Done():
 					errChan <- ctx.Err()
 					return
@@ -216,15 +215,15 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			return
 		}
 
-		// Send final chunk
+		// Send final delta
 		select {
-		case chunkChan <- &api.StreamChunk{Object: "response.chunk", Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}
 	}()
 
-	return chunkChan, errChan
+	return deltaChan, errChan
 }
 
 func chooseModel(requested, defaultModel string) string {

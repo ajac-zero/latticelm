@@ -14,8 +14,8 @@ import (
 // Provider represents a unified interface that each LLM provider must implement.
 type Provider interface {
 	Name() string
-	Generate(ctx context.Context, req *api.ResponseRequest) (*api.Response, error)
-	GenerateStream(ctx context.Context, req *api.ResponseRequest) (<-chan *api.StreamChunk, <-chan error)
+	Generate(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error)
+	GenerateStream(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error)
 }
 
 // Registry keeps track of registered providers and model-to-provider mappings.

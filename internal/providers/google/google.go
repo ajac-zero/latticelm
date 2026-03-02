@@ -3,7 +3,6 @@ package google
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/genai"
@@ -41,8 +40,8 @@ func New(cfg config.ProviderConfig) *Provider {
 
 func (p *Provider) Name() string { return Name }
 
-// Generate routes the Open Responses request to Gemini.
-func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api.Response, error) {
+// Generate routes the request to Gemini and returns a ProviderResult.
+func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 	if p.cfg.APIKey == "" {
 		return nil, fmt.Errorf("google api key missing")
 	}
@@ -50,60 +49,18 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 		return nil, fmt.Errorf("google client not initialized")
 	}
 
-	model := chooseModel(req.Model, p.cfg.Model)
+	model := req.Model
 
-	// Convert Open Responses messages to Gemini format
-	var contents []*genai.Content
-	var systemText string
-	
-	for _, msg := range req.Input {
-		if msg.Role == "system" {
-			for _, block := range msg.Content {
-				if block.Type == "input_text" || block.Type == "output_text" {
-					systemText += block.Text
-				}
-			}
-			continue
-		}
+	contents, systemText := convertMessages(messages)
 
-		var parts []*genai.Part
-		for _, block := range msg.Content {
-			if block.Type == "input_text" || block.Type == "output_text" {
-				parts = append(parts, genai.NewPartFromText(block.Text))
-			}
-		}
-		
-		role := "user"
-		if msg.Role == "assistant" || msg.Role == "model" {
-			role = "model"
-		}
-		
-		contents = append(contents, &genai.Content{
-			Role:  role,
-			Parts: parts,
-		})
-	}
+	config := buildConfig(systemText, req)
 
-	// Build config with system instruction if present
-	var config *genai.GenerateContentConfig
-	if systemText != "" {
-		config = &genai.GenerateContentConfig{
-			SystemInstruction: &genai.Content{
-				Parts: []*genai.Part{genai.NewPartFromText(systemText)},
-			},
-		}
-	}
-
-	// Generate content
 	resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("google api error: %w", err)
 	}
 
-	// Convert Gemini response to Open Responses format
-	output := make([]api.Message, 0, 1)
 	var text string
-	
 	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
 		for _, part := range resp.Candidates[0].Content.Parts {
 			if part != nil {
@@ -111,28 +68,17 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 			}
 		}
 	}
-	
-	output = append(output, api.Message{
-		Role: "assistant",
-		Content: []api.ContentBlock{
-			{Type: "output_text", Text: text},
-		},
-	})
 
-	// Extract usage info if available
 	var inputTokens, outputTokens int
 	if resp.UsageMetadata != nil {
 		inputTokens = int(resp.UsageMetadata.PromptTokenCount)
 		outputTokens = int(resp.UsageMetadata.CandidatesTokenCount)
 	}
 
-	return &api.Response{
-		ID:       uuid.NewString(),
-		Object:   "response",
-		Created:  time.Now().Unix(),
-		Model:    model,
-		Provider: Name,
-		Output:   output,
+	return &api.ProviderResult{
+		ID:    uuid.NewString(),
+		Model: model,
+		Text:  text,
 		Usage: api.Usage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
@@ -142,12 +88,12 @@ func (p *Provider) Generate(ctx context.Context, req *api.ResponseRequest) (*api
 }
 
 // GenerateStream handles streaming requests to Google.
-func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest) (<-chan *api.StreamChunk, <-chan error) {
-	chunkChan := make(chan *api.StreamChunk)
+func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
+	deltaChan := make(chan *api.ProviderStreamDelta)
 	errChan := make(chan error, 1)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(deltaChan)
 		defer close(errChan)
 
 		if p.cfg.APIKey == "" {
@@ -159,54 +105,14 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 			return
 		}
 
-		model := chooseModel(req.Model, p.cfg.Model)
+		model := req.Model
 
-		// Convert messages
-		var contents []*genai.Content
-		var systemText string
-		
-		for _, msg := range req.Input {
-			if msg.Role == "system" {
-				for _, block := range msg.Content {
-					if block.Type == "input_text" || block.Type == "output_text" {
-						systemText += block.Text
-					}
-				}
-				continue
-			}
+		contents, systemText := convertMessages(messages)
 
-			var parts []*genai.Part
-			for _, block := range msg.Content {
-				if block.Type == "input_text" || block.Type == "output_text" {
-					parts = append(parts, genai.NewPartFromText(block.Text))
-				}
-			}
-			
-			role := "user"
-			if msg.Role == "assistant" || msg.Role == "model" {
-				role = "model"
-			}
-			
-			contents = append(contents, &genai.Content{
-				Role:  role,
-				Parts: parts,
-			})
-		}
+		config := buildConfig(systemText, req)
 
-		// Build config with system instruction if present
-		var config *genai.GenerateContentConfig
-		if systemText != "" {
-			config = &genai.GenerateContentConfig{
-				SystemInstruction: &genai.Content{
-					Parts: []*genai.Part{genai.NewPartFromText(systemText)},
-				},
-			}
-		}
-
-		// Create stream
 		stream := p.client.Models.GenerateContentStream(ctx, model, contents, config)
 
-		// Process stream
 		for resp, err := range stream {
 			if err != nil {
 				errChan <- fmt.Errorf("google stream error: %w", err)
@@ -222,38 +128,94 @@ func (p *Provider) GenerateStream(ctx context.Context, req *api.ResponseRequest)
 				}
 			}
 
-			delta := &api.StreamDelta{}
 			if text != "" {
-				delta.Content = []api.ContentBlock{
-					{Type: "output_text", Text: text},
+				select {
+				case deltaChan <- &api.ProviderStreamDelta{Text: text}:
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
 				}
-			}
-
-			streamChunk := &api.StreamChunk{
-				Object:   "response.chunk",
-				Created:  time.Now().Unix(),
-				Model:    model,
-				Provider: Name,
-				Delta:    delta,
-			}
-
-			select {
-			case chunkChan <- streamChunk:
-			case <-ctx.Done():
-				errChan <- ctx.Err()
-				return
 			}
 		}
 
-		// Send final chunk
 		select {
-		case chunkChan <- &api.StreamChunk{Object: "response.chunk", Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}
 	}()
 
-	return chunkChan, errChan
+	return deltaChan, errChan
+}
+
+// convertMessages splits messages into Gemini contents and system text.
+func convertMessages(messages []api.Message) ([]*genai.Content, string) {
+	var contents []*genai.Content
+	var systemText string
+
+	for _, msg := range messages {
+		if msg.Role == "system" || msg.Role == "developer" {
+			for _, block := range msg.Content {
+				if block.Type == "input_text" || block.Type == "output_text" {
+					systemText += block.Text
+				}
+			}
+			continue
+		}
+
+		var parts []*genai.Part
+		for _, block := range msg.Content {
+			if block.Type == "input_text" || block.Type == "output_text" {
+				parts = append(parts, genai.NewPartFromText(block.Text))
+			}
+		}
+
+		role := "user"
+		if msg.Role == "assistant" || msg.Role == "model" {
+			role = "model"
+		}
+
+		contents = append(contents, &genai.Content{
+			Role:  role,
+			Parts: parts,
+		})
+	}
+
+	return contents, systemText
+}
+
+// buildConfig constructs a GenerateContentConfig from system text and request params.
+func buildConfig(systemText string, req *api.ResponseRequest) *genai.GenerateContentConfig {
+	var cfg *genai.GenerateContentConfig
+
+	needsCfg := systemText != "" || req.MaxOutputTokens != nil || req.Temperature != nil || req.TopP != nil
+	if !needsCfg {
+		return nil
+	}
+
+	cfg = &genai.GenerateContentConfig{}
+
+	if systemText != "" {
+		cfg.SystemInstruction = &genai.Content{
+			Parts: []*genai.Part{genai.NewPartFromText(systemText)},
+		}
+	}
+
+	if req.MaxOutputTokens != nil {
+		cfg.MaxOutputTokens = int32(*req.MaxOutputTokens)
+	}
+
+	if req.Temperature != nil {
+		t := float32(*req.Temperature)
+		cfg.Temperature = &t
+	}
+
+	if req.TopP != nil {
+		tp := float32(*req.TopP)
+		cfg.TopP = &tp
+	}
+
+	return cfg
 }
 
 func chooseModel(requested, defaultModel string) string {
