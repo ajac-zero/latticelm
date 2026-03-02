@@ -232,6 +232,19 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 	var contents []*genai.Content
 	var systemText string
 
+	// Build a map of CallID -> Name from assistant tool calls
+	// This allows us to look up function names when processing tool results
+	callIDToName := make(map[string]string)
+	for _, msg := range messages {
+		if msg.Role == "assistant" || msg.Role == "model" {
+			for _, tc := range msg.ToolCalls {
+				if tc.ID != "" && tc.Name != "" {
+					callIDToName[tc.ID] = tc.Name
+				}
+			}
+		}
+	}
+
 	for _, msg := range messages {
 		if msg.Role == "system" || msg.Role == "developer" {
 			for _, block := range msg.Content {
@@ -258,11 +271,17 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 				responseMap = map[string]any{"output": output}
 			}
 
-			// Create FunctionResponse part with CallID from message
+			// Get function name from message or look it up from CallID
+			name := msg.Name
+			if name == "" && msg.CallID != "" {
+				name = callIDToName[msg.CallID]
+			}
+
+			// Create FunctionResponse part with CallID and Name from message
 			part := &genai.Part{
 				FunctionResponse: &genai.FunctionResponse{
 					ID:       msg.CallID,
-					Name:     "", // Name is optional for responses
+					Name:     name, // Name is required by Google
 					Response: responseMap,
 				},
 			}
@@ -279,6 +298,27 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 		for _, block := range msg.Content {
 			if block.Type == "input_text" || block.Type == "output_text" {
 				parts = append(parts, genai.NewPartFromText(block.Text))
+			}
+		}
+
+		// Add tool calls for assistant messages
+		if msg.Role == "assistant" || msg.Role == "model" {
+			for _, tc := range msg.ToolCalls {
+				// Parse arguments JSON into map
+				var args map[string]any
+				if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
+					// If unmarshal fails, skip this tool call
+					continue
+				}
+
+				// Create FunctionCall part
+				parts = append(parts, &genai.Part{
+					FunctionCall: &genai.FunctionCall{
+						ID:   tc.ID,
+						Name: tc.Name,
+						Args: args,
+					},
+				})
 			}
 		}
 

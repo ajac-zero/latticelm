@@ -85,7 +85,23 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		case "user":
 			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
 		case "assistant":
-			anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+			// Build content blocks including text and tool calls
+			var contentBlocks []anthropic.ContentBlockParamUnion
+			if content != "" {
+				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(content))
+			}
+			// Add tool use blocks
+			for _, tc := range msg.ToolCalls {
+				var input map[string]interface{}
+				if err := json.Unmarshal([]byte(tc.Arguments), &input); err != nil {
+					// If unmarshal fails, skip this tool call
+					continue
+				}
+				contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
+			}
+			if len(contentBlocks) > 0 {
+				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(contentBlocks...))
+			}
 		case "tool":
 			// Tool results must be in user message with tool_result blocks
 			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
@@ -213,7 +229,23 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			case "user":
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
 			case "assistant":
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(content)))
+				// Build content blocks including text and tool calls
+				var contentBlocks []anthropic.ContentBlockParamUnion
+				if content != "" {
+					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(content))
+				}
+				// Add tool use blocks
+				for _, tc := range msg.ToolCalls {
+					var input map[string]interface{}
+					if err := json.Unmarshal([]byte(tc.Arguments), &input); err != nil {
+						// If unmarshal fails, skip this tool call
+						continue
+					}
+					contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
+				}
+				if len(contentBlocks) > 0 {
+					anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(contentBlocks...))
+				}
 			case "tool":
 				// Tool results must be in user message with tool_result blocks
 				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(

@@ -86,7 +86,32 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		case "user":
 			oaiMessages = append(oaiMessages, openai.UserMessage(content))
 		case "assistant":
-			oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+			// If assistant message has tool calls, include them
+			if len(msg.ToolCalls) > 0 {
+				toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, len(msg.ToolCalls))
+				for i, tc := range msg.ToolCalls {
+					toolCalls[i] = openai.ChatCompletionMessageToolCallUnionParam{
+						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+							ID: tc.ID,
+							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+								Name:      tc.Name,
+								Arguments: tc.Arguments,
+							},
+						},
+					}
+				}
+				msgParam := openai.ChatCompletionAssistantMessageParam{
+					ToolCalls: toolCalls,
+				}
+				if content != "" {
+					msgParam.Content.OfString = openai.String(content)
+				}
+				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+					OfAssistant: &msgParam,
+				})
+			} else {
+				oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+			}
 		case "system":
 			oaiMessages = append(oaiMessages, openai.SystemMessage(content))
 		case "developer":
@@ -194,7 +219,32 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			case "user":
 				oaiMessages = append(oaiMessages, openai.UserMessage(content))
 			case "assistant":
-				oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+				// If assistant message has tool calls, include them
+				if len(msg.ToolCalls) > 0 {
+					toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, len(msg.ToolCalls))
+					for i, tc := range msg.ToolCalls {
+						toolCalls[i] = openai.ChatCompletionMessageToolCallUnionParam{
+							OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+								ID: tc.ID,
+								Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+									Name:      tc.Name,
+									Arguments: tc.Arguments,
+								},
+							},
+						}
+					}
+					msgParam := openai.ChatCompletionAssistantMessageParam{
+						ToolCalls: toolCalls,
+					}
+					if content != "" {
+						msgParam.Content.OfString = openai.String(content)
+					}
+					oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+						OfAssistant: &msgParam,
+					})
+				} else {
+					oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+				}
 			case "system":
 				oaiMessages = append(oaiMessages, openai.SystemMessage(content))
 			case "developer":
