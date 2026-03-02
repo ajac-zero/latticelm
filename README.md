@@ -46,8 +46,8 @@ latticelm (unified API)
 ## 🎉 Status: **WORKING!**
 
 ✅ **All four providers integrated with official Go SDKs:**
-- OpenAI → `github.com/openai/openai-go`
-- Azure OpenAI → `github.com/openai/openai-go` (with Azure auth)
+- OpenAI → `github.com/openai/openai-go/v3`
+- Azure OpenAI → `github.com/openai/openai-go/v3` (with Azure auth)
 - Anthropic → `github.com/anthropics/anthropic-sdk-go`
 - Google → `google.golang.org/genai`
 
