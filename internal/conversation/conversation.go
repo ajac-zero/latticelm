@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
+	"github.com/ajac-zero/latticelm/internal/api"
 )
 
 // Store defines the interface for conversation storage backends.

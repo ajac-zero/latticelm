@@ -8,8 +8,8 @@ import (
 	"github.com/openai/openai-go/azure"
 	"github.com/openai/openai-go/option"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
-	"github.com/yourusername/go-llm-gateway/internal/config"
+	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/config"
 )
 
 const Name = "openai"

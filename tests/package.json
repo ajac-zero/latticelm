@@ -1,8 +1,8 @@
 {
-  "name": "go-llm-gateway-compliance-tests",
+  "name": "latticelm-compliance-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Open Responses compliance tests for go-llm-gateway",
+  "description": "Open Responses compliance tests for latticelm",
   "type": "module",
   "scripts": {
     "test:compliance": "node --experimental-strip-types bin/compliance-test.ts",

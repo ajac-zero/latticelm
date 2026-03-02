@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
-	"github.com/yourusername/go-llm-gateway/internal/config"
-	anthropicprovider "github.com/yourusername/go-llm-gateway/internal/providers/anthropic"
-	googleprovider "github.com/yourusername/go-llm-gateway/internal/providers/google"
-	openaiprovider "github.com/yourusername/go-llm-gateway/internal/providers/openai"
+	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/config"
+	anthropicprovider "github.com/ajac-zero/latticelm/internal/providers/anthropic"
+	googleprovider "github.com/ajac-zero/latticelm/internal/providers/google"
+	openaiprovider "github.com/ajac-zero/latticelm/internal/providers/openai"
 )
 
 // Provider represents a unified interface that each LLM provider must implement.

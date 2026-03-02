@@ -1,4 +1,4 @@
-# Go LLM Gateway
+# latticelm
 
 ## Overview
 
@@ -19,7 +19,7 @@ Instead of managing multiple SDK integrations in your application, call one endp
 ```
 Client Request
     ↓
-Go LLM Gateway (unified API)
+latticelm (unified API)
     ↓
 ├─→ OpenAI SDK
 ├─→ Azure OpenAI (OpenAI SDK + Azure auth)
@@ -68,7 +68,7 @@ export ANTHROPIC_API_KEY="your-key"
 export GOOGLE_API_KEY="your-key"
 
 # 2. Build
-cd go-llm-gateway
+cd latticelm
 go build -o gateway ./cmd/gateway
 
 # 3. Run

@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
-	"github.com/yourusername/go-llm-gateway/internal/conversation"
-	"github.com/yourusername/go-llm-gateway/internal/providers"
+	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/conversation"
+	"github.com/ajac-zero/latticelm/internal/providers"
 )
 
 // GatewayServer hosts the Open Responses API for the gateway.

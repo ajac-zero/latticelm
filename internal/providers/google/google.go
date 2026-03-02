@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/genai"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
-	"github.com/yourusername/go-llm-gateway/internal/config"
+	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/config"
 )
 
 const Name = "google"

@@ -13,11 +13,11 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/yourusername/go-llm-gateway/internal/auth"
-	"github.com/yourusername/go-llm-gateway/internal/config"
-	"github.com/yourusername/go-llm-gateway/internal/conversation"
-	"github.com/yourusername/go-llm-gateway/internal/providers"
-	"github.com/yourusername/go-llm-gateway/internal/server"
+	"github.com/ajac-zero/latticelm/internal/auth"
+	"github.com/ajac-zero/latticelm/internal/config"
+	"github.com/ajac-zero/latticelm/internal/conversation"
+	"github.com/ajac-zero/latticelm/internal/providers"
+	"github.com/ajac-zero/latticelm/internal/server"
 )
 
 func main() {

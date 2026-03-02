@@ -8,7 +8,7 @@
 # ///
 
 """
-Terminal chat interface for go-llm-gateway.
+Terminal chat interface for latticelm.
 
 Usage:
     python chat.py
@@ -119,7 +119,7 @@ def print_models_table(client: OpenAI):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Chat with go-llm-gateway")
+    parser = argparse.ArgumentParser(description="Chat with latticelm")
     parser.add_argument("--url", default="http://localhost:8080", help="Gateway URL")
     parser.add_argument("--model", default=None, help="Model to use (defaults to first available)")
     parser.add_argument("--token", help="Auth token (Bearer)")
@@ -148,7 +148,7 @@ def main():
     
     # Welcome banner
     console.print(Panel.fit(
-        "[bold cyan]go-llm-gateway Chat Interface[/bold cyan]\n"
+        "[bold cyan]latticelm Chat Interface[/bold cyan]\n"
         f"Connected to: [green]{args.url}[/green]\n"
         f"Model: [yellow]{current_model}[/yellow]\n"
         f"Streaming: [{'green' if stream_enabled else 'red'}]{stream_enabled}[/]\n\n"

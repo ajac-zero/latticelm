@@ -1,4 +1,4 @@
-module github.com/yourusername/go-llm-gateway
+module github.com/ajac-zero/latticelm
 
 go 1.25.7
 

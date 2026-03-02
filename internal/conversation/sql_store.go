@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/yourusername/go-llm-gateway/internal/api"
+	"github.com/ajac-zero/latticelm/internal/api"
 )
 
 // sqlDialect holds driver-specific SQL statements.
