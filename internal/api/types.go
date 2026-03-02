@@ -96,6 +96,7 @@ type InputItem struct {
 type Message struct {
 	Role    string         `json:"role"`
 	Content []ContentBlock `json:"content"`
+	CallID  string         `json:"call_id,omitempty"` // for tool messages
 }
 
 // ContentBlock is a typed content element.
@@ -138,6 +139,7 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 			msgs = append(msgs, Message{
 				Role:    "tool",
 				Content: []ContentBlock{{Type: "input_text", Text: item.Output}},
+				CallID:  item.CallID,
 			})
 		}
 	}
@@ -188,11 +190,14 @@ type Response struct {
 
 // OutputItem represents a typed item in the response output.
 type OutputItem struct {
-	ID      string        `json:"id"`
-	Type    string        `json:"type"`
-	Status  string        `json:"status"`
-	Role    string        `json:"role,omitempty"`
-	Content []ContentPart `json:"content,omitempty"`
+	ID        string        `json:"id"`
+	Type      string        `json:"type"`
+	Status    string        `json:"status"`
+	Role      string        `json:"role,omitempty"`
+	Content   []ContentPart `json:"content,omitempty"`
+	CallID    string        `json:"call_id,omitempty"`    // for function_call
+	Name      string        `json:"name,omitempty"`       // for function_call
+	Arguments string        `json:"arguments,omitempty"`  // for function_call
 }
 
 // ContentPart is a content block within an output item.
@@ -259,6 +264,7 @@ type StreamEvent struct {
 	Part           *ContentPart `json:"part,omitempty"`
 	Delta          string       `json:"delta,omitempty"`
 	Text           string       `json:"text,omitempty"`
+	Arguments      string       `json:"arguments,omitempty"` // for function_call_arguments.done
 }
 
 // ============================================================
@@ -267,19 +273,36 @@ type StreamEvent struct {
 
 // ProviderResult is returned by Provider.Generate.
 type ProviderResult struct {
-	ID    string
-	Model string
-	Text  string
-	Usage Usage
+	ID        string
+	Model     string
+	Text      string
+	Usage     Usage
+	ToolCalls []ToolCall
 }
 
 // ProviderStreamDelta is sent through the stream channel.
 type ProviderStreamDelta struct {
-	ID    string
-	Model string
-	Text  string
-	Done  bool
-	Usage *Usage
+	ID            string
+	Model         string
+	Text          string
+	Done          bool
+	Usage         *Usage
+	ToolCallDelta *ToolCallDelta
+}
+
+// ToolCall represents a function call from the model.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string // JSON string
+}
+
+// ToolCallDelta represents a streaming chunk of a tool call.
+type ToolCallDelta struct {
+	Index     int
+	ID        string
+	Name      string
+	Arguments string
 }
 
 // ============================================================
