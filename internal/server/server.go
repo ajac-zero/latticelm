@@ -15,15 +15,23 @@ import (
 	"github.com/ajac-zero/latticelm/internal/providers"
 )
 
+// ProviderRegistry is an interface for provider registries.
+type ProviderRegistry interface {
+	Get(name string) (providers.Provider, bool)
+	Models() []struct{ Provider, Model string }
+	ResolveModelID(model string) string
+	Default(model string) (providers.Provider, error)
+}
+
 // GatewayServer hosts the Open Responses API for the gateway.
 type GatewayServer struct {
-	registry *providers.Registry
+	registry ProviderRegistry
 	convs    conversation.Store
 	logger   *log.Logger
 }
 
 // New creates a GatewayServer bound to the provider registry.
-func New(registry *providers.Registry, convs conversation.Store, logger *log.Logger) *GatewayServer {
+func New(registry ProviderRegistry, convs conversation.Store, logger *log.Logger) *GatewayServer {
 	return &GatewayServer{
 		registry: registry,
 		convs:    convs,
