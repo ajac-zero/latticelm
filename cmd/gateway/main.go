@@ -23,9 +23,14 @@ import (
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	slogger "github.com/ajac-zero/latticelm/internal/logger"
+	"github.com/ajac-zero/latticelm/internal/observability"
 	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/ajac-zero/latticelm/internal/ratelimit"
 	"github.com/ajac-zero/latticelm/internal/server"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func main() {
@@ -49,10 +54,54 @@ func main() {
 	}
 	logger := slogger.New(logFormat, logLevel)
 
-	registry, err := providers.NewRegistry(cfg.Providers, cfg.Models)
+	// Initialize tracing
+	var tracerProvider *sdktrace.TracerProvider
+	if cfg.Observability.Enabled && cfg.Observability.Tracing.Enabled {
+		// Set defaults
+		tracingCfg := cfg.Observability.Tracing
+		if tracingCfg.ServiceName == "" {
+			tracingCfg.ServiceName = "llm-gateway"
+		}
+		if tracingCfg.Sampler.Type == "" {
+			tracingCfg.Sampler.Type = "probability"
+			tracingCfg.Sampler.Rate = 0.1
+		}
+
+		tp, err := observability.InitTracer(tracingCfg)
+		if err != nil {
+			logger.Error("failed to initialize tracing", slog.String("error", err.Error()))
+		} else {
+			tracerProvider = tp
+			otel.SetTracerProvider(tracerProvider)
+			logger.Info("tracing initialized",
+				slog.String("exporter", tracingCfg.Exporter.Type),
+				slog.String("sampler", tracingCfg.Sampler.Type),
+			)
+		}
+	}
+
+	// Initialize metrics
+	var metricsRegistry *prometheus.Registry
+	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
+		metricsRegistry = observability.InitMetrics()
+		metricsPath := cfg.Observability.Metrics.Path
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		logger.Info("metrics initialized", slog.String("path", metricsPath))
+	}
+
+	baseRegistry, err := providers.NewRegistry(cfg.Providers, cfg.Models)
 	if err != nil {
 		logger.Error("failed to initialize providers", slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+
+	// Wrap providers with observability
+	var registry server.ProviderRegistry = baseRegistry
+	if cfg.Observability.Enabled {
+		registry = observability.WrapProviderRegistry(registry, metricsRegistry, tracerProvider)
+		logger.Info("providers instrumented")
 	}
 
 	// Initialize authentication middleware
@@ -74,15 +123,31 @@ func main() {
 	}
 
 	// Initialize conversation store
-	convStore, err := initConversationStore(cfg.Conversations, logger)
+	convStore, storeBackend, err := initConversationStore(cfg.Conversations, logger)
 	if err != nil {
 		logger.Error("failed to initialize conversation store", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
+	// Wrap conversation store with observability
+	if cfg.Observability.Enabled && convStore != nil {
+		convStore = observability.WrapConversationStore(convStore, storeBackend, metricsRegistry, tracerProvider)
+		logger.Info("conversation store instrumented")
+	}
+
 	gatewayServer := server.New(registry, convStore, logger)
 	mux := http.NewServeMux()
 	gatewayServer.RegisterRoutes(mux)
+
+	// Register metrics endpoint if enabled
+	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
+		metricsPath := cfg.Observability.Metrics.Path
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		mux.Handle(metricsPath, promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
+		logger.Info("metrics endpoint registered", slog.String("path", metricsPath))
+	}
 
 	addr := cfg.Server.Address
 	if addr == "" {
@@ -111,8 +176,18 @@ func main() {
 		)
 	}
 
-	// Build handler chain: logging -> rate limiting -> auth -> routes
-	handler := loggingMiddleware(rateLimitMiddleware.Handler(authMiddleware.Handler(mux)), logger)
+	// Build handler chain: logging -> tracing -> metrics -> rate limiting -> auth -> routes
+	handler := loggingMiddleware(
+		observability.TracingMiddleware(
+			observability.MetricsMiddleware(
+				rateLimitMiddleware.Handler(authMiddleware.Handler(mux)),
+				metricsRegistry,
+				tracerProvider,
+			),
+			tracerProvider,
+		),
+		logger,
+	)
 
 	srv := &http.Server{
 		Addr:         addr,
@@ -153,6 +228,16 @@ func main() {
 			logger.Error("server shutdown error", slog.String("error", err.Error()))
 		}
 
+		// Shutdown tracer provider
+		if tracerProvider != nil {
+			logger.Info("shutting down tracer")
+			shutdownTracerCtx, shutdownTracerCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownTracerCancel()
+			if err := observability.Shutdown(shutdownTracerCtx, tracerProvider); err != nil {
+				logger.Error("error shutting down tracer", slog.String("error", err.Error()))
+			}
+		}
+
 		// Close conversation store
 		logger.Info("closing conversation store")
 		if err := convStore.Close(); err != nil {
@@ -163,12 +248,12 @@ func main() {
 	}
 }
 
-func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (conversation.Store, error) {
+func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (conversation.Store, string, error) {
 	var ttl time.Duration
 	if cfg.TTL != "" {
 		parsed, err := time.ParseDuration(cfg.TTL)
 		if err != nil {
-			return nil, fmt.Errorf("invalid conversation ttl %q: %w", cfg.TTL, err)
+			return nil, "", fmt.Errorf("invalid conversation ttl %q: %w", cfg.TTL, err)
 		}
 		ttl = parsed
 	}
@@ -181,22 +266,22 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		}
 		db, err := sql.Open(driver, cfg.DSN)
 		if err != nil {
-			return nil, fmt.Errorf("open database: %w", err)
+			return nil, "", fmt.Errorf("open database: %w", err)
 		}
 		store, err := conversation.NewSQLStore(db, driver, ttl)
 		if err != nil {
-			return nil, fmt.Errorf("init sql store: %w", err)
+			return nil, "", fmt.Errorf("init sql store: %w", err)
 		}
 		logger.Info("conversation store initialized",
 			slog.String("backend", "sql"),
 			slog.String("driver", driver),
 			slog.Duration("ttl", ttl),
 		)
-		return store, nil
+		return store, "sql", nil
 	case "redis":
 		opts, err := redis.ParseURL(cfg.DSN)
 		if err != nil {
-			return nil, fmt.Errorf("parse redis dsn: %w", err)
+			return nil, "", fmt.Errorf("parse redis dsn: %w", err)
 		}
 		client := redis.NewClient(opts)
 
@@ -204,20 +289,20 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		defer cancel()
 
 		if err := client.Ping(ctx).Err(); err != nil {
-			return nil, fmt.Errorf("connect to redis: %w", err)
+			return nil, "", fmt.Errorf("connect to redis: %w", err)
 		}
 
 		logger.Info("conversation store initialized",
 			slog.String("backend", "redis"),
 			slog.Duration("ttl", ttl),
 		)
-		return conversation.NewRedisStore(client, ttl), nil
+		return conversation.NewRedisStore(client, ttl), "redis", nil
 	default:
 		logger.Info("conversation store initialized",
 			slog.String("backend", "memory"),
 			slog.Duration("ttl", ttl),
 		)
-		return conversation.NewMemoryStore(ttl), nil
+		return conversation.NewMemoryStore(ttl), "memory", nil
 	}
 }
 type responseWriter struct {

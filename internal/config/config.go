@@ -16,6 +16,7 @@ type Config struct {
 	Conversations ConversationConfig       `yaml:"conversations"`
 	Logging       LoggingConfig            `yaml:"logging"`
 	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
+	Observability ObservabilityConfig      `yaml:"observability"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -48,6 +49,41 @@ type RateLimitConfig struct {
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	// Burst is the maximum burst size allowed.
 	Burst int `yaml:"burst"`
+}
+
+// ObservabilityConfig controls observability features.
+type ObservabilityConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Metrics MetricsConfig `yaml:"metrics"`
+	Tracing TracingConfig `yaml:"tracing"`
+}
+
+// MetricsConfig controls Prometheus metrics.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"` // default: "/metrics"
+}
+
+// TracingConfig controls OpenTelemetry tracing.
+type TracingConfig struct {
+	Enabled     bool           `yaml:"enabled"`
+	ServiceName string         `yaml:"service_name"` // default: "llm-gateway"
+	Sampler     SamplerConfig  `yaml:"sampler"`
+	Exporter    ExporterConfig `yaml:"exporter"`
+}
+
+// SamplerConfig controls trace sampling.
+type SamplerConfig struct {
+	Type string  `yaml:"type"` // "always", "never", "probability"
+	Rate float64 `yaml:"rate"` // 0.0 to 1.0
+}
+
+// ExporterConfig controls trace exporters.
+type ExporterConfig struct {
+	Type     string            `yaml:"type"` // "otlp", "stdout"
+	Endpoint string            `yaml:"endpoint"`
+	Insecure bool              `yaml:"insecure"`
+	Headers  map[string]string `yaml:"headers"`
 }
 
 // AuthConfig holds OIDC authentication settings.

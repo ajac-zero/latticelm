@@ -98,9 +98,11 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 		conv, err := s.convs.Get(*req.PreviousResponseID)
 		if err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to retrieve conversation",
-				slog.String("request_id", logger.FromContext(r.Context())),
-				slog.String("conversation_id", *req.PreviousResponseID),
-				slog.String("error", err.Error()),
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("conversation_id", *req.PreviousResponseID),
+					slog.String("error", err.Error()),
+				)...,
 			)
 			http.Error(w, "error retrieving conversation", http.StatusInternalServerError)
 			return
@@ -152,10 +154,12 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 	result, err := provider.Generate(r.Context(), providerMsgs, resolvedReq)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "provider generation failed",
-			slog.String("request_id", logger.FromContext(r.Context())),
-			slog.String("provider", provider.Name()),
-			slog.String("model", resolvedReq.Model),
-			slog.String("error", err.Error()),
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("provider", provider.Name()),
+				slog.String("model", resolvedReq.Model),
+				slog.String("error", err.Error()),
+			)...,
 		)
 		http.Error(w, "provider error", http.StatusBadGateway)
 		return
@@ -172,21 +176,25 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 	allMsgs := append(storeMsgs, assistantMsg)
 	if _, err := s.convs.Create(responseID, result.Model, allMsgs); err != nil {
 		s.logger.ErrorContext(r.Context(), "failed to store conversation",
-			slog.String("request_id", logger.FromContext(r.Context())),
-			slog.String("response_id", responseID),
-			slog.String("error", err.Error()),
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("response_id", responseID),
+				slog.String("error", err.Error()),
+			)...,
 		)
 		// Don't fail the response if storage fails
 	}
 
 	s.logger.InfoContext(r.Context(), "response generated",
-		slog.String("request_id", logger.FromContext(r.Context())),
-		slog.String("provider", provider.Name()),
-		slog.String("model", result.Model),
-		slog.String("response_id", responseID),
-		slog.Int("input_tokens", result.Usage.InputTokens),
-		slog.Int("output_tokens", result.Usage.OutputTokens),
-		slog.Bool("has_tool_calls", len(result.ToolCalls) > 0),
+		logger.LogAttrsWithTrace(r.Context(),
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("provider", provider.Name()),
+			slog.String("model", result.Model),
+			slog.String("response_id", responseID),
+			slog.Int("input_tokens", result.Usage.InputTokens),
+			slog.Int("output_tokens", result.Usage.OutputTokens),
+			slog.Bool("has_tool_calls", len(result.ToolCalls) > 0),
+		)...,
 	)
 
 	// Build spec-compliant response
@@ -374,10 +382,12 @@ loop:
 
 	if streamErr != nil {
 		s.logger.ErrorContext(r.Context(), "stream error",
-			slog.String("request_id", logger.FromContext(r.Context())),
-			slog.String("provider", provider.Name()),
-			slog.String("model", origReq.Model),
-			slog.String("error", streamErr.Error()),
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("provider", provider.Name()),
+				slog.String("model", origReq.Model),
+				slog.String("error", streamErr.Error()),
+			)...,
 		)
 		failedResp := s.buildResponse(origReq, &api.ProviderResult{
 			Model: origReq.Model,

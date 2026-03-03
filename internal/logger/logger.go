@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 type contextKey string
@@ -56,4 +58,16 @@ func FromContext(ctx context.Context) string {
 		return id
 	}
 	return ""
+}
+
+// LogAttrsWithTrace adds trace context to log attributes for correlation.
+func LogAttrsWithTrace(ctx context.Context, attrs ...any) []any {
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if spanCtx.IsValid() {
+		attrs = append(attrs,
+			slog.String("trace_id", spanCtx.TraceID().String()),
+			slog.String("span_id", spanCtx.SpanID().String()),
+		)
+	}
+	return attrs
 }
