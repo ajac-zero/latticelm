@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -120,10 +122,44 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	logger.Info("open responses gateway listening", slog.String("address", addr))
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Error("server error", slog.String("error", err.Error()))
-		os.Exit(1)
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Run server in a goroutine
+	serverErrors := make(chan error, 1)
+	go func() {
+		logger.Info("open responses gateway listening", slog.String("address", addr))
+		serverErrors <- srv.ListenAndServe()
+	}()
+
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	case sig := <-sigChan:
+		logger.Info("received shutdown signal", slog.String("signal", sig.String()))
+
+		// Create shutdown context with timeout
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		// Shutdown the HTTP server gracefully
+		logger.Info("shutting down server gracefully")
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("server shutdown error", slog.String("error", err.Error()))
+		}
+
+		// Close conversation store
+		logger.Info("closing conversation store")
+		if err := convStore.Close(); err != nil {
+			logger.Error("error closing conversation store", slog.String("error", err.Error()))
+		}
+
+		logger.Info("shutdown complete")
 	}
 }
 

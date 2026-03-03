@@ -41,6 +41,7 @@ type SQLStore struct {
 	db      *sql.DB
 	ttl     time.Duration
 	dialect sqlDialect
+	done    chan struct{}
 }
 
 // NewSQLStore creates a SQL-backed conversation store. It creates the
@@ -58,7 +59,12 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 		return nil, err
 	}
 
-	s := &SQLStore{db: db, ttl: ttl, dialect: newDialect(driver)}
+	s := &SQLStore{
+		db:      db,
+		ttl:     ttl,
+		dialect: newDialect(driver),
+		done:    make(chan struct{}),
+	}
 	if ttl > 0 {
 		go s.cleanup()
 	}
@@ -144,8 +150,19 @@ func (s *SQLStore) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cutoff := time.Now().Add(-s.ttl)
-		_, _ = s.db.Exec(s.dialect.cleanup, cutoff)
+	for {
+		select {
+		case <-ticker.C:
+			cutoff := time.Now().Add(-s.ttl)
+			_, _ = s.db.Exec(s.dialect.cleanup, cutoff)
+		case <-s.done:
+			return
+		}
 	}
+}
+
+// Close stops the cleanup goroutine and closes the database connection.
+func (s *SQLStore) Close() error {
+	close(s.done)
+	return s.db.Close()
 }

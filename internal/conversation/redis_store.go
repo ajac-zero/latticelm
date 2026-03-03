@@ -122,3 +122,8 @@ func (s *RedisStore) Size() int {
 
 	return count
 }
+
+// Close closes the Redis client connection.
+func (s *RedisStore) Close() error {
+	return s.client.Close()
+}

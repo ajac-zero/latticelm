@@ -220,6 +220,10 @@ func (m *mockConversationStore) Size() int {
 	return len(m.conversations)
 }
 
+func (m *mockConversationStore) Close() error {
+	return nil
+}
+
 func (m *mockConversationStore) setConversation(id string, conv *conversation.Conversation) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
