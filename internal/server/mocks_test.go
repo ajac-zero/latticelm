@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"sync"
 	"unsafe"
@@ -250,8 +250,10 @@ func (m *mockLogger) getLogs() []string {
 	return append([]string{}, m.logs...)
 }
 
-func (m *mockLogger) asLogger() *log.Logger {
-	return log.New(m, "", 0)
+func (m *mockLogger) asLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(m, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 }
 
 func (m *mockLogger) Write(p []byte) (n int, err error) {

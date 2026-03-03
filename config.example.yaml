@@ -1,6 +1,10 @@
 server:
   address: ":8080"
 
+logging:
+  format: "json"  # "json" for production, "text" for development
+  level: "info"   # "debug", "info", "warn", or "error"
+
 providers:
   google:
     type: "google"

@@ -1,0 +1,16 @@
+server:
+  address: ":8080"
+
+logging:
+  format: "text"  # text format for easy reading in development
+  level: "debug"  # debug level to see all logs
+
+providers:
+  mock:
+    type: "openai"
+    api_key: "test-key"
+    endpoint: "https://api.openai.com"
+
+models:
+  - name: "gpt-4o-mini"
+    provider: "mock"

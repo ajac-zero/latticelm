@@ -14,6 +14,7 @@ type Config struct {
 	Models        []ModelEntry             `yaml:"models"`
 	Auth          AuthConfig               `yaml:"auth"`
 	Conversations ConversationConfig       `yaml:"conversations"`
+	Logging       LoggingConfig            `yaml:"logging"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -28,6 +29,14 @@ type ConversationConfig struct {
 	// Driver is the SQL driver name, required when store is "sql".
 	// Examples: "sqlite3", "postgres", "mysql".
 	Driver string `yaml:"driver"`
+}
+
+// LoggingConfig controls logging format and level.
+type LoggingConfig struct {
+	// Format is the log output format: "json" (default) or "text".
+	Format string `yaml:"format"`
+	// Level is the minimum log level: "debug", "info" (default), "warn", or "error".
+	Level string `yaml:"level"`
 }
 
 // AuthConfig holds OIDC authentication settings.

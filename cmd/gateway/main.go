@@ -6,11 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/redis/go-redis/v9"
@@ -18,6 +20,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
+	slogger "github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/ajac-zero/latticelm/internal/server"
 )
@@ -32,12 +35,22 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	// Initialize logger from config
+	logFormat := cfg.Logging.Format
+	if logFormat == "" {
+		logFormat = "json"
+	}
+	logLevel := cfg.Logging.Level
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	logger := slogger.New(logFormat, logLevel)
+
 	registry, err := providers.NewRegistry(cfg.Providers, cfg.Models)
 	if err != nil {
-		log.Fatalf("init providers: %v", err)
+		logger.Error("failed to initialize providers", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-
-	logger := log.New(os.Stdout, "gateway ", log.LstdFlags|log.Lshortfile)
 
 	// Initialize authentication middleware
 	authConfig := auth.Config{
@@ -47,19 +60,21 @@ func main() {
 	}
 	authMiddleware, err := auth.New(authConfig)
 	if err != nil {
-		log.Fatalf("init auth: %v", err)
+		logger.Error("failed to initialize auth", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
 	if cfg.Auth.Enabled {
-		logger.Printf("Authentication enabled (issuer: %s)", cfg.Auth.Issuer)
+		logger.Info("authentication enabled", slog.String("issuer", cfg.Auth.Issuer))
 	} else {
-		logger.Printf("Authentication disabled - WARNING: API is publicly accessible")
+		logger.Warn("authentication disabled - API is publicly accessible")
 	}
 
 	// Initialize conversation store
 	convStore, err := initConversationStore(cfg.Conversations, logger)
 	if err != nil {
-		log.Fatalf("init conversation store: %v", err)
+		logger.Error("failed to initialize conversation store", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
 	gatewayServer := server.New(registry, convStore, logger)
@@ -82,13 +97,14 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	logger.Printf("Open Responses gateway listening on %s", addr)
+	logger.Info("open responses gateway listening", slog.String("address", addr))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Fatalf("server error: %v", err)
+		logger.Error("server error", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 }
 
-func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (conversation.Store, error) {
+func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (conversation.Store, error) {
 	var ttl time.Duration
 	if cfg.TTL != "" {
 		parsed, err := time.ParseDuration(cfg.TTL)
@@ -112,7 +128,11 @@ func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (c
 		if err != nil {
 			return nil, fmt.Errorf("init sql store: %w", err)
 		}
-		logger.Printf("Conversation store initialized (sql/%s, TTL: %s)", driver, ttl)
+		logger.Info("conversation store initialized",
+			slog.String("backend", "sql"),
+			slog.String("driver", driver),
+			slog.Duration("ttl", ttl),
+		)
 		return store, nil
 	case "redis":
 		opts, err := redis.ParseURL(cfg.DSN)
@@ -128,17 +148,83 @@ func initConversationStore(cfg config.ConversationConfig, logger *log.Logger) (c
 			return nil, fmt.Errorf("connect to redis: %w", err)
 		}
 
-		logger.Printf("Conversation store initialized (redis, TTL: %s)", ttl)
+		logger.Info("conversation store initialized",
+			slog.String("backend", "redis"),
+			slog.Duration("ttl", ttl),
+		)
 		return conversation.NewRedisStore(client, ttl), nil
 	default:
-		logger.Printf("Conversation store initialized (memory, TTL: %s)", ttl)
+		logger.Info("conversation store initialized",
+			slog.String("backend", "memory"),
+			slog.Duration("ttl", ttl),
+		)
 		return conversation.NewMemoryStore(ttl), nil
 	}
 }
-func loggingMiddleware(next http.Handler, logger *log.Logger) http.Handler {
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	n, err := rw.ResponseWriter.Write(b)
+	rw.bytesWritten += n
+	return n, err
+}
+
+func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+
+		// Generate request ID
+		requestID := uuid.NewString()
+		ctx := slogger.WithRequestID(r.Context(), requestID)
+		r = r.WithContext(ctx)
+
+		// Wrap response writer to capture status code
+		rw := &responseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+
+		// Add request ID header
+		w.Header().Set("X-Request-ID", requestID)
+
+		// Log request start
+		logger.InfoContext(ctx, "request started",
+			slog.String("request_id", requestID),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("remote_addr", r.RemoteAddr),
+			slog.String("user_agent", r.UserAgent()),
+		)
+
+		next.ServeHTTP(rw, r)
+
+		duration := time.Since(start)
+
+		// Log request completion with appropriate level
+		logLevel := slog.LevelInfo
+		if rw.statusCode >= 500 {
+			logLevel = slog.LevelError
+		} else if rw.statusCode >= 400 {
+			logLevel = slog.LevelWarn
+		}
+
+		logger.Log(ctx, logLevel, "request completed",
+			slog.String("request_id", requestID),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status_code", rw.statusCode),
+			slog.Int("response_bytes", rw.bytesWritten),
+			slog.Duration("duration", duration),
+			slog.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
 	})
 }

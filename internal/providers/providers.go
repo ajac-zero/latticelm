@@ -97,7 +97,7 @@ func buildProvider(entry config.ProviderEntry) (Provider, error) {
 		return googleprovider.New(config.ProviderConfig{
 			APIKey:   entry.APIKey,
 			Endpoint: entry.Endpoint,
-		}), nil
+		})
 	case "vertexai":
 		if entry.Project == "" || entry.Location == "" {
 			return nil, fmt.Errorf("project and location are required for vertexai")
@@ -105,7 +105,7 @@ func buildProvider(entry config.ProviderEntry) (Provider, error) {
 		return googleprovider.NewVertexAI(config.VertexAIConfig{
 			Project:  entry.Project,
 			Location: entry.Location,
-		}), nil
+		})
 	default:
 		return nil, fmt.Errorf("unknown provider type %q", entry.Type)
 	}
