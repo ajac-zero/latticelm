@@ -15,6 +15,7 @@ type Config struct {
 	Auth          AuthConfig               `yaml:"auth"`
 	Conversations ConversationConfig       `yaml:"conversations"`
 	Logging       LoggingConfig            `yaml:"logging"`
+	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -37,6 +38,16 @@ type LoggingConfig struct {
 	Format string `yaml:"format"`
 	// Level is the minimum log level: "debug", "info" (default), "warn", or "error".
 	Level string `yaml:"level"`
+}
+
+// RateLimitConfig controls rate limiting behavior.
+type RateLimitConfig struct {
+	// Enabled controls whether rate limiting is active.
+	Enabled bool `yaml:"enabled"`
+	// RequestsPerSecond is the number of requests allowed per second per IP.
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	// Burst is the maximum burst size allowed.
+	Burst int `yaml:"burst"`
 }
 
 // AuthConfig holds OIDC authentication settings.

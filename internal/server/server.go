@@ -44,6 +44,8 @@ func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logge
 func (s *GatewayServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
 	mux.HandleFunc("/v1/models", s.handleModels)
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ready", s.handleReady)
 }
 
 func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {

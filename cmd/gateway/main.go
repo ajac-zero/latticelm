@@ -22,6 +22,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	slogger "github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
+	"github.com/ajac-zero/latticelm/internal/ratelimit"
 	"github.com/ajac-zero/latticelm/internal/server"
 )
 
@@ -86,8 +87,30 @@ func main() {
 		addr = ":8080"
 	}
 
-	// Build handler chain: logging -> auth -> routes
-	handler := loggingMiddleware(authMiddleware.Handler(mux), logger)
+	// Initialize rate limiting
+	rateLimitConfig := ratelimit.Config{
+		Enabled:           cfg.RateLimit.Enabled,
+		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
+		Burst:             cfg.RateLimit.Burst,
+	}
+	// Set defaults if not configured
+	if rateLimitConfig.Enabled && rateLimitConfig.RequestsPerSecond == 0 {
+		rateLimitConfig.RequestsPerSecond = 10 // default 10 req/s
+	}
+	if rateLimitConfig.Enabled && rateLimitConfig.Burst == 0 {
+		rateLimitConfig.Burst = 20 // default burst of 20
+	}
+	rateLimitMiddleware := ratelimit.New(rateLimitConfig, logger)
+
+	if cfg.RateLimit.Enabled {
+		logger.Info("rate limiting enabled",
+			slog.Float64("requests_per_second", rateLimitConfig.RequestsPerSecond),
+			slog.Int("burst", rateLimitConfig.Burst),
+		)
+	}
+
+	// Build handler chain: logging -> rate limiting -> auth -> routes
+	handler := loggingMiddleware(rateLimitMiddleware.Handler(authMiddleware.Handler(mux)), logger)
 
 	srv := &http.Server{
 		Addr:         addr,

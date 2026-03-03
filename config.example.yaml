@@ -5,6 +5,11 @@ logging:
   format: "json"  # "json" for production, "text" for development
   level: "info"   # "debug", "info", "warn", or "error"
 
+rate_limit:
+  enabled: false  # Enable rate limiting (recommended for production)
+  requests_per_second: 10  # Max requests per second per IP (default: 10)
+  burst: 20  # Maximum burst size (default: 20)
+
 providers:
   google:
     type: "google"
