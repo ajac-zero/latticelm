@@ -107,7 +107,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	// Build full message history from previous conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
-		conv, err := s.convs.Get(*req.PreviousResponseID)
+		conv, err := s.convs.Get(r.Context(), *req.PreviousResponseID)
 		if err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to retrieve conversation",
 				logger.LogAttrsWithTrace(r.Context(),
@@ -186,7 +186,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 		ToolCalls: result.ToolCalls,
 	}
 	allMsgs := append(storeMsgs, assistantMsg)
-	if _, err := s.convs.Create(responseID, result.Model, allMsgs); err != nil {
+	if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs); err != nil {
 		s.logger.ErrorContext(r.Context(), "failed to store conversation",
 			logger.LogAttrsWithTrace(r.Context(),
 				slog.String("request_id", logger.FromContext(r.Context())),
@@ -543,7 +543,7 @@ loop:
 			ToolCalls: toolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(responseID, model, allMsgs); err != nil {
+		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				slog.String("request_id", logger.FromContext(r.Context())),
 				slog.String("response_id", responseID),

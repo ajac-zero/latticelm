@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -213,7 +214,7 @@ func TestNew(t *testing.T) {
 				}
 			}
 
-			m, err := New(tt.config)
+			m, err := New(tt.config, slog.Default())
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -239,7 +240,7 @@ func TestMiddleware_Handler(t *testing.T) {
 		Issuer:   server.server.URL,
 		Audience: testAudience,
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
 	// Create a test handler that echoes back claims
@@ -415,7 +416,7 @@ func TestMiddleware_Handler_DisabledAuth(t *testing.T) {
 	cfg := Config{
 		Enabled: false,
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -442,7 +443,7 @@ func TestValidateToken(t *testing.T) {
 		Issuer:   server.server.URL,
 		Audience: testAudience,
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -665,7 +666,7 @@ func TestValidateToken_NoAudienceConfigured(t *testing.T) {
 		Issuer:   server.server.URL,
 		Audience: "", // No audience required
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
 	// Token without audience should be valid
@@ -897,7 +898,7 @@ func TestRefreshJWKS_Concurrency(t *testing.T) {
 		Issuer:   server.server.URL,
 		Audience: testAudience,
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
 	// Trigger concurrent refreshes
@@ -982,7 +983,7 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 		Issuer:   server.server.URL + "/", // Trailing slash
 		Audience: testAudience,
 	}
-	m, err := New(cfg)
+	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	assert.Len(t, m.keys, 1)

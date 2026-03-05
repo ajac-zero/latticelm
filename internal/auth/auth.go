@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -28,12 +29,13 @@ type Middleware struct {
 	keys   map[string]*rsa.PublicKey
 	mu     sync.RWMutex
 	client *http.Client
+	logger *slog.Logger
 }
 
 // New creates an authentication middleware.
-func New(cfg Config) (*Middleware, error) {
+func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 	if !cfg.Enabled {
-		return &Middleware{cfg: cfg}, nil
+		return &Middleware{cfg: cfg, logger: logger}, nil
 	}
 
 	if cfg.Issuer == "" {
@@ -44,6 +46,7 @@ func New(cfg Config) (*Middleware, error) {
 		cfg:    cfg,
 		keys:   make(map[string]*rsa.PublicKey),
 		client: &http.Client{Timeout: 10 * time.Second},
+		logger: logger,
 	}
 
 	// Fetch JWKS on startup
@@ -255,6 +258,15 @@ func (m *Middleware) periodicRefresh() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		_ = m.refreshJWKS()
+		if err := m.refreshJWKS(); err != nil {
+			m.logger.Error("failed to refresh JWKS",
+				slog.String("issuer", m.cfg.Issuer),
+				slog.String("error", err.Error()),
+			)
+		} else {
+			m.logger.Debug("successfully refreshed JWKS",
+				slog.String("issuer", m.cfg.Issuer),
+			)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"time"
@@ -71,8 +72,8 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 	return s, nil
 }
 
-func (s *SQLStore) Get(id string) (*Conversation, error) {
-	row := s.db.QueryRow(s.dialect.getByID, id)
+func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
+	row := s.db.QueryRowContext(ctx, s.dialect.getByID, id)
 
 	var conv Conversation
 	var msgJSON string
@@ -91,14 +92,14 @@ func (s *SQLStore) Get(id string) (*Conversation, error) {
 	return &conv, nil
 }
 
-func (s *SQLStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
 	now := time.Now()
 	msgJSON, err := json.Marshal(messages)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(s.dialect.upsert, id, model, string(msgJSON), now, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), now, now); err != nil {
 		return nil, err
 	}
 
@@ -111,8 +112,8 @@ func (s *SQLStore) Create(id string, model string, messages []api.Message) (*Con
 	}, nil
 }
 
-func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, error) {
-	conv, err := s.Get(id)
+func (s *SQLStore) Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error) {
+	conv, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -128,15 +129,15 @@ func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, er
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(s.dialect.update, string(msgJSON), conv.UpdatedAt, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.update, string(msgJSON), conv.UpdatedAt, id); err != nil {
 		return nil, err
 	}
 
 	return conv, nil
 }
 
-func (s *SQLStore) Delete(id string) error {
-	_, err := s.db.Exec(s.dialect.deleteByID, id)
+func (s *SQLStore) Delete(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, s.dialect.deleteByID, id)
 	return err
 }
 

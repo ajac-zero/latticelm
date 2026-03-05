@@ -156,7 +156,7 @@ func newMockConversationStore() *mockConversationStore {
 	}
 }
 
-func (m *mockConversationStore) Get(id string) (*conversation.Conversation, error) {
+func (m *mockConversationStore) Get(ctx context.Context, id string) (*conversation.Conversation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -170,7 +170,7 @@ func (m *mockConversationStore) Get(id string) (*conversation.Conversation, erro
 	return conv, nil
 }
 
-func (m *mockConversationStore) Create(id string, model string, messages []api.Message) (*conversation.Conversation, error) {
+func (m *mockConversationStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*conversation.Conversation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -187,7 +187,7 @@ func (m *mockConversationStore) Create(id string, model string, messages []api.M
 	return conv, nil
 }
 
-func (m *mockConversationStore) Append(id string, messages ...api.Message) (*conversation.Conversation, error) {
+func (m *mockConversationStore) Append(ctx context.Context, id string, messages ...api.Message) (*conversation.Conversation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -203,7 +203,7 @@ func (m *mockConversationStore) Append(id string, messages ...api.Message) (*con
 	return conv, nil
 }
 
-func (m *mockConversationStore) Delete(id string) error {
+func (m *mockConversationStore) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

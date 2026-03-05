@@ -110,7 +110,7 @@ func main() {
 		Issuer:   cfg.Auth.Issuer,
 		Audience: cfg.Auth.Audience,
 	}
-	authMiddleware, err := auth.New(authConfig)
+	authMiddleware, err := auth.New(authConfig, logger)
 	if err != nil {
 		logger.Error("failed to initialize auth", slog.String("error", err.Error()))
 		os.Exit(1)

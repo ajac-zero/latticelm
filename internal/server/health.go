@@ -51,7 +51,7 @@ func (s *GatewayServer) handleReady(w http.ResponseWriter, r *http.Request) {
 
 	// Test conversation store by attempting a simple operation
 	testID := "health_check_test"
-	_, err := s.convs.Get(testID)
+	_, err := s.convs.Get(ctx, testID)
 	if err != nil {
 		checks["conversation_store"] = "unhealthy: " + err.Error()
 		allHealthy = false

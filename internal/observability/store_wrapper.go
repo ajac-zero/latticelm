@@ -42,9 +42,7 @@ func NewInstrumentedStore(s conversation.Store, backend string, registry *promet
 }
 
 // Get wraps the store's Get method with metrics and tracing.
-func (s *InstrumentedStore) Get(id string) (*conversation.Conversation, error) {
-	ctx := context.Background()
-
+func (s *InstrumentedStore) Get(ctx context.Context, id string) (*conversation.Conversation, error) {
 	// Start span if tracing is enabled
 	if s.tracer != nil {
 		var span trace.Span
@@ -61,7 +59,7 @@ func (s *InstrumentedStore) Get(id string) (*conversation.Conversation, error) {
 	start := time.Now()
 
 	// Call underlying store
-	conv, err := s.base.Get(id)
+	conv, err := s.base.Get(ctx, id)
 
 	// Record metrics
 	duration := time.Since(start).Seconds()
@@ -95,9 +93,7 @@ func (s *InstrumentedStore) Get(id string) (*conversation.Conversation, error) {
 }
 
 // Create wraps the store's Create method with metrics and tracing.
-func (s *InstrumentedStore) Create(id string, model string, messages []api.Message) (*conversation.Conversation, error) {
-	ctx := context.Background()
-
+func (s *InstrumentedStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*conversation.Conversation, error) {
 	// Start span if tracing is enabled
 	if s.tracer != nil {
 		var span trace.Span
@@ -116,7 +112,7 @@ func (s *InstrumentedStore) Create(id string, model string, messages []api.Messa
 	start := time.Now()
 
 	// Call underlying store
-	conv, err := s.base.Create(id, model, messages)
+	conv, err := s.base.Create(ctx, id, model, messages)
 
 	// Record metrics
 	duration := time.Since(start).Seconds()
@@ -146,9 +142,7 @@ func (s *InstrumentedStore) Create(id string, model string, messages []api.Messa
 }
 
 // Append wraps the store's Append method with metrics and tracing.
-func (s *InstrumentedStore) Append(id string, messages ...api.Message) (*conversation.Conversation, error) {
-	ctx := context.Background()
-
+func (s *InstrumentedStore) Append(ctx context.Context, id string, messages ...api.Message) (*conversation.Conversation, error) {
 	// Start span if tracing is enabled
 	if s.tracer != nil {
 		var span trace.Span
@@ -166,7 +160,7 @@ func (s *InstrumentedStore) Append(id string, messages ...api.Message) (*convers
 	start := time.Now()
 
 	// Call underlying store
-	conv, err := s.base.Append(id, messages...)
+	conv, err := s.base.Append(ctx, id, messages...)
 
 	// Record metrics
 	duration := time.Since(start).Seconds()
@@ -199,9 +193,7 @@ func (s *InstrumentedStore) Append(id string, messages ...api.Message) (*convers
 }
 
 // Delete wraps the store's Delete method with metrics and tracing.
-func (s *InstrumentedStore) Delete(id string) error {
-	ctx := context.Background()
-
+func (s *InstrumentedStore) Delete(ctx context.Context, id string) error {
 	// Start span if tracing is enabled
 	if s.tracer != nil {
 		var span trace.Span
@@ -218,7 +210,7 @@ func (s *InstrumentedStore) Delete(id string) error {
 	start := time.Now()
 
 	// Call underlying store
-	err := s.base.Delete(id)
+	err := s.base.Delete(ctx, id)
 
 	// Record metrics
 	duration := time.Since(start).Seconds()

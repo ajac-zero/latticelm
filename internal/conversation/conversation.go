@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -9,10 +10,10 @@ import (
 
 // Store defines the interface for conversation storage backends.
 type Store interface {
-	Get(id string) (*Conversation, error)
-	Create(id string, model string, messages []api.Message) (*Conversation, error)
-	Append(id string, messages ...api.Message) (*Conversation, error)
-	Delete(id string) error
+	Get(ctx context.Context, id string) (*Conversation, error)
+	Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error)
+	Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error)
+	Delete(ctx context.Context, id string) error
 	Size() int
 	Close() error
 }
@@ -51,7 +52,7 @@ func NewMemoryStore(ttl time.Duration) *MemoryStore {
 }
 
 // Get retrieves a conversation by ID. Returns a deep copy to prevent data races.
-func (s *MemoryStore) Get(id string) (*Conversation, error) {
+func (s *MemoryStore) Get(ctx context.Context, id string) (*Conversation, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -74,7 +75,7 @@ func (s *MemoryStore) Get(id string) (*Conversation, error) {
 }
 
 // Create creates a new conversation with the given messages.
-func (s *MemoryStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *MemoryStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -105,7 +106,7 @@ func (s *MemoryStore) Create(id string, model string, messages []api.Message) (*
 }
 
 // Append adds new messages to an existing conversation.
-func (s *MemoryStore) Append(id string, messages ...api.Message) (*Conversation, error) {
+func (s *MemoryStore) Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -131,7 +132,7 @@ func (s *MemoryStore) Append(id string, messages ...api.Message) (*Conversation,
 }
 
 // Delete removes a conversation from the store.
-func (s *MemoryStore) Delete(id string) error {
+func (s *MemoryStore) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

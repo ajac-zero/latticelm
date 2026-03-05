@@ -13,7 +13,6 @@ import (
 type RedisStore struct {
 	client *redis.Client
 	ttl    time.Duration
-	ctx    context.Context
 }
 
 // NewRedisStore creates a Redis-backed conversation store.
@@ -21,7 +20,6 @@ func NewRedisStore(client *redis.Client, ttl time.Duration) *RedisStore {
 	return &RedisStore{
 		client: client,
 		ttl:    ttl,
-		ctx:    context.Background(),
 	}
 }
 
@@ -31,8 +29,8 @@ func (s *RedisStore) key(id string) string {
 }
 
 // Get retrieves a conversation by ID from Redis.
-func (s *RedisStore) Get(id string) (*Conversation, error) {
-	data, err := s.client.Get(s.ctx, s.key(id)).Bytes()
+func (s *RedisStore) Get(ctx context.Context, id string) (*Conversation, error) {
+	data, err := s.client.Get(ctx, s.key(id)).Bytes()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -49,7 +47,7 @@ func (s *RedisStore) Get(id string) (*Conversation, error) {
 }
 
 // Create creates a new conversation with the given messages.
-func (s *RedisStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *RedisStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
 	now := time.Now()
 	conv := &Conversation{
 		ID:        id,
@@ -64,7 +62,7 @@ func (s *RedisStore) Create(id string, model string, messages []api.Message) (*C
 		return nil, err
 	}
 
-	if err := s.client.Set(s.ctx, s.key(id), data, s.ttl).Err(); err != nil {
+	if err := s.client.Set(ctx, s.key(id), data, s.ttl).Err(); err != nil {
 		return nil, err
 	}
 
@@ -72,8 +70,8 @@ func (s *RedisStore) Create(id string, model string, messages []api.Message) (*C
 }
 
 // Append adds new messages to an existing conversation.
-func (s *RedisStore) Append(id string, messages ...api.Message) (*Conversation, error) {
-	conv, err := s.Get(id)
+func (s *RedisStore) Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error) {
+	conv, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +87,7 @@ func (s *RedisStore) Append(id string, messages ...api.Message) (*Conversation, 
 		return nil, err
 	}
 
-	if err := s.client.Set(s.ctx, s.key(id), data, s.ttl).Err(); err != nil {
+	if err := s.client.Set(ctx, s.key(id), data, s.ttl).Err(); err != nil {
 		return nil, err
 	}
 
@@ -97,17 +95,18 @@ func (s *RedisStore) Append(id string, messages ...api.Message) (*Conversation, 
 }
 
 // Delete removes a conversation from Redis.
-func (s *RedisStore) Delete(id string) error {
-	return s.client.Del(s.ctx, s.key(id)).Err()
+func (s *RedisStore) Delete(ctx context.Context, id string) error {
+	return s.client.Del(ctx, s.key(id)).Err()
 }
 
 // Size returns the number of active conversations in Redis.
 func (s *RedisStore) Size() int {
 	var count int
 	var cursor uint64
+	ctx := context.Background()
 
 	for {
-		keys, nextCursor, err := s.client.Scan(s.ctx, cursor, "conv:*", 100).Result()
+		keys, nextCursor, err := s.client.Scan(ctx, cursor, "conv:*", 100).Result()
 		if err != nil {
 			return 0
 		}

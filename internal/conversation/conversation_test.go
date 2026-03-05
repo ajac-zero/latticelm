@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestMemoryStore_CreateAndGet(t *testing.T) {
 		},
 	}
 
-	conv, err := store.Create("test-id", "gpt-4", messages)
+	conv, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 	assert.Equal(t, "test-id", conv.ID)
@@ -29,7 +30,7 @@ func TestMemoryStore_CreateAndGet(t *testing.T) {
 	assert.Len(t, conv.Messages, 1)
 	assert.Equal(t, "Hello", conv.Messages[0].Content[0].Text)
 
-	retrieved, err := store.Get("test-id")
+	retrieved, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	assert.Equal(t, conv.ID, retrieved.ID)
@@ -40,7 +41,7 @@ func TestMemoryStore_CreateAndGet(t *testing.T) {
 func TestMemoryStore_GetNonExistent(t *testing.T) {
 	store := NewMemoryStore(1 * time.Hour)
 
-	conv, err := store.Get("nonexistent")
+	conv, err := store.Get(context.Background(),"nonexistent")
 	require.NoError(t, err)
 	assert.Nil(t, conv, "should return nil for nonexistent conversation")
 }
@@ -57,7 +58,7 @@ func TestMemoryStore_Append(t *testing.T) {
 		},
 	}
 
-	_, err := store.Create("test-id", "gpt-4", initialMessages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", initialMessages)
 	require.NoError(t, err)
 
 	newMessages := []api.Message{
@@ -75,7 +76,7 @@ func TestMemoryStore_Append(t *testing.T) {
 		},
 	}
 
-	conv, err := store.Append("test-id", newMessages...)
+	conv, err := store.Append(context.Background(),"test-id", newMessages...)
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 	assert.Len(t, conv.Messages, 3, "should have all messages")
@@ -94,7 +95,7 @@ func TestMemoryStore_AppendNonExistent(t *testing.T) {
 		},
 	}
 
-	conv, err := store.Append("nonexistent", newMessage)
+	conv, err := store.Append(context.Background(),"nonexistent", newMessage)
 	require.NoError(t, err)
 	assert.Nil(t, conv, "should return nil when appending to nonexistent conversation")
 }
@@ -111,20 +112,20 @@ func TestMemoryStore_Delete(t *testing.T) {
 		},
 	}
 
-	_, err := store.Create("test-id", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 
 	// Verify it exists
-	conv, err := store.Get("test-id")
+	conv, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.NotNil(t, conv)
 
 	// Delete it
-	err = store.Delete("test-id")
+	err = store.Delete(context.Background(),"test-id")
 	require.NoError(t, err)
 
 	// Verify it's gone
-	conv, err = store.Get("test-id")
+	conv, err = store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.Nil(t, conv, "conversation should be deleted")
 }
@@ -138,15 +139,15 @@ func TestMemoryStore_Size(t *testing.T) {
 		{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello"}}},
 	}
 
-	_, err := store.Create("conv-1", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"conv-1", "gpt-4", messages)
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.Size())
 
-	_, err = store.Create("conv-2", "gpt-4", messages)
+	_, err = store.Create(context.Background(),"conv-2", "gpt-4", messages)
 	require.NoError(t, err)
 	assert.Equal(t, 2, store.Size())
 
-	err = store.Delete("conv-1")
+	err = store.Delete(context.Background(),"conv-1")
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.Size())
 }
@@ -159,14 +160,14 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Create initial conversation
-	_, err := store.Create("test-id", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 
 	// Simulate concurrent reads and writes
 	done := make(chan bool, 10)
 	for i := 0; i < 5; i++ {
 		go func() {
-			_, _ = store.Get("test-id")
+			_, _ = store.Get(context.Background(),"test-id")
 			done <- true
 		}()
 	}
@@ -176,7 +177,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 				Role: "assistant",
 				Content: []api.ContentBlock{{Type: "output_text", Text: "Response"}},
 			}
-			_, _ = store.Append("test-id", newMsg)
+			_, _ = store.Append(context.Background(),"test-id", newMsg)
 			done <- true
 		}()
 	}
@@ -187,7 +188,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Verify final state
-	conv, err := store.Get("test-id")
+	conv, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.NotNil(t, conv)
 	assert.GreaterOrEqual(t, len(conv.Messages), 1)
@@ -205,11 +206,11 @@ func TestMemoryStore_DeepCopy(t *testing.T) {
 		},
 	}
 
-	_, err := store.Create("test-id", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 
 	// Get conversation
-	conv1, err := store.Get("test-id")
+	conv1, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 
 	// Note: Current implementation copies the Messages slice but not the Content blocks
@@ -225,7 +226,7 @@ func TestMemoryStore_DeepCopy(t *testing.T) {
 	assert.Equal(t, originalLen+1, len(conv1.Messages), "can modify returned message slice")
 
 	// Verify original is unchanged
-	conv2, err := store.Get("test-id")
+	conv2, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.Equal(t, originalLen, len(conv2.Messages), "original conversation unaffected by slice modification")
 }
@@ -238,11 +239,11 @@ func TestMemoryStore_TTLCleanup(t *testing.T) {
 		{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello"}}},
 	}
 
-	_, err := store.Create("test-id", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 
 	// Verify it exists
-	conv, err := store.Get("test-id")
+	conv, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.NotNil(t, conv)
 	assert.Equal(t, 1, store.Size())
@@ -265,12 +266,12 @@ func TestMemoryStore_NoTTL(t *testing.T) {
 		{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello"}}},
 	}
 
-	_, err := store.Create("test-id", "gpt-4", messages)
+	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.Size())
 
 	// Without TTL, conversation should persist indefinitely
-	conv, err := store.Get("test-id")
+	conv, err := store.Get(context.Background(),"test-id")
 	require.NoError(t, err)
 	assert.NotNil(t, conv)
 }
@@ -282,7 +283,7 @@ func TestMemoryStore_UpdatedAtTracking(t *testing.T) {
 		{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello"}}},
 	}
 
-	conv, err := store.Create("test-id", "gpt-4", messages)
+	conv, err := store.Create(context.Background(),"test-id", "gpt-4", messages)
 	require.NoError(t, err)
 	createdAt := conv.CreatedAt
 	updatedAt := conv.UpdatedAt
@@ -296,7 +297,7 @@ func TestMemoryStore_UpdatedAtTracking(t *testing.T) {
 		Role: "assistant",
 		Content: []api.ContentBlock{{Type: "output_text", Text: "Response"}},
 	}
-	conv, err = store.Append("test-id", newMsg)
+	conv, err = store.Append(context.Background(),"test-id", newMsg)
 	require.NoError(t, err)
 
 	assert.Equal(t, createdAt, conv.CreatedAt, "created time should not change")
@@ -313,7 +314,7 @@ func TestMemoryStore_MultipleConversations(t *testing.T) {
 		messages := []api.Message{
 			{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello " + id}}},
 		}
-		_, err := store.Create(id, model, messages)
+		_, err := store.Create(context.Background(),id, model, messages)
 		require.NoError(t, err)
 	}
 
@@ -322,7 +323,7 @@ func TestMemoryStore_MultipleConversations(t *testing.T) {
 	// Verify each conversation is independent
 	for i := 0; i < 10; i++ {
 		id := "conv-" + string(rune('0'+i))
-		conv, err := store.Get(id)
+		conv, err := store.Get(context.Background(),id)
 		require.NoError(t, err)
 		require.NotNil(t, conv)
 		assert.Equal(t, id, conv.ID)
