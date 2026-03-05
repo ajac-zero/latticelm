@@ -28,6 +28,16 @@ type Registry struct {
 
 // NewRegistry constructs provider implementations from configuration.
 func NewRegistry(entries map[string]config.ProviderEntry, models []config.ModelEntry) (*Registry, error) {
+	return NewRegistryWithCircuitBreaker(entries, models, nil)
+}
+
+// NewRegistryWithCircuitBreaker constructs provider implementations with circuit breaker support.
+// The onStateChange callback is invoked when circuit breaker state changes.
+func NewRegistryWithCircuitBreaker(
+	entries map[string]config.ProviderEntry,
+	models []config.ModelEntry,
+	onStateChange func(provider, from, to string),
+) (*Registry, error) {
 	reg := &Registry{
 		providers:        make(map[string]Provider),
 		models:           make(map[string]string),
@@ -35,13 +45,18 @@ func NewRegistry(entries map[string]config.ProviderEntry, models []config.ModelE
 		modelList:        models,
 	}
 
+	// Use default circuit breaker configuration
+	cbConfig := DefaultCircuitBreakerConfig()
+	cbConfig.OnStateChange = onStateChange
+
 	for name, entry := range entries {
 		p, err := buildProvider(entry)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", name, err)
 		}
 		if p != nil {
-			reg.providers[name] = p
+			// Wrap provider with circuit breaker
+			reg.providers[name] = NewCircuitBreakerProvider(p, cbConfig)
 		}
 	}
 

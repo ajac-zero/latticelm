@@ -118,6 +118,23 @@ var (
 		},
 		[]string{"backend"},
 	)
+
+	// Circuit Breaker Metrics
+	circuitBreakerState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "circuit_breaker_state",
+			Help: "Circuit breaker state (0=closed, 1=open, 2=half-open)",
+		},
+		[]string{"provider"},
+	)
+
+	circuitBreakerStateTransitions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "circuit_breaker_state_transitions_total",
+			Help: "Total number of circuit breaker state transitions",
+		},
+		[]string{"provider", "from", "to"},
+	)
 )
 
 // InitMetrics registers all metrics with a new Prometheus registry.
@@ -143,5 +160,27 @@ func InitMetrics() *prometheus.Registry {
 	registry.MustRegister(conversationOperationDuration)
 	registry.MustRegister(conversationActiveCount)
 
+	// Register circuit breaker metrics
+	registry.MustRegister(circuitBreakerState)
+	registry.MustRegister(circuitBreakerStateTransitions)
+
 	return registry
+}
+
+// RecordCircuitBreakerStateChange records a circuit breaker state transition.
+func RecordCircuitBreakerStateChange(provider, from, to string) {
+	// Record the transition
+	circuitBreakerStateTransitions.WithLabelValues(provider, from, to).Inc()
+
+	// Update the current state gauge
+	var stateValue float64
+	switch to {
+	case "closed":
+		stateValue = 0
+	case "open":
+		stateValue = 1
+	case "half-open":
+		stateValue = 2
+	}
+	circuitBreakerState.WithLabelValues(provider).Set(stateValue)
 }

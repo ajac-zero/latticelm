@@ -91,7 +91,19 @@ func main() {
 		logger.Info("metrics initialized", slog.String("path", metricsPath))
 	}
 
-	baseRegistry, err := providers.NewRegistry(cfg.Providers, cfg.Models)
+	// Create provider registry with circuit breaker support
+	var baseRegistry *providers.Registry
+	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
+		// Pass observability callback for circuit breaker state changes
+		baseRegistry, err = providers.NewRegistryWithCircuitBreaker(
+			cfg.Providers,
+			cfg.Models,
+			observability.RecordCircuitBreakerStateChange,
+		)
+	} else {
+		// No observability, use default registry
+		baseRegistry, err = providers.NewRegistry(cfg.Providers, cfg.Models)
+	}
 	if err != nil {
 		logger.Error("failed to initialize providers", slog.String("error", err.Error()))
 		os.Exit(1)
