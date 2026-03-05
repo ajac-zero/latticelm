@@ -148,7 +148,20 @@ func (s *SQLStore) Size() int {
 }
 
 func (s *SQLStore) cleanup() {
-	ticker := time.NewTicker(1 * time.Minute)
+	// Calculate cleanup interval as 10% of TTL, with sensible bounds
+	interval := s.ttl / 10
+
+	// Cap maximum interval at 1 minute for production
+	if interval > 1*time.Minute {
+		interval = 1 * time.Minute
+	}
+
+	// Allow small intervals for testing (as low as 10ms)
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

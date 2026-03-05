@@ -17,19 +17,14 @@ import (
 // InitTracer initializes the OpenTelemetry tracer provider.
 func InitTracer(cfg config.TracingConfig) (*sdktrace.TracerProvider, error) {
 	// Create resource with service information
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(cfg.ServiceName),
-		),
+	// Use NewSchemaless to avoid schema version conflicts
+	res := resource.NewSchemaless(
+		semconv.ServiceName(cfg.ServiceName),
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
-	}
 
 	// Create exporter
 	var exporter sdktrace.SpanExporter
+	var err error
 	switch cfg.Exporter.Type {
 	case "otlp":
 		exporter, err = createOTLPExporter(cfg.Exporter)
