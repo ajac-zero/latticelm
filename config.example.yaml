@@ -31,6 +31,9 @@ observability:
       # headers:  # Optional: custom headers for authentication
       #   authorization: "Bearer your-token-here"
 
+admin:
+  enabled: true  # Enable admin UI and API (default: false)
+
 providers:
   google:
     type: "google"

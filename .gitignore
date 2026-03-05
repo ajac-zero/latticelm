@@ -56,3 +56,8 @@ __pycache__/*
 
 # Node.js (compliance tests)
 tests/node_modules/
+
+# Frontend
+frontend/admin/node_modules/
+frontend/admin/dist/
+internal/admin/dist/

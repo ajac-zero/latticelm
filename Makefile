@@ -27,10 +27,26 @@ help: ## Show this help message
 	@echo "Targets:"
 	@awk 'BEGIN {FS = ":.*##"; printf "\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+# Frontend targets
+frontend-install: ## Install frontend dependencies
+	@echo "Installing frontend dependencies..."
+	cd frontend/admin && npm install
+
+frontend-build: ## Build frontend
+	@echo "Building frontend..."
+	cd frontend/admin && npm run build
+	rm -rf internal/admin/dist
+	cp -r frontend/admin/dist internal/admin/
+
+frontend-dev: ## Run frontend dev server
+	cd frontend/admin && npm run dev
+
 # Development targets
 build: ## Build the binary
 	@echo "Building $(APP_NAME)..."
 	CGO_ENABLED=1 $(GOBUILD) -o $(BUILD_DIR)/$(APP_NAME) ./cmd/gateway
+
+build-all: frontend-build build ## Build frontend and backend
 
 build-static: ## Build static binary
 	@echo "Building static binary..."
@@ -61,6 +77,8 @@ tidy: ## Tidy go modules
 clean: ## Clean build artifacts
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR)
+	rm -rf internal/admin/dist
+	rm -rf frontend/admin/dist
 	rm -f coverage.out coverage.html
 
 # Docker targets

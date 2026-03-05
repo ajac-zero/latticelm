@@ -17,6 +17,7 @@ type Config struct {
 	Logging       LoggingConfig            `yaml:"logging"`
 	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
 	Observability ObservabilityConfig      `yaml:"observability"`
+	Admin         AdminConfig              `yaml:"admin"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -91,6 +92,11 @@ type AuthConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Issuer   string `yaml:"issuer"`
 	Audience string `yaml:"audience"`
+}
+
+// AdminConfig controls the admin UI.
+type AdminConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ServerConfig controls HTTP server values.
