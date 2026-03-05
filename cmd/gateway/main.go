@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/ajac-zero/latticelm/internal/admin"
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
@@ -150,6 +152,19 @@ func main() {
 	gatewayServer := server.New(registry, convStore, logger)
 	mux := http.NewServeMux()
 	gatewayServer.RegisterRoutes(mux)
+
+	// Register admin endpoints if enabled
+	if cfg.Admin.Enabled {
+		buildInfo := admin.BuildInfo{
+			Version:   "dev",
+			BuildTime: time.Now().Format(time.RFC3339),
+			GitCommit: "unknown",
+			GoVersion: runtime.Version(),
+		}
+		adminServer := admin.New(registry, convStore, cfg, logger, buildInfo)
+		adminServer.RegisterRoutes(mux)
+		logger.Info("admin UI enabled", slog.String("path", "/admin/"))
+	}
 
 	// Register metrics endpoint if enabled
 	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {

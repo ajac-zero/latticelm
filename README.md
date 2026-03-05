@@ -63,6 +63,7 @@ latticelm (unified API)
 ✅ **Conversation tracking** (previous_response_id for efficient context)
 ✅ **Rate limiting** (Per-IP token bucket with configurable limits)
 ✅ **Health & readiness endpoints** (Kubernetes-compatible health checks)
+✅ **Admin Web UI** (Dashboard with system info, health checks, provider status)
 
 ## Quick Start
 
@@ -72,12 +73,12 @@ export OPENAI_API_KEY="your-key"
 export ANTHROPIC_API_KEY="your-key"
 export GOOGLE_API_KEY="your-key"
 
-# 2. Build
+# 2. Build (includes Admin UI)
 cd latticelm
-go build -o gateway ./cmd/gateway
+make build-all
 
 # 3. Run
-./gateway
+./bin/llm-gateway
 
 # 4. Test (non-streaming)
 curl -X POST http://localhost:8080/v1/chat/completions \
@@ -235,6 +236,46 @@ export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
 ```
 
 The `provider_model_id` field lets you map a friendly model name to the actual provider identifier (e.g., an Azure deployment name). If omitted, the model `name` is used directly. See **[AZURE_OPENAI.md](./AZURE_OPENAI.md)** for complete setup guide.
+
+## Admin Web UI
+
+The gateway includes a built-in admin web interface for monitoring and configuration.
+
+### Features
+
+- **System Information** - View version, uptime, platform details
+- **Health Checks** - Monitor server, providers, and conversation store status
+- **Provider Status** - View configured providers and their models
+- **Configuration** - View current configuration (with secrets masked)
+
+### Accessing the Admin UI
+
+1. Enable in config:
+```yaml
+admin:
+  enabled: true
+```
+
+2. Build with frontend assets:
+```bash
+make build-all
+```
+
+3. Access at: `http://localhost:8080/admin/`
+
+### Development Mode
+
+Run backend and frontend separately for development:
+
+```bash
+# Terminal 1: Run backend
+make dev-backend
+
+# Terminal 2: Run frontend dev server
+make dev-frontend
+```
+
+Frontend dev server runs on `http://localhost:5173` and proxies API requests to backend.
 
 ## Authentication
 
