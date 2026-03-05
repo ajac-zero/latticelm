@@ -1,0 +1,35 @@
+# ServiceMonitor for Prometheus Operator
+# Requires Prometheus Operator to be installed
+# https://github.com/prometheus-operator/prometheus-operator
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: llm-gateway
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: llm-gateway
+
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+    relabelings:
+    # Add namespace label
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+
+    # Add pod label
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: pod
+
+    # Add service label
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service

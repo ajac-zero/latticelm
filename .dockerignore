@@ -1,0 +1,65 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+*.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+/gateway
+/cmd/gateway/gateway
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Configuration files with secrets
+config.yaml
+config.json
+*-local.yaml
+*-local.json
+.env
+.env.local
+*.key
+*.pem
+
+# Test and coverage
+coverage.out
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies (will be downloaded during build)
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+tests/node_modules/
+
+# Jujutsu
+.jj/
+
+# Claude
+.claude/
+
+# Data directories
+data/
+*.db

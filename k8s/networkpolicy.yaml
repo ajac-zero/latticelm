@@ -1,0 +1,83 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-gateway
+
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Allow traffic from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  # Allow traffic from within the namespace (for debugging/testing)
+  - from:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  # Allow Prometheus scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+  # Allow Redis access
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+
+  # Allow external provider API access (OpenAI, Anthropic, Google)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Allow OTLP tracing export
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+      podSelector:
+        matchLabels:
+          app: tempo
+    ports:
+    - protocol: TCP
+      port: 4317

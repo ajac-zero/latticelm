@@ -1,0 +1,122 @@
+# PrometheusRule for alerting
+# Requires Prometheus Operator to be installed
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: llm-gateway
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: llm-gateway.rules
+    interval: 30s
+    rules:
+
+    # High error rate
+    - alert: LLMGatewayHighErrorRate
+      expr: |
+        (
+          sum(rate(http_requests_total{namespace="llm-gateway",status_code=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{namespace="llm-gateway"}[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-gateway
+      annotations:
+        summary: "High error rate in LLM Gateway"
+        description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+    # High latency
+    - alert: LLMGatewayHighLatency
+      expr: |
+        histogram_quantile(0.95,
+          sum(rate(http_request_duration_seconds_bucket{namespace="llm-gateway"}[5m])) by (le)
+        ) > 10
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-gateway
+      annotations:
+        summary: "High latency in LLM Gateway"
+        description: "P95 latency is {{ $value }}s (threshold: 10s)"
+
+    # Provider errors
+    - alert: LLMProviderHighErrorRate
+      expr: |
+        (
+          sum(rate(provider_requests_total{namespace="llm-gateway",status="error"}[5m])) by (provider)
+          /
+          sum(rate(provider_requests_total{namespace="llm-gateway"}[5m])) by (provider)
+        ) > 0.10
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-gateway
+      annotations:
+        summary: "High error rate for provider {{ $labels.provider }}"
+        description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+    # Pod down
+    - alert: LLMGatewayPodDown
+      expr: |
+        up{job="llm-gateway",namespace="llm-gateway"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: llm-gateway
+      annotations:
+        summary: "LLM Gateway pod is down"
+        description: "Pod {{ $labels.pod }} has been down for more than 2 minutes"
+
+    # High memory usage
+    - alert: LLMGatewayHighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{namespace="llm-gateway",container="gateway"}
+          /
+          container_spec_memory_limit_bytes{namespace="llm-gateway",container="gateway"}
+        ) > 0.85
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-gateway
+      annotations:
+        summary: "High memory usage in LLM Gateway"
+        description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 85%)"
+
+    # Rate limit threshold
+    - alert: LLMGatewayHighRateLimitHitRate
+      expr: |
+        (
+          sum(rate(http_requests_total{namespace="llm-gateway",status_code="429"}[5m]))
+          /
+          sum(rate(http_requests_total{namespace="llm-gateway"}[5m]))
+        ) > 0.20
+      for: 10m
+      labels:
+        severity: info
+        component: llm-gateway
+      annotations:
+        summary: "High rate limit hit rate"
+        description: "{{ $value | humanizePercentage }} of requests are being rate limited"
+
+    # Conversation store errors
+    - alert: LLMGatewayConversationStoreErrors
+      expr: |
+        (
+          sum(rate(conversation_store_operations_total{namespace="llm-gateway",status="error"}[5m]))
+          /
+          sum(rate(conversation_store_operations_total{namespace="llm-gateway"}[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-gateway
+      annotations:
+        summary: "High error rate in conversation store"
+        description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"

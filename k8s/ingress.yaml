@@ -1,0 +1,66 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-gateway
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+  annotations:
+    # General annotations
+    kubernetes.io/ingress.class: "nginx"
+
+    # TLS configuration
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+
+    # Rate limiting (supplement application-level rate limiting)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+
+    # Request size limit (10MB)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+
+    # CORS (if needed)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "https://yourdomain.com"
+    # nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    # nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+
+    # For AWS ALB Ingress Controller (alternative to nginx)
+    # kubernetes.io/ingress.class: "alb"
+    # alb.ingress.kubernetes.io/scheme: "internet-facing"
+    # alb.ingress.kubernetes.io/target-type: "ip"
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:region:account:certificate/xxx"
+
+    # For GKE Ingress (alternative to nginx)
+    # kubernetes.io/ingress.class: "gce"
+    # kubernetes.io/ingress.global-static-ip-name: "llm-gateway-ip"
+    # ingress.gcp.kubernetes.io/pre-shared-cert: "llm-gateway-cert"
+
+spec:
+  tls:
+  - hosts:
+    - llm-gateway.example.com  # Replace with your domain
+    secretName: llm-gateway-tls
+
+  rules:
+  - host: llm-gateway.example.com  # Replace with your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: llm-gateway
+            port:
+              number: 80
