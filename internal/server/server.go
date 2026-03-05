@@ -2,28 +2,39 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sony/gobreaker"
 
 	"github.com/ajac-zero/latticelm/internal/api"
 	"github.com/ajac-zero/latticelm/internal/conversation"
+	"github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
 )
 
+// ProviderRegistry is an interface for provider registries.
+type ProviderRegistry interface {
+	Get(name string) (providers.Provider, bool)
+	Models() []struct{ Provider, Model string }
+	ResolveModelID(model string) string
+	Default(model string) (providers.Provider, error)
+}
+
 // GatewayServer hosts the Open Responses API for the gateway.
 type GatewayServer struct {
-	registry *providers.Registry
+	registry ProviderRegistry
 	convs    conversation.Store
-	logger   *log.Logger
+	logger   *slog.Logger
 }
 
 // New creates a GatewayServer bound to the provider registry.
-func New(registry *providers.Registry, convs conversation.Store, logger *log.Logger) *GatewayServer {
+func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logger) *GatewayServer {
 	return &GatewayServer{
 		registry: registry,
 		convs:    convs,
@@ -31,10 +42,17 @@ func New(registry *providers.Registry, convs conversation.Store, logger *log.Log
 	}
 }
 
+// isCircuitBreakerError checks if the error is from a circuit breaker.
+func isCircuitBreakerError(err error) bool {
+	return errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)
+}
+
 // RegisterRoutes wires the HTTP handlers onto the provided mux.
 func (s *GatewayServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
 	mux.HandleFunc("/v1/models", s.handleModels)
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ready", s.handleReady)
 }
 
 func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +76,14 @@ func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode models response",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("error", err.Error()),
+			)...,
+		)
+	}
 }
 
 func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +94,11 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 
 	var req api.ResponseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Check if error is due to request size limit
+		if err.Error() == "http: request body too large" {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
@@ -84,13 +114,23 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	// Build full message history from previous conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
-		conv, err := s.convs.Get(*req.PreviousResponseID)
+		conv, err := s.convs.Get(r.Context(), *req.PreviousResponseID)
 		if err != nil {
-			s.logger.Printf("error retrieving conversation: %v", err)
+			s.logger.ErrorContext(r.Context(), "failed to retrieve conversation",
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("conversation_id", *req.PreviousResponseID),
+					slog.String("error", err.Error()),
+				)...,
+			)
 			http.Error(w, "error retrieving conversation", http.StatusInternalServerError)
 			return
 		}
 		if conv == nil {
+			s.logger.WarnContext(r.Context(), "conversation not found",
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("conversation_id", *req.PreviousResponseID),
+			)
 			http.Error(w, "conversation not found", http.StatusNotFound)
 			return
 		}
@@ -132,8 +172,21 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
 	result, err := provider.Generate(r.Context(), providerMsgs, resolvedReq)
 	if err != nil {
-		s.logger.Printf("provider %s error: %v", provider.Name(), err)
-		http.Error(w, "provider error", http.StatusBadGateway)
+		s.logger.ErrorContext(r.Context(), "provider generation failed",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("provider", provider.Name()),
+				slog.String("model", resolvedReq.Model),
+				slog.String("error", err.Error()),
+			)...,
+		)
+
+		// Check if error is from circuit breaker
+		if isCircuitBreakerError(err) {
+			http.Error(w, "service temporarily unavailable - circuit breaker open", http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, "provider error", http.StatusBadGateway)
+		}
 		return
 	}
 
@@ -146,17 +199,43 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 		ToolCalls: result.ToolCalls,
 	}
 	allMsgs := append(storeMsgs, assistantMsg)
-	if _, err := s.convs.Create(responseID, result.Model, allMsgs); err != nil {
-		s.logger.Printf("error storing conversation: %v", err)
+	if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to store conversation",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("response_id", responseID),
+				slog.String("error", err.Error()),
+			)...,
+		)
 		// Don't fail the response if storage fails
 	}
+
+	s.logger.InfoContext(r.Context(), "response generated",
+		logger.LogAttrsWithTrace(r.Context(),
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("provider", provider.Name()),
+			slog.String("model", result.Model),
+			slog.String("response_id", responseID),
+			slog.Int("input_tokens", result.Usage.InputTokens),
+			slog.Int("output_tokens", result.Usage.OutputTokens),
+			slog.Bool("has_tool_calls", len(result.ToolCalls) > 0),
+		)...,
+	)
 
 	// Build spec-compliant response
 	resp := s.buildResponse(origReq, result, provider.Name(), responseID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode response",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("response_id", responseID),
+				slog.String("error", err.Error()),
+			)...,
+		)
+	}
 }
 
 func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
@@ -327,13 +406,31 @@ loop:
 			}
 			break loop
 		case <-r.Context().Done():
-			s.logger.Printf("client disconnected")
+			s.logger.InfoContext(r.Context(), "client disconnected",
+				slog.String("request_id", logger.FromContext(r.Context())),
+			)
 			return
 		}
 	}
 
 	if streamErr != nil {
-		s.logger.Printf("stream error: %v", streamErr)
+		s.logger.ErrorContext(r.Context(), "stream error",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("provider", provider.Name()),
+				slog.String("model", origReq.Model),
+				slog.String("error", streamErr.Error()),
+			)...,
+		)
+
+		// Determine error type based on circuit breaker state
+		errorType := "server_error"
+		errorMessage := streamErr.Error()
+		if isCircuitBreakerError(streamErr) {
+			errorType = "circuit_breaker_open"
+			errorMessage = "service temporarily unavailable - circuit breaker open"
+		}
+
 		failedResp := s.buildResponse(origReq, &api.ProviderResult{
 			Model: origReq.Model,
 		}, provider.Name(), responseID)
@@ -341,8 +438,8 @@ loop:
 		failedResp.CompletedAt = nil
 		failedResp.Output = []api.OutputItem{}
 		failedResp.Error = &api.ResponseError{
-			Type:    "server_error",
-			Message: streamErr.Error(),
+			Type:    errorType,
+			Message: errorMessage,
 		}
 		s.sendSSE(w, flusher, &seq, "response.failed", &api.StreamEvent{
 			Type:     "response.failed",
@@ -468,10 +565,22 @@ loop:
 			ToolCalls: toolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(responseID, model, allMsgs); err != nil {
-			s.logger.Printf("error storing conversation: %v", err)
+		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs); err != nil {
+			s.logger.ErrorContext(r.Context(), "failed to store conversation",
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("response_id", responseID),
+				slog.String("error", err.Error()),
+			)
 			// Don't fail the response if storage fails
 		}
+
+		s.logger.InfoContext(r.Context(), "streaming response completed",
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("provider", provider.Name()),
+			slog.String("model", model),
+			slog.String("response_id", responseID),
+			slog.Bool("has_tool_calls", len(toolCalls) > 0),
+		)
 	}
 }
 
@@ -480,7 +589,10 @@ func (s *GatewayServer) sendSSE(w http.ResponseWriter, flusher http.Flusher, seq
 	*seq++
 	data, err := json.Marshal(event)
 	if err != nil {
-		s.logger.Printf("failed to marshal SSE event: %v", err)
+		s.logger.Error("failed to marshal SSE event",
+			slog.String("event_type", eventType),
+			slog.String("error", err.Error()),
+		)
 		return
 	}
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)

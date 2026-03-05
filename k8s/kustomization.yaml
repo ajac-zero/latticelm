@@ -1,0 +1,46 @@
+# Kustomize configuration for easy deployment
+# Usage: kubectl apply -k k8s/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: llm-gateway
+
+resources:
+- namespace.yaml
+- serviceaccount.yaml
+- configmap.yaml
+- secret.yaml
+- deployment.yaml
+- service.yaml
+- ingress.yaml
+- hpa.yaml
+- pdb.yaml
+- networkpolicy.yaml
+- redis.yaml
+- servicemonitor.yaml
+- prometheusrule.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: llm-gateway
+  app.kubernetes.io/component: api-gateway
+  app.kubernetes.io/part-of: llm-platform
+
+# Images to be used (customize for your registry)
+images:
+- name: llm-gateway
+  newName: your-registry/llm-gateway
+  newTag: latest
+
+# ConfigMap generator (alternative to configmap.yaml)
+# configMapGenerator:
+# - name: llm-gateway-config
+#   files:
+#   - config.yaml
+
+# Secret generator (for local development only)
+# secretGenerator:
+# - name: llm-gateway-secrets
+#   envs:
+#   - secrets.env

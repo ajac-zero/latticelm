@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-config
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+data:
+  config.yaml: |
+    server:
+      address: ":8080"
+
+    logging:
+      format: "json"
+      level: "info"
+
+    rate_limit:
+      enabled: true
+      requests_per_second: 10
+      burst: 20
+
+    observability:
+      enabled: true
+
+      metrics:
+        enabled: true
+        path: "/metrics"
+
+      tracing:
+        enabled: true
+        service_name: "llm-gateway"
+        sampler:
+          type: "probability"
+          rate: 0.1
+        exporter:
+          type: "otlp"
+          endpoint: "tempo.observability.svc.cluster.local:4317"
+          insecure: true
+
+    providers:
+      google:
+        type: "google"
+        api_key: "${GOOGLE_API_KEY}"
+        endpoint: "https://generativelanguage.googleapis.com"
+      anthropic:
+        type: "anthropic"
+        api_key: "${ANTHROPIC_API_KEY}"
+        endpoint: "https://api.anthropic.com"
+      openai:
+        type: "openai"
+        api_key: "${OPENAI_API_KEY}"
+        endpoint: "https://api.openai.com"
+
+    conversations:
+      store: "redis"
+      ttl: "1h"
+      dsn: "redis://redis.llm-gateway.svc.cluster.local:6379/0"
+
+    auth:
+      enabled: true
+      issuer: "https://accounts.google.com"
+      audience: "${OIDC_AUDIENCE}"
+
+    models:
+      - name: "gemini-1.5-flash"
+        provider: "google"
+      - name: "gemini-1.5-pro"
+        provider: "google"
+      - name: "claude-3-5-sonnet-20241022"
+        provider: "anthropic"
+      - name: "claude-3-5-haiku-20241022"
+        provider: "anthropic"
+      - name: "gpt-4o"
+        provider: "openai"
+      - name: "gpt-4o-mini"
+        provider: "openai"

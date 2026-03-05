@@ -14,6 +14,9 @@ type Config struct {
 	Models        []ModelEntry             `yaml:"models"`
 	Auth          AuthConfig               `yaml:"auth"`
 	Conversations ConversationConfig       `yaml:"conversations"`
+	Logging       LoggingConfig            `yaml:"logging"`
+	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
+	Observability ObservabilityConfig      `yaml:"observability"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -30,6 +33,59 @@ type ConversationConfig struct {
 	Driver string `yaml:"driver"`
 }
 
+// LoggingConfig controls logging format and level.
+type LoggingConfig struct {
+	// Format is the log output format: "json" (default) or "text".
+	Format string `yaml:"format"`
+	// Level is the minimum log level: "debug", "info" (default), "warn", or "error".
+	Level string `yaml:"level"`
+}
+
+// RateLimitConfig controls rate limiting behavior.
+type RateLimitConfig struct {
+	// Enabled controls whether rate limiting is active.
+	Enabled bool `yaml:"enabled"`
+	// RequestsPerSecond is the number of requests allowed per second per IP.
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	// Burst is the maximum burst size allowed.
+	Burst int `yaml:"burst"`
+}
+
+// ObservabilityConfig controls observability features.
+type ObservabilityConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Metrics MetricsConfig `yaml:"metrics"`
+	Tracing TracingConfig `yaml:"tracing"`
+}
+
+// MetricsConfig controls Prometheus metrics.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"` // default: "/metrics"
+}
+
+// TracingConfig controls OpenTelemetry tracing.
+type TracingConfig struct {
+	Enabled     bool           `yaml:"enabled"`
+	ServiceName string         `yaml:"service_name"` // default: "llm-gateway"
+	Sampler     SamplerConfig  `yaml:"sampler"`
+	Exporter    ExporterConfig `yaml:"exporter"`
+}
+
+// SamplerConfig controls trace sampling.
+type SamplerConfig struct {
+	Type string  `yaml:"type"` // "always", "never", "probability"
+	Rate float64 `yaml:"rate"` // 0.0 to 1.0
+}
+
+// ExporterConfig controls trace exporters.
+type ExporterConfig struct {
+	Type     string            `yaml:"type"` // "otlp", "stdout"
+	Endpoint string            `yaml:"endpoint"`
+	Insecure bool              `yaml:"insecure"`
+	Headers  map[string]string `yaml:"headers"`
+}
+
 // AuthConfig holds OIDC authentication settings.
 type AuthConfig struct {
 	Enabled  bool   `yaml:"enabled"`
@@ -39,7 +95,8 @@ type AuthConfig struct {
 
 // ServerConfig controls HTTP server values.
 type ServerConfig struct {
-	Address string `yaml:"address"`
+	Address            string `yaml:"address"`
+	MaxRequestBodySize int64  `yaml:"max_request_body_size"` // Maximum request body size in bytes (default: 10MB)
 }
 
 // ProviderEntry defines a named provider instance in the config file.

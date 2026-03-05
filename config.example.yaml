@@ -1,5 +1,35 @@
 server:
   address: ":8080"
+  max_request_body_size: 10485760  # Maximum request body size in bytes (default: 10MB = 10485760 bytes)
+
+logging:
+  format: "json"  # "json" for production, "text" for development
+  level: "info"   # "debug", "info", "warn", or "error"
+
+rate_limit:
+  enabled: false  # Enable rate limiting (recommended for production)
+  requests_per_second: 10  # Max requests per second per IP (default: 10)
+  burst: 20  # Maximum burst size (default: 20)
+
+observability:
+  enabled: false  # Enable observability features (metrics and tracing)
+
+  metrics:
+    enabled: false  # Enable Prometheus metrics
+    path: "/metrics"  # Metrics endpoint path (default: /metrics)
+
+  tracing:
+    enabled: false  # Enable OpenTelemetry tracing
+    service_name: "llm-gateway"  # Service name for traces (default: llm-gateway)
+    sampler:
+      type: "probability"  # Sampling type: "always", "never", "probability"
+      rate: 0.1  # Sample rate for probability sampler (0.0 to 1.0, default: 0.1 = 10%)
+    exporter:
+      type: "otlp"  # Exporter type: "otlp" (production), "stdout" (development)
+      endpoint: "localhost:4317"  # OTLP collector endpoint (gRPC)
+      insecure: true  # Use insecure connection (for development)
+      # headers:  # Optional: custom headers for authentication
+      #   authorization: "Bearer your-token-here"
 
 providers:
   google:

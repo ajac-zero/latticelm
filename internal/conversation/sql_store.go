@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"time"
@@ -41,6 +42,7 @@ type SQLStore struct {
 	db      *sql.DB
 	ttl     time.Duration
 	dialect sqlDialect
+	done    chan struct{}
 }
 
 // NewSQLStore creates a SQL-backed conversation store. It creates the
@@ -58,15 +60,20 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 		return nil, err
 	}
 
-	s := &SQLStore{db: db, ttl: ttl, dialect: newDialect(driver)}
+	s := &SQLStore{
+		db:      db,
+		ttl:     ttl,
+		dialect: newDialect(driver),
+		done:    make(chan struct{}),
+	}
 	if ttl > 0 {
 		go s.cleanup()
 	}
 	return s, nil
 }
 
-func (s *SQLStore) Get(id string) (*Conversation, error) {
-	row := s.db.QueryRow(s.dialect.getByID, id)
+func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
+	row := s.db.QueryRowContext(ctx, s.dialect.getByID, id)
 
 	var conv Conversation
 	var msgJSON string
@@ -85,14 +92,14 @@ func (s *SQLStore) Get(id string) (*Conversation, error) {
 	return &conv, nil
 }
 
-func (s *SQLStore) Create(id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
 	now := time.Now()
 	msgJSON, err := json.Marshal(messages)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(s.dialect.upsert, id, model, string(msgJSON), now, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), now, now); err != nil {
 		return nil, err
 	}
 
@@ -105,8 +112,8 @@ func (s *SQLStore) Create(id string, model string, messages []api.Message) (*Con
 	}, nil
 }
 
-func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, error) {
-	conv, err := s.Get(id)
+func (s *SQLStore) Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error) {
+	conv, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -122,15 +129,15 @@ func (s *SQLStore) Append(id string, messages ...api.Message) (*Conversation, er
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(s.dialect.update, string(msgJSON), conv.UpdatedAt, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.update, string(msgJSON), conv.UpdatedAt, id); err != nil {
 		return nil, err
 	}
 
 	return conv, nil
 }
 
-func (s *SQLStore) Delete(id string) error {
-	_, err := s.db.Exec(s.dialect.deleteByID, id)
+func (s *SQLStore) Delete(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, s.dialect.deleteByID, id)
 	return err
 }
 
@@ -141,11 +148,35 @@ func (s *SQLStore) Size() int {
 }
 
 func (s *SQLStore) cleanup() {
-	ticker := time.NewTicker(1 * time.Minute)
+	// Calculate cleanup interval as 10% of TTL, with sensible bounds
+	interval := s.ttl / 10
+
+	// Cap maximum interval at 1 minute for production
+	if interval > 1*time.Minute {
+		interval = 1 * time.Minute
+	}
+
+	// Allow small intervals for testing (as low as 10ms)
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cutoff := time.Now().Add(-s.ttl)
-		_, _ = s.db.Exec(s.dialect.cleanup, cutoff)
+	for {
+		select {
+		case <-ticker.C:
+			cutoff := time.Now().Add(-s.ttl)
+			_, _ = s.db.Exec(s.dialect.cleanup, cutoff)
+		case <-s.done:
+			return
+		}
 	}
+}
+
+// Close stops the cleanup goroutine and closes the database connection.
+func (s *SQLStore) Close() error {
+	close(s.done)
+	return s.db.Close()
 }

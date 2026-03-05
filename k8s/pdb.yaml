@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llm-gateway
+  namespace: llm-gateway
+  labels:
+    app: llm-gateway
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: llm-gateway
+  unhealthyPodEvictionPolicy: AlwaysAllow

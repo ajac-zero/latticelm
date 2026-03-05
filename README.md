@@ -61,6 +61,8 @@ latticelm (unified API)
 ✅ **OAuth2/OIDC authentication** (Google, Auth0, any OIDC provider)
 ✅ **Terminal chat client** (Python with Rich UI, PEP 723)
 ✅ **Conversation tracking** (previous_response_id for efficient context)
+✅ **Rate limiting** (Per-IP token bucket with configurable limits)
+✅ **Health & readiness endpoints** (Kubernetes-compatible health checks)
 
 ## Quick Start
 
@@ -257,6 +259,54 @@ curl -X POST http://localhost:8080/v1/responses \
   -H "Content-Type: application/json" \
   -d '{"model": "gemini-2.0-flash-exp", ...}'
 ```
+
+## Production Features
+
+### Rate Limiting
+
+Per-IP rate limiting using token bucket algorithm to prevent abuse and manage load:
+
+```yaml
+rate_limit:
+  enabled: true
+  requests_per_second: 10  # Max requests per second per IP
+  burst: 20                # Maximum burst size
+```
+
+Features:
+- **Token bucket algorithm** for smooth rate limiting
+- **Per-IP limiting** with support for X-Forwarded-For headers
+- **Configurable limits** for requests per second and burst size
+- **Automatic cleanup** of stale rate limiters to prevent memory leaks
+- **429 responses** with Retry-After header when limits exceeded
+
+### Health & Readiness Endpoints
+
+Kubernetes-compatible health check endpoints for orchestration and load balancers:
+
+**Liveness endpoint** (`/health`):
+```bash
+curl http://localhost:8080/health
+# {"status":"healthy","timestamp":1709438400}
+```
+
+**Readiness endpoint** (`/ready`):
+```bash
+curl http://localhost:8080/ready
+# {
+#   "status":"ready",
+#   "timestamp":1709438400,
+#   "checks":{
+#     "conversation_store":"healthy",
+#     "providers":"healthy"
+#   }
+# }
+```
+
+The readiness endpoint verifies:
+- Conversation store connectivity
+- At least one provider is configured
+- Returns 503 if any check fails
 
 ## Next Steps
 

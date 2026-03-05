@@ -21,7 +21,7 @@ type Provider struct {
 }
 
 // New constructs a Provider using the Google AI API with API key authentication.
-func New(cfg config.ProviderConfig) *Provider {
+func New(cfg config.ProviderConfig) (*Provider, error) {
 	var client *genai.Client
 	if cfg.APIKey != "" {
 		var err error
@@ -29,20 +29,19 @@ func New(cfg config.ProviderConfig) *Provider {
 			APIKey: cfg.APIKey,
 		})
 		if err != nil {
-			// Log error but don't fail construction - will fail on Generate
-			fmt.Printf("warning: failed to create google client: %v\n", err)
+			return nil, fmt.Errorf("failed to create google client: %w", err)
 		}
 	}
 	return &Provider{
 		cfg:    cfg,
 		client: client,
-	}
+	}, nil
 }
 
 // NewVertexAI constructs a Provider targeting Vertex AI.
 // Vertex AI uses the same genai SDK but with GCP project/location configuration
 // and Application Default Credentials (ADC) or service account authentication.
-func NewVertexAI(vertexCfg config.VertexAIConfig) *Provider {
+func NewVertexAI(vertexCfg config.VertexAIConfig) (*Provider, error) {
 	var client *genai.Client
 	if vertexCfg.Project != "" && vertexCfg.Location != "" {
 		var err error
@@ -52,8 +51,7 @@ func NewVertexAI(vertexCfg config.VertexAIConfig) *Provider {
 			Backend:  genai.BackendVertexAI,
 		})
 		if err != nil {
-			// Log error but don't fail construction - will fail on Generate
-			fmt.Printf("warning: failed to create vertex ai client: %v\n", err)
+			return nil, fmt.Errorf("failed to create vertex ai client: %w", err)
 		}
 	}
 	return &Provider{
@@ -62,7 +60,7 @@ func NewVertexAI(vertexCfg config.VertexAIConfig) *Provider {
 			APIKey: "",
 		},
 		client: client,
-	}
+	}, nil
 }
 
 func (p *Provider) Name() string { return Name }
