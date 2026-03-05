@@ -95,7 +95,8 @@ type AuthConfig struct {
 
 // ServerConfig controls HTTP server values.
 type ServerConfig struct {
-	Address string `yaml:"address"`
+	Address            string `yaml:"address"`
+	MaxRequestBodySize int64  `yaml:"max_request_body_size"` // Maximum request body size in bytes (default: 10MB)
 }
 
 // ProviderEntry defines a named provider instance in the config file.

@@ -29,7 +29,9 @@ func (s *GatewayServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode health response", "error", err.Error())
+	}
 }
 
 // handleReady returns a readiness check that verifies dependencies.
@@ -83,5 +85,7 @@ func (s *GatewayServer) handleReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 
-	_ = json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode ready response", "error", err.Error())
+	}
 }

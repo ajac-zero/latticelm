@@ -176,15 +176,31 @@ func main() {
 		)
 	}
 
-	// Build handler chain: logging -> tracing -> metrics -> rate limiting -> auth -> routes
-	handler := loggingMiddleware(
-		observability.TracingMiddleware(
-			observability.MetricsMiddleware(
-				rateLimitMiddleware.Handler(authMiddleware.Handler(mux)),
-				metricsRegistry,
-				tracerProvider,
+	// Determine max request body size
+	maxRequestBodySize := cfg.Server.MaxRequestBodySize
+	if maxRequestBodySize == 0 {
+		maxRequestBodySize = server.MaxRequestBodyBytes // default: 10MB
+	}
+
+	logger.Info("server configuration",
+		slog.Int64("max_request_body_bytes", maxRequestBodySize),
+	)
+
+	// Build handler chain: panic recovery -> request size limit -> logging -> tracing -> metrics -> rate limiting -> auth -> routes
+	handler := server.PanicRecoveryMiddleware(
+		server.RequestSizeLimitMiddleware(
+			loggingMiddleware(
+				observability.TracingMiddleware(
+					observability.MetricsMiddleware(
+						rateLimitMiddleware.Handler(authMiddleware.Handler(mux)),
+						metricsRegistry,
+						tracerProvider,
+					),
+					tracerProvider,
+				),
+				logger,
 			),
-			tracerProvider,
+			maxRequestBodySize,
 		),
 		logger,
 	)

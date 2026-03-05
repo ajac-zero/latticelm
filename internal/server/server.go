@@ -69,7 +69,14 @@ func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode models response",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("error", err.Error()),
+			)...,
+		)
+	}
 }
 
 func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +87,11 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 
 	var req api.ResponseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Check if error is due to request size limit
+		if err.Error() == "http: request body too large" {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
@@ -202,7 +214,15 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode response",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("response_id", responseID),
+				slog.String("error", err.Error()),
+			)...,
+		)
+	}
 }
 
 func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
