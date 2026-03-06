@@ -1,9 +1,23 @@
 # Multi-stage build for Go LLM Gateway
-# Stage 1: Build the Go binary
+
+# Stage 1: Build the frontend
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy package files for better caching
+COPY frontend/admin/package*.json ./
+RUN npm ci --only=production
+
+# Copy frontend source and build
+COPY frontend/admin/ ./
+RUN npm run build
+
+# Stage 2: Build the Go binary
 FROM golang:alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev
 
 WORKDIR /build
 
@@ -14,10 +28,12 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Copy pre-built frontend assets from stage 1
+COPY --from=frontend-builder /frontend/dist ./internal/admin/dist
+
 # Build the binary with optimizations
 # CGO is required for SQLite support
-RUN apk add --no-cache gcc musl-dev && \
-    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -o gateway \
