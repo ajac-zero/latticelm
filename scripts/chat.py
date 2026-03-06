@@ -534,7 +534,7 @@ def main():
                     console.print(Markdown(response))
                 
             except APIStatusError as e:
-                console.print(f"[bold red]Error {e.status_code}:[/bold red] {e.message}")
+                console.print(f"[bold red]Error {e.status_code}:[/bold red] {str(e)}")
             except Exception as e:
                 console.print(f"[bold red]Error:[/bold red] {e}")
         
