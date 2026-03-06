@@ -155,6 +155,11 @@ func main() {
 
 	// Register admin endpoints if enabled
 	if cfg.Admin.Enabled {
+		// Check if frontend dist exists
+		if _, err := os.Stat("internal/admin/dist"); os.IsNotExist(err) {
+			log.Fatalf("admin UI enabled but frontend dist not found")
+		}
+		
 		buildInfo := admin.BuildInfo{
 			Version:   "dev",
 			BuildTime: time.Now().Format(time.RFC3339),
@@ -348,21 +353,37 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		return conversation.NewMemoryStore(ttl), "memory", nil
 	}
 }
+
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode   int
 	bytesWritten int
+	wroteHeader  bool
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
+	if rw.wroteHeader {
+		return
+	}
+	rw.wroteHeader = true
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.wroteHeader {
+		rw.wroteHeader = true
+		rw.statusCode = http.StatusOK
+	}
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
 	return n, err
+}
+
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {

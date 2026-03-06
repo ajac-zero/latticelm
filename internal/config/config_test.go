@@ -103,7 +103,7 @@ server:
   address: ":8080"
 providers:
   azure:
-    type: azure_openai
+    type: azureopenai
     api_key: azure-key
     endpoint: https://my-resource.openai.azure.com
     api_version: "2024-02-15-preview"
@@ -113,7 +113,7 @@ models:
     provider_model_id: gpt-4-deployment
 `,
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "azure_openai", cfg.Providers["azure"].Type)
+				assert.Equal(t, "azureopenai", cfg.Providers["azure"].Type)
 				assert.Equal(t, "azure-key", cfg.Providers["azure"].APIKey)
 				assert.Equal(t, "https://my-resource.openai.azure.com", cfg.Providers["azure"].Endpoint)
 				assert.Equal(t, "2024-02-15-preview", cfg.Providers["azure"].APIVersion)
@@ -126,7 +126,7 @@ server:
   address: ":8080"
 providers:
   vertex:
-    type: vertex_ai
+    type: vertexai
     project: my-gcp-project
     location: us-central1
 models:
@@ -135,7 +135,7 @@ models:
     provider_model_id: gemini-1.5-pro
 `,
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "vertex_ai", cfg.Providers["vertex"].Type)
+				assert.Equal(t, "vertexai", cfg.Providers["vertex"].Type)
 				assert.Equal(t, "my-gcp-project", cfg.Providers["vertex"].Project)
 				assert.Equal(t, "us-central1", cfg.Providers["vertex"].Location)
 			},
@@ -206,6 +206,20 @@ models:
 		{
 			name:        "invalid YAML",
 			configYAML:  `invalid: yaml: content: [unclosed`,
+			expectError: true,
+		},
+		{
+			name: "model references provider without required API key",
+			configYAML: `
+server:
+  address: ":8080"
+providers:
+  openai:
+    type: openai
+models:
+  - name: gpt-4
+    provider: openai
+`,
 			expectError: true,
 		},
 		{
@@ -283,7 +297,7 @@ func TestConfigValidate(t *testing.T) {
 			name: "valid config",
 			config: Config{
 				Providers: map[string]ProviderEntry{
-					"openai": {Type: "openai"},
+					"openai": {Type: "openai", APIKey: "test-key"},
 				},
 				Models: []ModelEntry{
 					{Name: "gpt-4", Provider: "openai"},
@@ -295,10 +309,22 @@ func TestConfigValidate(t *testing.T) {
 			name: "model references unknown provider",
 			config: Config{
 				Providers: map[string]ProviderEntry{
-					"openai": {Type: "openai"},
+					"openai": {Type: "openai", APIKey: "test-key"},
 				},
 				Models: []ModelEntry{
 					{Name: "gpt-4", Provider: "unknown"},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "model references provider without api key",
+			config: Config{
+				Providers: map[string]ProviderEntry{
+					"openai": {Type: "openai"},
+				},
+				Models: []ModelEntry{
+					{Name: "gpt-4", Provider: "openai"},
 				},
 			},
 			expectError: true,
@@ -317,8 +343,8 @@ func TestConfigValidate(t *testing.T) {
 			name: "multiple models multiple providers",
 			config: Config{
 				Providers: map[string]ProviderEntry{
-					"openai":    {Type: "openai"},
-					"anthropic": {Type: "anthropic"},
+					"openai":    {Type: "openai", APIKey: "test-key"},
+					"anthropic": {Type: "anthropic", APIKey: "ant-key"},
 				},
 				Models: []ModelEntry{
 					{Name: "gpt-4", Provider: "openai"},

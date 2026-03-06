@@ -172,8 +172,31 @@ func Load(path string) (*Config, error) {
 
 func (cfg *Config) validate() error {
 	for _, m := range cfg.Models {
-		if _, ok := cfg.Providers[m.Provider]; !ok {
+		providerEntry, ok := cfg.Providers[m.Provider]
+		if !ok {
 			return fmt.Errorf("model %q references unknown provider %q", m.Name, m.Provider)
+		}
+
+		switch providerEntry.Type {
+		case "openai", "anthropic", "google", "azureopenai", "azureanthropic":
+			if providerEntry.APIKey == "" {
+				return fmt.Errorf("model %q references provider %q (%s) without api_key", m.Name, m.Provider, providerEntry.Type)
+			}
+		}
+
+		switch providerEntry.Type {
+		case "azureopenai", "azureanthropic":
+			if providerEntry.Endpoint == "" {
+				return fmt.Errorf("model %q references provider %q (%s) without endpoint", m.Name, m.Provider, providerEntry.Type)
+			}
+		case "vertexai":
+			if providerEntry.Project == "" || providerEntry.Location == "" {
+				return fmt.Errorf("model %q references provider %q (vertexai) without project/location", m.Name, m.Provider)
+			}
+		case "openai", "anthropic", "google":
+			// No additional required fields.
+		default:
+			return fmt.Errorf("model %q references provider %q with unknown type %q", m.Name, m.Provider, providerEntry.Type)
 		}
 	}
 	return nil

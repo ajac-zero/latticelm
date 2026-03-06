@@ -6,6 +6,7 @@ export default defineConfig({
   base: '/admin/',
   server: {
     port: 5173,
+    allowedHosts: ['.coder.ia-innovacion.work', 'localhost'],
     proxy: {
       '/admin/api': {
         target: 'http://localhost:8080',
