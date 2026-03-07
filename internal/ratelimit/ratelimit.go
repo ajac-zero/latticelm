@@ -63,7 +63,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate limit exceeded","message":"too many requests"}`))
+			if _, err := w.Write([]byte(`{"error":"rate limit exceeded","message":"too many requests"}`)); err != nil {
+			m.logger.Error("failed to write rate limit response", slog.String("error", err.Error()))
+		}
 			return
 		}
 

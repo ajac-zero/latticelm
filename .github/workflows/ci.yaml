@@ -105,7 +105,7 @@ jobs:
     - name: Run Gosec Security Scanner
       uses: securego/gosec@6decf96c3d272d5a8bbdcf9fddb5789d0be16a8d # v2.22.4
       with:
-        args: '-severity high -confidence medium -fmt sarif -out results.sarif ./...'
+        args: '-fmt sarif -out results.sarif ./...'
 
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18

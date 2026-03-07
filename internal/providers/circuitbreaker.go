@@ -129,13 +129,13 @@ func (p *CircuitBreakerProvider) GenerateStream(ctx context.Context, messages []
 		// Wait for the error channel to signal completion
 		if err := <-errChan; err != nil {
 			// Record failure in circuit breaker
-			p.cb.Execute(func() (interface{}, error) {
+			_, _ = p.cb.Execute(func() (interface{}, error) {
 				return nil, err
 			})
 			wrappedErrChan <- err
 		} else {
 			// Record success in circuit breaker
-			p.cb.Execute(func() (interface{}, error) {
+			_, _ = p.cb.Execute(func() (interface{}, error) {
 				return nil, nil
 			})
 		}

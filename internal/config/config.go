@@ -151,6 +151,7 @@ type VertexAIConfig struct {
 
 // Load reads and parses a YAML configuration file, expanding ${VAR} env references.
 func Load(path string) (*Config, error) {
+	// #nosec G304 -- Path is provided by application administrator, not end users
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
