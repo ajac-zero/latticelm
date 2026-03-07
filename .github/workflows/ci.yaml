@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.25.7'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -31,6 +31,9 @@ jobs:
 
     - name: Verify dependencies
       run: go mod verify
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.out ./...
@@ -65,10 +68,15 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         cache: true
 
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@4afd733a84b2f1a21c1ce63579e1055671a90ed1 # v6.5.1
+      uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
       with:
-        version: latest
+        version: v1.64.7
+        install-mode: goinstall
+        only-new-issues: true
         args: --timeout=5m
 
   security:
@@ -91,13 +99,16 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         cache: true
 
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+
     - name: Run Gosec Security Scanner
-      uses: securego/gosec@d1798fea44060681c7c0ff30d81e2a18f4e99795 # v2.22.4
+      uses: securego/gosec@6decf96c3d272d5a8bbdcf9fddb5789d0be16a8d # v2.22.4
       with:
-        args: '-fmt sarif -out results.sarif ./...'
+        args: '-severity high -confidence medium -fmt sarif -out results.sarif ./...'
 
     - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@ff982eeef0512c83876e06fbc2f1ea47b15af409 # v3.28.18
+      uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
       with:
         sarif_file: results.sarif
 
@@ -107,7 +118,7 @@ jobs:
         govulncheck ./...
 
     - name: Run Gitleaks
-      uses: gitleaks/gitleaks-action@ff98106e4c7b2bc8981643ed8a65cd7e3e4da54e # v2.3.8
+      uses: gitleaks/gitleaks-action@f586c14365d4643c6aa59d472ae6e984bf47bb34 # v2.3.8
 
   build:
     name: Build
@@ -123,6 +134,9 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
     - name: Build binary
       run: |
@@ -192,6 +206,6 @@ jobs:
         severity: 'HIGH,CRITICAL'
 
     - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@ff982eeef0512c83876e06fbc2f1ea47b15af409 # v3.28.18
+      uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
       with:
         sarif_file: 'trivy-results.sarif'

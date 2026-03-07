@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.25.7'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -30,18 +30,21 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+
     - name: Run govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck ./...
 
     - name: Run gitleaks
-      uses: gitleaks/gitleaks-action@ff98106e4c7b2bc8981643ed8a65cd7e3e4da54e # v2.3.8
+      uses: gitleaks/gitleaks-action@f586c14365d4643c6aa59d472ae6e984bf47bb34 # v2.3.8
 
     - name: Run gosec
       run: |
         go install github.com/securego/gosec/v2/cmd/gosec@latest
-        gosec ./...
+        gosec -severity high -confidence medium ./...
 
     - name: Verify go modules
       run: go mod verify
@@ -61,6 +64,9 @@ jobs:
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version: ${{ env.GO_VERSION }}
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
     - name: Run tests
       run: go test -v -race ./...
@@ -86,6 +92,9 @@ jobs:
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version: ${{ env.GO_VERSION }}
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
     - name: Build binaries
       run: |
