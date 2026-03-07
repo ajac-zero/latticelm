@@ -102,10 +102,11 @@ jobs:
     - name: Create frontend dist placeholder
       run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
+    - name: Install Gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
     - name: Run Gosec Security Scanner
-      uses: securego/gosec@bb17e422fc34bf4c0a2e5cab9d07dc45a68c040c # v2.24.7
-      with:
-        args: '-fmt sarif -out results.sarif ./...'
+      run: gosec -fmt sarif -out results.sarif ./...
 
     - name: Upload SARIF file
       uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
