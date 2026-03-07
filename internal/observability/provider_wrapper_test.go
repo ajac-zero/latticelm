@@ -417,13 +417,23 @@ func TestInstrumentedProvider_GenerateStream(t *testing.T) {
 				select {
 				case delta, ok := <-deltaChan:
 					if !ok {
-						goto Done
+						deltaChan = nil
+						if errChan == nil {
+							goto Done
+						}
+						continue
 					}
 					chunks = append(chunks, delta)
 				case err, ok := <-errChan:
-					if ok && err != nil {
+					if !ok {
+						errChan = nil
+						if deltaChan == nil {
+							goto Done
+						}
+						continue
+					}
+					if err != nil {
 						streamErr = err
-						goto Done
 					}
 				}
 			}
