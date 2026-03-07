@@ -1,7 +1,10 @@
 <template>
   <div class="dashboard">
     <header class="header">
-      <h1>LLM Gateway Admin</h1>
+      <div class="header-row">
+        <h1>LLM Gateway Admin</h1>
+        <router-link to="/chat" class="nav-link">Playground →</router-link>
+      </div>
     </header>
 
     <div class="container">
@@ -168,9 +171,32 @@ onUnmounted(() => {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .header h1 {
   font-size: 2rem;
   font-weight: 600;
+}
+
+.nav-link {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.nav-link:hover {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .container {

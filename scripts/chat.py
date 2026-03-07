@@ -135,6 +135,41 @@ class ChatClient:
             return self._stream_response(model)
         else:
             return self._sync_response(model)
+
+    @staticmethod
+    def _get_attr(obj: Any, key: str, default: Any = None) -> Any:
+        """Access object attributes safely for both SDK objects and dicts."""
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _extract_stream_error(self, event: Any) -> str:
+        """Extract error message from a response.failed event."""
+        response = self._get_attr(event, "response")
+        error = self._get_attr(response, "error")
+        message = self._get_attr(error, "message")
+        if message:
+            return str(message)
+        return "streaming request failed"
+
+    def _extract_completed_text(self, event: Any) -> str:
+        """Extract assistant output text from a response.completed event."""
+        response = self._get_attr(event, "response")
+        output_items = self._get_attr(response, "output", []) or []
+
+        text_parts = []
+        for item in output_items:
+            if self._get_attr(item, "type") != "message":
+                continue
+            for part in self._get_attr(item, "content", []) or []:
+                if self._get_attr(part, "type") == "output_text":
+                    text = self._get_attr(part, "text", "")
+                    if text:
+                        text_parts.append(str(text))
+
+        return "".join(text_parts)
     
     def _sync_response(self, model: str) -> str:
         """Non-streaming response with tool support."""
@@ -225,6 +260,7 @@ class ChatClient:
         while iteration < max_iterations:
             iteration += 1
             assistant_text = ""
+            stream_error = None
             tool_calls = {}  # Dict to track tool calls by item_id
             tool_calls_list = []  # Final list of completed tool calls
             assistant_content = []
@@ -244,6 +280,15 @@ class ChatClient:
                     if event.type == "response.output_text.delta":
                         assistant_text += event.delta
                         live.update(Markdown(assistant_text))
+                    elif event.type == "response.completed":
+                        # Some providers may emit final text only in response.completed.
+                        if not assistant_text:
+                            completed_text = self._extract_completed_text(event)
+                            if completed_text:
+                                assistant_text = completed_text
+                                live.update(Markdown(assistant_text))
+                    elif event.type == "response.failed":
+                        stream_error = self._extract_stream_error(event)
                     elif event.type == "response.output_item.added":
                         if hasattr(event, 'item') and event.item.type == "function_call":
                             # Start tracking a new tool call
@@ -269,6 +314,10 @@ class ChatClient:
                                     tool_calls_list.append(tool_call)
                                 except json.JSONDecodeError:
                                     self.console.print(f"[red]Error parsing tool arguments JSON[/red]")
+
+            if stream_error:
+                self.console.print(f"[bold red]Error:[/bold red] {stream_error}")
+                return ""
 
             # Build assistant content
             if assistant_text:
@@ -485,7 +534,7 @@ def main():
                     console.print(Markdown(response))
                 
             except APIStatusError as e:
-                console.print(f"[bold red]Error {e.status_code}:[/bold red] {e.message}")
+                console.print(f"[bold red]Error {e.status_code}:[/bold red] {str(e)}")
             except Exception as e:
                 console.print(f"[bold red]Error:[/bold red] {e}")
         

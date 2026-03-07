@@ -475,7 +475,7 @@ func TestRegistry_Default(t *testing.T) {
 			},
 		},
 		{
-			name: "returns first provider for unknown model",
+			name: "returns error for unknown model",
 			setupReg: func() *Registry {
 				reg, _ := NewRegistry(
 					map[string]config.ProviderEntry{
@@ -490,11 +490,34 @@ func TestRegistry_Default(t *testing.T) {
 				)
 				return reg
 			},
-			modelName: "unknown-model",
-			validate: func(t *testing.T, p Provider) {
-				assert.NotNil(t, p)
-				// Should return first available provider
+			modelName:   "unknown-model",
+			expectError: true,
+			errorMsg:    "not configured",
+		},
+		{
+			name: "returns error for model whose provider is unavailable",
+			setupReg: func() *Registry {
+				reg, _ := NewRegistry(
+					map[string]config.ProviderEntry{
+						"openai": {
+							Type:   "openai",
+							APIKey: "", // unavailable provider
+						},
+						"google": {
+							Type:   "google",
+							APIKey: "test-key",
+						},
+					},
+					[]config.ModelEntry{
+						{Name: "gpt-4", Provider: "openai"},
+						{Name: "gemini-pro", Provider: "google"},
+					},
+				)
+				return reg
 			},
+			modelName:   "gpt-4",
+			expectError: true,
+			errorMsg:    "not available",
 		},
 		{
 			name: "returns first provider for empty model name",
@@ -540,6 +563,31 @@ func TestRegistry_Default(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRegistry_Models_FiltersUnavailableProviders(t *testing.T) {
+	reg, err := NewRegistry(
+		map[string]config.ProviderEntry{
+			"openai": {
+				Type:   "openai",
+				APIKey: "", // unavailable provider
+			},
+			"google": {
+				Type:   "google",
+				APIKey: "test-key",
+			},
+		},
+		[]config.ModelEntry{
+			{Name: "gpt-4", Provider: "openai"},
+			{Name: "gemini-pro", Provider: "google"},
+		},
+	)
+	require.NoError(t, err)
+
+	models := reg.Models()
+	require.Len(t, models, 1)
+	assert.Equal(t, "gemini-pro", models[0].Model)
+	assert.Equal(t, "google", models[0].Provider)
 }
 
 func TestBuildProvider(t *testing.T) {

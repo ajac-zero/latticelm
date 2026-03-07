@@ -136,6 +136,9 @@ func (r *Registry) Get(name string) (Provider, bool) {
 func (r *Registry) Models() []struct{ Provider, Model string } {
 	var out []struct{ Provider, Model string }
 	for _, m := range r.modelList {
+		if _, ok := r.providers[m.Provider]; !ok {
+			continue
+		}
 		out = append(out, struct{ Provider, Model string }{Provider: m.Provider, Model: m.Name})
 	}
 	return out
@@ -156,7 +159,9 @@ func (r *Registry) Default(model string) (Provider, error) {
 			if p, ok := r.providers[providerName]; ok {
 				return p, nil
 			}
+			return nil, fmt.Errorf("model %q is mapped to provider %q, but that provider is not available", model, providerName)
 		}
+		return nil, fmt.Errorf("model %q not configured", model)
 	}
 
 	for _, p := range r.providers {
