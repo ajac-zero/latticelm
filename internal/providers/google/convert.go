@@ -1,10 +1,9 @@
 package google
 
 import (
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
-	"time"
 
 	"google.golang.org/genai"
 
@@ -203,10 +202,17 @@ func extractToolCallDelta(part *genai.Part, index int) *api.ToolCallDelta {
 func generateRandomID() string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	const length = 24
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[rng.Intn(len(charset))]
+	const fallbackID = "aaaaaaaaaaaaaaaaaaaaaaaa"
+
+	raw := make([]byte, length)
+	if _, err := cryptorand.Read(raw); err != nil {
+		return fallbackID
 	}
+
+	b := make([]byte, length)
+	for i, v := range raw {
+		b[i] = charset[int(v)%len(charset)]
+	}
+
 	return string(b)
 }

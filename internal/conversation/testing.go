@@ -50,7 +50,7 @@ func SetupTestDB(t *testing.T, driver string) *sql.DB {
 		)
 	`
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatalf("failed to create schema: %v", err)
 	}
 

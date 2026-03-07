@@ -352,7 +352,7 @@ func buildConfig(systemText string, req *api.ResponseRequest, tools []*genai.Too
 	}
 
 	if req.MaxOutputTokens != nil {
-		cfg.MaxOutputTokens = int32(*req.MaxOutputTokens)
+		cfg.MaxOutputTokens = clampMaxOutputTokens(*req.MaxOutputTokens)
 	}
 
 	if req.Temperature != nil {
@@ -384,4 +384,17 @@ func chooseModel(requested, defaultModel string) string {
 		return defaultModel
 	}
 	return "gemini-2.0-flash-exp"
+}
+
+const maxInt32Value = int(^uint32(0) >> 1)
+
+func clampMaxOutputTokens(value int) int32 {
+	switch {
+	case value <= 0:
+		return 0
+	case value > maxInt32Value:
+		return int32(maxInt32Value)
+	default:
+		return int32(value)
+	}
 }

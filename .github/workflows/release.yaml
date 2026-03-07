@@ -6,32 +6,95 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.25.7'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+
+    - name: Run govulncheck
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+
+    - name: Run gitleaks
+      uses: gitleaks/gitleaks-action@f586c14365d4643c6aa59d472ae6e984bf47bb34 # v2.3.8
+
+    - name: Run gosec
+      run: |
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        gosec ./...
+
+    - name: Verify go modules
+      run: go mod verify
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Set up Go
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+
+    - name: Run tests
+      run: go test -v -race ./...
+
   release:
     name: Create Release
+    needs: [security-gate, test]
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
       packages: write
+      id-token: write
+      security-events: write
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         fetch-depth: 0
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Run tests
-      run: go test -v ./...
+    - name: Create frontend dist placeholder
+      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
 
     - name: Build binaries
       run: |
@@ -53,10 +116,10 @@ jobs:
         sha256sum gateway-* > checksums.txt
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -64,7 +127,7 @@ jobs:
 
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
@@ -74,7 +137,8 @@ jobs:
           type=raw,value=latest
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      id: build-push
+      uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
       with:
         context: .
         push: true
@@ -83,6 +147,35 @@ jobs:
         platforms: linux/amd64,linux/arm64
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Generate SBOM
+      uses: anchore/sbom-action@e11c554e6e2c32a2677151001ad307517fc3bf78 # v0.18.0
+      with:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+        artifact-name: sbom.spdx.json
+        output-file: sbom.spdx.json
+
+    - name: Upload SBOM artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: sbom
+        path: sbom.spdx.json
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@3454372be43ec08971210d50303c40907e5e57c9 # v3.8.2
+
+    - name: Sign container image
+      run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+
+    - name: Attach SBOM attestation
+      run: cosign attest --yes --predicate sbom.spdx.json --type spdx ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+
+    - name: Run Trivy vulnerability scan
+      uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # v0.31.0
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+        exit-code: '1'
+        severity: 'HIGH,CRITICAL'
 
     - name: Generate changelog
       id: changelog
@@ -93,7 +186,7 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.3.2
       with:
         body: |
           ## Changes
@@ -103,6 +196,24 @@ jobs:
           ```
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ```
+
+          ## Verify Image Signature
+          ```bash
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          ```
+
+          ## SBOM
+          An SPDX SBOM is attached to this release and attested to the container image.
+          ```bash
+          cosign verify-attestation \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            --type spdx \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           ```
 
           ## Installation
@@ -123,6 +234,7 @@ jobs:
         files: |
           bin/gateway-*
           bin/checksums.txt
+          sbom.spdx.json
         draft: false
         prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
       env:

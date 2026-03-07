@@ -173,13 +173,27 @@ func (p *InstrumentedProvider) GenerateStream(ctx context.Context, messages []ap
 			}
 		}
 
-		for {
+		for baseChan != nil || baseErrChan != nil {
 			select {
 			case delta, ok := <-baseChan:
 				if !ok {
-					// Stream finished - record final metrics
-					recordMetrics()
-					return
+					baseChan = nil
+
+					// If an error is already pending, capture it before finishing.
+					if baseErrChan != nil {
+						select {
+						case err, ok := <-baseErrChan:
+							if ok && err != nil {
+								streamErr = err
+								outErrChan <- err
+							}
+							baseErrChan = nil
+						default:
+							baseErrChan = nil
+						}
+					}
+
+					continue
 				}
 
 				// Record TTFB on first chunk
@@ -200,15 +214,21 @@ func (p *InstrumentedProvider) GenerateStream(ctx context.Context, messages []ap
 				outChan <- delta
 
 			case err, ok := <-baseErrChan:
-				if ok && err != nil {
+				if !ok {
+					baseErrChan = nil
+					continue
+				}
+
+				if err != nil {
 					streamErr = err
 					outErrChan <- err
-					recordMetrics()
-					return
+					baseChan = nil
+					baseErrChan = nil
 				}
-				// If error channel closed without error, continue draining baseChan
 			}
 		}
+
+		recordMetrics()
 	}()
 
 	return outChan, outErrChan
