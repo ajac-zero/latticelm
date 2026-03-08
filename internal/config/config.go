@@ -96,7 +96,9 @@ type AuthConfig struct {
 
 // AdminConfig controls the admin UI.
 type AdminConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled       bool     `yaml:"enabled"`
+	Claim         string   `yaml:"claim"`          // Optional admin authorization claim. Defaults to role/roles/groups lookup order.
+	AllowedValues []string `yaml:"allowed_values"` // Allowed values for the admin claim. Defaults to ["admin"].
 }
 
 // ServerConfig controls HTTP server values.

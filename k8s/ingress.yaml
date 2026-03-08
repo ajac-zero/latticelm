@@ -23,6 +23,12 @@ metadata:
     # Request size limit (10MB)
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 
+    # Keep Prometheus scraping on the cluster network rather than the public ingress.
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /metrics {
+        return 403;
+      }
+
     # Timeouts
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"

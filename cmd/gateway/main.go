@@ -136,6 +136,12 @@ func main() {
 		logger.Warn("authentication disabled - API is publicly accessible")
 	}
 
+	adminAuthMiddleware := auth.NewAdmin(auth.AdminConfig{
+		Enabled:       cfg.Auth.Enabled && cfg.Admin.Enabled,
+		Claim:         cfg.Admin.Claim,
+		AllowedValues: cfg.Admin.AllowedValues,
+	})
+
 	// Initialize conversation store
 	convStore, storeBackend, err := initConversationStore(cfg.Conversations, logger)
 	if err != nil {
@@ -150,8 +156,14 @@ func main() {
 	}
 
 	gatewayServer := server.New(registry, convStore, logger)
-	mux := http.NewServeMux()
-	gatewayServer.RegisterRoutes(mux)
+
+	publicMux := http.NewServeMux()
+	gatewayServer.RegisterPublicRoutes(publicMux)
+
+	apiMux := http.NewServeMux()
+	gatewayServer.RegisterAPIRoutes(apiMux)
+
+	var adminMux *http.ServeMux
 
 	// Register admin endpoints if enabled
 	if cfg.Admin.Enabled {
@@ -159,7 +171,7 @@ func main() {
 		if _, err := os.Stat("internal/admin/dist"); os.IsNotExist(err) {
 			log.Fatalf("admin UI enabled but frontend dist not found")
 		}
-		
+
 		buildInfo := admin.BuildInfo{
 			Version:   "dev",
 			BuildTime: time.Now().Format(time.RFC3339),
@@ -167,19 +179,23 @@ func main() {
 			GoVersion: runtime.Version(),
 		}
 		adminServer := admin.New(registry, convStore, cfg, logger, buildInfo)
-		adminServer.RegisterRoutes(mux)
+		adminMux = http.NewServeMux()
+		adminServer.RegisterRoutes(adminMux)
 		logger.Info("admin UI enabled", slog.String("path", "/admin/"))
 	}
 
-	// Register metrics endpoint if enabled
+	metricsPath := cfg.Observability.Metrics.Path
+	if metricsPath == "" {
+		metricsPath = "/metrics"
+	}
+
+	var metricsHandler http.Handler
 	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
-		metricsPath := cfg.Observability.Metrics.Path
-		if metricsPath == "" {
-			metricsPath = "/metrics"
-		}
-		mux.Handle(metricsPath, promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
+		metricsHandler = promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{})
 		logger.Info("metrics endpoint registered", slog.String("path", metricsPath))
 	}
+
+	mux := buildRouteMux(publicMux, apiMux, adminMux, authMiddleware, adminAuthMiddleware, metricsPath, metricsHandler)
 
 	addr := cfg.Server.Address
 	if addr == "" {
@@ -218,13 +234,13 @@ func main() {
 		slog.Int64("max_request_body_bytes", maxRequestBodySize),
 	)
 
-	// Build handler chain: panic recovery -> request size limit -> logging -> tracing -> metrics -> rate limiting -> auth -> routes
+	// Build handler chain: panic recovery -> request size limit -> logging -> tracing -> metrics -> rate limiting -> route-specific auth -> routes
 	handler := server.PanicRecoveryMiddleware(
 		server.RequestSizeLimitMiddleware(
 			loggingMiddleware(
 				observability.TracingMiddleware(
 					observability.MetricsMiddleware(
-						rateLimitMiddleware.Handler(authMiddleware.Handler(mux)),
+						rateLimitMiddleware.Handler(mux),
 						metricsRegistry,
 						tracerProvider,
 					),
@@ -435,4 +451,43 @@ func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 			slog.Float64("duration_ms", float64(duration.Milliseconds())),
 		)
 	})
+}
+
+type handlerMiddleware interface {
+	Handler(http.Handler) http.Handler
+}
+
+func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth, adminAuth handlerMiddleware, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
+	root := http.NewServeMux()
+
+	if publicHandler != nil {
+		root.Handle("/health", publicHandler)
+		root.Handle("/ready", publicHandler)
+	}
+
+	if apiHandler != nil {
+		if apiAuth != nil {
+			apiHandler = apiAuth.Handler(apiHandler)
+		}
+		root.Handle("/v1/", apiHandler)
+	}
+
+	if adminHandler != nil {
+		if adminAuth != nil {
+			adminHandler = adminAuth.Handler(adminHandler)
+		}
+		if apiAuth != nil {
+			adminHandler = apiAuth.Handler(adminHandler)
+		}
+		root.Handle("/admin/", adminHandler)
+	}
+
+	if metricsHandler != nil {
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		root.Handle(metricsPath, metricsHandler)
+	}
+
+	return root
 }

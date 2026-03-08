@@ -43,6 +43,12 @@ auth:
 conversations:
   store: memory
   ttl: 1h
+admin:
+  enabled: true
+  claim: groups
+  allowed_values:
+    - platform-admin
+    - ops
 `,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, ":8080", cfg.Server.Address)
@@ -53,6 +59,9 @@ conversations:
 				assert.Equal(t, "gpt-4", cfg.Models[0].Name)
 				assert.True(t, cfg.Auth.Enabled)
 				assert.Equal(t, "memory", cfg.Conversations.Store)
+				assert.True(t, cfg.Admin.Enabled)
+				assert.Equal(t, "groups", cfg.Admin.Claim)
+				assert.Equal(t, []string{"platform-admin", "ops"}, cfg.Admin.AllowedValues)
 			},
 		},
 		{
