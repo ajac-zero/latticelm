@@ -13,6 +13,7 @@ import (
 	"github.com/sony/gobreaker"
 
 	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
@@ -40,15 +41,31 @@ type GatewayServer struct {
 	logger         *slog.Logger
 	tokenLimits    TokenLimits
 	storeByDefault bool
+	adminConfig    auth.AdminConfig
 }
 
 // New creates a GatewayServer bound to the provider registry.
-func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logger) *GatewayServer {
-	return &GatewayServer{
+func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logger, opts ...Option) *GatewayServer {
+	s := &GatewayServer{
 		registry:       registry,
 		convs:          convs,
 		logger:         logger,
 		storeByDefault: false,
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// Option configures optional GatewayServer behaviour.
+type Option func(*GatewayServer)
+
+// WithAdminConfig attaches the admin authorization config used for
+// conversation ownership overrides.
+func WithAdminConfig(cfg auth.AdminConfig) Option {
+	return func(s *GatewayServer) {
+		s.adminConfig = cfg
 	}
 }
 
@@ -161,6 +178,9 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	// Normalize input to internal messages
 	inputMsgs := req.NormalizeInput()
 
+	// Extract caller principal (nil when auth is disabled).
+	principal := auth.PrincipalFromContext(r.Context())
+
 	// Build full message history from previous conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
@@ -184,6 +204,32 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "conversation not found", http.StatusNotFound)
 			return
 		}
+
+		// Enforce ownership / tenant isolation when auth is enabled.
+		if principal != nil && !principal.OwnsConversation(conv.OwnerIss, conv.OwnerSub, conv.TenantID) {
+			if principal.HasAdminRole(s.adminConfig) {
+				s.logger.WarnContext(r.Context(), "admin override: accessing conversation owned by another user",
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("conversation_id", *req.PreviousResponseID),
+					slog.String("admin_sub", principal.Subject),
+					slog.String("admin_iss", principal.Issuer),
+					slog.String("owner_sub", conv.OwnerSub),
+					slog.String("owner_iss", conv.OwnerIss),
+					slog.String("owner_tenant", conv.TenantID),
+				)
+			} else {
+				// Return 404 to avoid leaking conversation existence.
+				s.logger.WarnContext(r.Context(), "conversation ownership check failed",
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("conversation_id", *req.PreviousResponseID),
+					slog.String("caller_sub", principal.Subject),
+					slog.String("caller_iss", principal.Issuer),
+				)
+				http.Error(w, "conversation not found", http.StatusNotFound)
+				return
+			}
+		}
+
 		historyMsgs = conv.Messages
 	}
 
@@ -296,7 +342,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 			ToolCalls: result.ToolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs); err != nil {
+		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context()))); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				logger.LogAttrsWithTrace(r.Context(),
 					slog.String("request_id", logger.FromContext(r.Context())),
@@ -304,6 +350,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 					slog.String("error", err.Error()),
 				)...,
 			)
+			// Don't fail the response if storage fails
 		}
 	}
 
@@ -666,7 +713,7 @@ loop:
 			ToolCalls: toolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs); err != nil {
+		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context()))); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				slog.String("request_id", logger.FromContext(r.Context())),
 				slog.String("response_id", responseID),
@@ -853,6 +900,17 @@ func (s *GatewayServer) resolveProvider(req *api.ResponseRequest) (providers.Pro
 		return nil, fmt.Errorf("provider %s not configured", req.Provider)
 	}
 	return s.registry.Default(req.Model)
+}
+
+func ownerFromPrincipal(p *auth.Principal) conversation.OwnerInfo {
+	if p == nil {
+		return conversation.OwnerInfo{}
+	}
+	return conversation.OwnerInfo{
+		OwnerIss: p.Issuer,
+		OwnerSub: p.Subject,
+		TenantID: p.TenantID,
+	}
 }
 
 func generateID(prefix string) string {

@@ -133,12 +133,15 @@ func (m *MockStore) Get(ctx context.Context, conversationID string) (*Conversati
 	return conv, nil
 }
 
-func (m *MockStore) Create(ctx context.Context, conversationID string, model string, messages []api.Message) (*Conversation, error) {
+func (m *MockStore) Create(ctx context.Context, conversationID string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error) {
 	m.createCalled = true
 	m.conversations[conversationID] = &Conversation{
 		ID:        conversationID,
 		Model:     model,
 		Messages:  messages,
+		OwnerIss:  owner.OwnerIss,
+		OwnerSub:  owner.OwnerSub,
+		TenantID:  owner.TenantID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}

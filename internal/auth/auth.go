@@ -97,8 +97,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add claims to context
+		// Add claims and typed principal to context
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
+		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

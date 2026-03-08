@@ -31,7 +31,7 @@ func TestRedisStore_Create(t *testing.T) {
 	ctx := context.Background()
 	messages := CreateTestMessages(3)
 
-	conv, err := store.Create(ctx, "test-id", "test-model", messages)
+	conv, err := store.Create(ctx, "test-id", "test-model", messages, OwnerInfo{})
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 
@@ -51,7 +51,7 @@ func TestRedisStore_Get(t *testing.T) {
 	messages := CreateTestMessages(2)
 
 	// Create a conversation
-	created, err := store.Create(ctx, "get-test", "model-1", messages)
+	created, err := store.Create(ctx, "get-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Retrieve it
@@ -80,7 +80,7 @@ func TestRedisStore_Append(t *testing.T) {
 	initialMessages := CreateTestMessages(2)
 
 	// Create conversation
-	conv, err := store.Create(ctx, "append-test", "model-1", initialMessages)
+	conv, err := store.Create(ctx, "append-test", "model-1", initialMessages, OwnerInfo{})
 	require.NoError(t, err)
 	assert.Len(t, conv.Messages, 2)
 
@@ -104,7 +104,7 @@ func TestRedisStore_Delete(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Create conversation
-	_, err := store.Create(ctx, "delete-test", "model-1", messages)
+	_, err := store.Create(ctx, "delete-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Verify it exists
@@ -136,10 +136,10 @@ func TestRedisStore_Size(t *testing.T) {
 
 	// Create conversations
 	messages := CreateTestMessages(1)
-	_, err := store.Create(ctx, "size-1", "model-1", messages)
+	_, err := store.Create(ctx, "size-1", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
-	_, err = store.Create(ctx, "size-2", "model-1", messages)
+	_, err = store.Create(ctx, "size-2", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, store.Size())
@@ -163,7 +163,7 @@ func TestRedisStore_TTL(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Create a conversation
-	_, err := store.Create(ctx, "ttl-test", "model-1", messages)
+	_, err := store.Create(ctx, "ttl-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Fast forward time in miniredis
@@ -186,7 +186,7 @@ func TestRedisStore_KeyStorage(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Create conversation
-	_, err := store.Create(ctx, "storage-test", "model-1", messages)
+	_, err := store.Create(ctx, "storage-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Check that key exists in Redis
@@ -212,7 +212,7 @@ func TestRedisStore_Concurrent(t *testing.T) {
 			messages := CreateTestMessages(2)
 
 			// Create
-			_, err := store.Create(ctx, id, "model-1", messages)
+			_, err := store.Create(ctx, id, "model-1", messages, OwnerInfo{})
 			assert.NoError(t, err)
 
 			// Get
@@ -262,7 +262,7 @@ func TestRedisStore_JSONEncoding(t *testing.T) {
 		},
 	}
 
-	conv, err := store.Create(ctx, "json-test", "model-1", messages)
+	conv, err := store.Create(ctx, "json-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Retrieve and verify JSON encoding/decoding
@@ -285,7 +285,7 @@ func TestRedisStore_EmptyMessages(t *testing.T) {
 	ctx := context.Background()
 
 	// Create conversation with empty messages
-	conv, err := store.Create(ctx, "empty", "model-1", []api.Message{})
+	conv, err := store.Create(ctx, "empty", "model-1", []api.Message{}, OwnerInfo{})
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 
@@ -310,7 +310,7 @@ func TestRedisStore_UpdateExisting(t *testing.T) {
 	messages1 := CreateTestMessages(2)
 
 	// Create first version
-	conv1, err := store.Create(ctx, "update-test", "model-1", messages1)
+	conv1, err := store.Create(ctx, "update-test", "model-1", messages1, OwnerInfo{})
 	require.NoError(t, err)
 	originalTime := conv1.UpdatedAt
 
@@ -319,7 +319,7 @@ func TestRedisStore_UpdateExisting(t *testing.T) {
 
 	// Create again with different data (overwrites)
 	messages2 := CreateTestMessages(3)
-	conv2, err := store.Create(ctx, "update-test", "model-2", messages2)
+	conv2, err := store.Create(ctx, "update-test", "model-2", messages2, OwnerInfo{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "model-2", conv2.Model)
@@ -341,7 +341,7 @@ func TestRedisStore_ContextCancellation(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Operations with cancelled context should fail or return quickly
-	_, err := store.Create(ctx, "cancelled", "model-1", messages)
+	_, err := store.Create(ctx, "cancelled", "model-1", messages, OwnerInfo{})
 	// Context cancellation should be respected
 	_ = err
 }
@@ -359,7 +359,7 @@ func TestRedisStore_ScanPagination(t *testing.T) {
 	// Create multiple conversations to test scanning
 	for i := 0; i < 50; i++ {
 		id := fmt.Sprintf("scan-%d", i)
-		_, err := store.Create(ctx, id, "model-1", messages)
+		_, err := store.Create(ctx, id, "model-1", messages, OwnerInfo{})
 		require.NoError(t, err)
 	}
 

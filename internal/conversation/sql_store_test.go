@@ -50,7 +50,7 @@ func TestSQLStore_Create(t *testing.T) {
 	ctx := context.Background()
 	messages := CreateTestMessages(3)
 
-	conv, err := store.Create(ctx, "test-id", "test-model", messages)
+	conv, err := store.Create(ctx, "test-id", "test-model", messages, OwnerInfo{})
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 
@@ -71,7 +71,7 @@ func TestSQLStore_Get(t *testing.T) {
 	messages := CreateTestMessages(2)
 
 	// Create a conversation
-	created, err := store.Create(ctx, "get-test", "model-1", messages)
+	created, err := store.Create(ctx, "get-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Retrieve it
@@ -101,7 +101,7 @@ func TestSQLStore_Append(t *testing.T) {
 	initialMessages := CreateTestMessages(2)
 
 	// Create conversation
-	conv, err := store.Create(ctx, "append-test", "model-1", initialMessages)
+	conv, err := store.Create(ctx, "append-test", "model-1", initialMessages, OwnerInfo{})
 	require.NoError(t, err)
 	assert.Len(t, conv.Messages, 2)
 
@@ -126,7 +126,7 @@ func TestSQLStore_Delete(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Create conversation
-	_, err = store.Create(ctx, "delete-test", "model-1", messages)
+	_, err = store.Create(ctx, "delete-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Verify it exists
@@ -159,10 +159,10 @@ func TestSQLStore_Size(t *testing.T) {
 
 	// Create conversations
 	messages := CreateTestMessages(1)
-	_, err = store.Create(ctx, "size-1", "model-1", messages)
+	_, err = store.Create(ctx, "size-1", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
-	_, err = store.Create(ctx, "size-2", "model-1", messages)
+	_, err = store.Create(ctx, "size-2", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, store.Size())
@@ -187,7 +187,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Create a conversation
-	_, err = store.Create(ctx, "cleanup-test", "model-1", messages)
+	_, err = store.Create(ctx, "cleanup-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, store.Size())
@@ -218,7 +218,7 @@ func TestSQLStore_ConcurrentAccess(t *testing.T) {
 			messages := CreateTestMessages(2)
 
 			// Create
-			_, err := store.Create(ctx, id, "model-1", messages)
+			_, err := store.Create(ctx, id, "model-1", messages, OwnerInfo{})
 			assert.NoError(t, err)
 
 			// Get
@@ -258,7 +258,7 @@ func TestSQLStore_ContextCancellation(t *testing.T) {
 	messages := CreateTestMessages(1)
 
 	// Operations with cancelled context should fail or return quickly
-	_, err = store.Create(ctx, "cancelled", "model-1", messages)
+	_, err = store.Create(ctx, "cancelled", "model-1", messages, OwnerInfo{})
 	// Error handling depends on driver, but context should be respected
 	_ = err
 }
@@ -289,7 +289,7 @@ func TestSQLStore_JSONEncoding(t *testing.T) {
 		},
 	}
 
-	conv, err := store.Create(ctx, "json-test", "model-1", messages)
+	conv, err := store.Create(ctx, "json-test", "model-1", messages, OwnerInfo{})
 	require.NoError(t, err)
 
 	// Retrieve and verify JSON encoding/decoding
@@ -313,7 +313,7 @@ func TestSQLStore_EmptyMessages(t *testing.T) {
 	ctx := context.Background()
 
 	// Create conversation with empty messages
-	conv, err := store.Create(ctx, "empty", "model-1", []api.Message{})
+	conv, err := store.Create(ctx, "empty", "model-1", []api.Message{}, OwnerInfo{})
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 
@@ -339,7 +339,7 @@ func TestSQLStore_UpdateExisting(t *testing.T) {
 	messages1 := CreateTestMessages(2)
 
 	// Create first version
-	conv1, err := store.Create(ctx, "update-test", "model-1", messages1)
+	conv1, err := store.Create(ctx, "update-test", "model-1", messages1, OwnerInfo{})
 	require.NoError(t, err)
 	originalTime := conv1.UpdatedAt
 
@@ -348,7 +348,7 @@ func TestSQLStore_UpdateExisting(t *testing.T) {
 
 	// Create again with different data (upsert)
 	messages2 := CreateTestMessages(3)
-	conv2, err := store.Create(ctx, "update-test", "model-2", messages2)
+	conv2, err := store.Create(ctx, "update-test", "model-2", messages2, OwnerInfo{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "model-2", conv2.Model)

@@ -19,7 +19,7 @@ func (s *NopStore) Get(ctx context.Context, id string) (*Conversation, error) {
 	return nil, nil
 }
 
-func (s *NopStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *NopStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error) {
 	return nil, nil
 }
 
