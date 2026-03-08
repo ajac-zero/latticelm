@@ -53,6 +53,13 @@ providers:
     type: "google"
     api_key: "YOUR_GOOGLE_API_KEY"
     endpoint: "https://generativelanguage.googleapis.com"
+    # Optional per-provider circuit breaker configuration (defaults shown):
+    # circuit_breaker:
+    #   max_requests: 3        # max requests allowed in half-open state
+    #   interval: "30s"        # closed-state window for clearing counts
+    #   timeout: "60s"         # open-state duration before attempting half-open
+    #   min_requests: 5        # minimum requests before evaluating failure ratio
+    #   failure_ratio: 0.5     # failure ratio that trips the breaker (0.0–1.0)
   anthropic:
     type: "anthropic"
     api_key: "YOUR_ANTHROPIC_API_KEY"

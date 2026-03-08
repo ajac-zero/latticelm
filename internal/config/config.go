@@ -136,14 +136,30 @@ type ServerConfig struct {
 	MaxRequestBodySize int64  `yaml:"max_request_body_size"` // Maximum request body size in bytes (default: 10MB)
 }
 
+// CircuitBreakerEntry holds circuit breaker configuration overrides for a provider.
+// Zero values mean "use the default".
+type CircuitBreakerEntry struct {
+	// MaxRequests is the max number of requests allowed through in half-open state. Default: 3.
+	MaxRequests uint32 `yaml:"max_requests"`
+	// Interval is the cyclic period for clearing counts in closed state (e.g. "30s"). Default: 30s.
+	Interval string `yaml:"interval"`
+	// Timeout is the open-state duration before transitioning to half-open (e.g. "60s"). Default: 60s.
+	Timeout string `yaml:"timeout"`
+	// MinRequests is the minimum number of requests before evaluating failure ratio. Default: 5.
+	MinRequests uint32 `yaml:"min_requests"`
+	// FailureRatio is the failure ratio threshold that trips the breaker (0.0–1.0). Default: 0.5.
+	FailureRatio float64 `yaml:"failure_ratio"`
+}
+
 // ProviderEntry defines a named provider instance in the config file.
 type ProviderEntry struct {
-	Type       string `yaml:"type"`
-	APIKey     string `yaml:"api_key"`
-	Endpoint   string `yaml:"endpoint"`
-	APIVersion string `yaml:"api_version"`
-	Project    string `yaml:"project"`  // For Vertex AI
-	Location   string `yaml:"location"` // For Vertex AI
+	Type           string               `yaml:"type"`
+	APIKey         string               `yaml:"api_key"`
+	Endpoint       string               `yaml:"endpoint"`
+	APIVersion     string               `yaml:"api_version"`
+	Project        string               `yaml:"project"`         // For Vertex AI
+	Location       string               `yaml:"location"`        // For Vertex AI
+	CircuitBreaker *CircuitBreakerEntry `yaml:"circuit_breaker"` // Optional per-provider CB overrides
 }
 
 // ModelEntry maps a model name to a provider entry.
