@@ -397,14 +397,52 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		if err != nil {
 			return nil, "", fmt.Errorf("open database: %w", err)
 		}
+
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer pingCancel()
+		if err := db.PingContext(pingCtx); err != nil {
+			_ = db.Close()
+			return nil, "", fmt.Errorf("ping database: %w", err)
+		}
+
+		maxOpenConns := cfg.MaxOpenConns
+		if maxOpenConns == 0 {
+			maxOpenConns = 25
+		}
+		maxIdleConns := cfg.MaxIdleConns
+		if maxIdleConns == 0 {
+			maxIdleConns = 5
+		}
+		connMaxLifetime := 5 * time.Minute
+		if cfg.ConnMaxLifetime != "" {
+			if d, parseErr := time.ParseDuration(cfg.ConnMaxLifetime); parseErr == nil {
+				connMaxLifetime = d
+			}
+		}
+		connMaxIdleTime := 1 * time.Minute
+		if cfg.ConnMaxIdleTime != "" {
+			if d, parseErr := time.ParseDuration(cfg.ConnMaxIdleTime); parseErr == nil {
+				connMaxIdleTime = d
+			}
+		}
+		db.SetMaxOpenConns(maxOpenConns)
+		db.SetMaxIdleConns(maxIdleConns)
+		db.SetConnMaxLifetime(connMaxLifetime)
+		db.SetConnMaxIdleTime(connMaxIdleTime)
+
 		store, err := conversation.NewSQLStore(db, driver, ttl)
 		if err != nil {
+			_ = db.Close()
 			return nil, "", fmt.Errorf("init sql store: %w", err)
 		}
 		logger.Info("conversation store initialized",
 			slog.String("backend", "sql"),
 			slog.String("driver", driver),
 			slog.Duration("ttl", ttl),
+			slog.Int("max_open_conns", maxOpenConns),
+			slog.Int("max_idle_conns", maxIdleConns),
+			slog.Duration("conn_max_lifetime", connMaxLifetime),
+			slog.Duration("conn_max_idle_time", connMaxIdleTime),
 		)
 		return store, "sql", nil
 	case "redis":
