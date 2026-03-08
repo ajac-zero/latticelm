@@ -22,16 +22,33 @@ type Config struct {
 
 // ConversationConfig controls conversation storage.
 type ConversationConfig struct {
+	// Enabled controls whether conversation persistence is active. Defaults to false.
+	Enabled *bool `yaml:"enabled"`
+	// StoreByDefault controls whether requests without an explicit store field
+	// are persisted. Defaults to false (no-store unless client opts in).
+	StoreByDefault bool `yaml:"store_by_default"`
 	// Store is the storage backend: "memory" (default), "sql", or "redis".
 	Store string `yaml:"store"`
 	// TTL is the conversation expiration duration (e.g. "1h", "30m"). Defaults to "1h".
 	TTL string `yaml:"ttl"`
+	// MaxTTL is the maximum allowed TTL for conversations. If TTL exceeds this
+	// value it is clamped. Zero means no upper limit.
+	MaxTTL string `yaml:"max_ttl"`
 	// DSN is the database/Redis connection string, required when store is "sql" or "redis".
 	// Examples: "conversations.db" (SQLite), "postgres://user:pass@host/db", "redis://:password@localhost:6379/0".
 	DSN string `yaml:"dsn"`
 	// Driver is the SQL driver name, required when store is "sql".
 	// Examples: "sqlite3", "postgres", "mysql".
 	Driver string `yaml:"driver"`
+}
+
+// IsEnabled returns whether conversation persistence is enabled.
+// Defaults to false when not explicitly set.
+func (c ConversationConfig) IsEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
 }
 
 // LoggingConfig controls logging format and level.

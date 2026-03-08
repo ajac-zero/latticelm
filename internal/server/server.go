@@ -35,19 +35,36 @@ type TokenLimits struct {
 
 // GatewayServer hosts the Open Responses API for the gateway.
 type GatewayServer struct {
-	registry    ProviderRegistry
-	convs       conversation.Store
-	logger      *slog.Logger
-	tokenLimits TokenLimits
+	registry       ProviderRegistry
+	convs          conversation.Store
+	logger         *slog.Logger
+	tokenLimits    TokenLimits
+	storeByDefault bool
 }
 
 // New creates a GatewayServer bound to the provider registry.
 func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logger) *GatewayServer {
 	return &GatewayServer{
-		registry: registry,
-		convs:    convs,
-		logger:   logger,
+		registry:       registry,
+		convs:          convs,
+		logger:         logger,
+		storeByDefault: false,
 	}
+}
+
+// SetStoreByDefault configures whether conversations are stored when the
+// client does not explicitly set the "store" field.
+func (s *GatewayServer) SetStoreByDefault(v bool) {
+	s.storeByDefault = v
+}
+
+// shouldStore determines whether the conversation should be persisted based
+// on the request's store field and the server-level default policy.
+func (s *GatewayServer) shouldStore(req *api.ResponseRequest) bool {
+	if req.Store != nil {
+		return *req.Store
+	}
+	return s.storeByDefault
 }
 
 // SetTokenLimits configures per-request token limits.
@@ -69,6 +86,7 @@ func (s *GatewayServer) RegisterRoutes(mux *http.ServeMux) {
 // RegisterAPIRoutes wires the authenticated API handlers onto the provided mux.
 func (s *GatewayServer) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
+	mux.HandleFunc("/v1/responses/", s.handleResponseByID)
 	mux.HandleFunc("/v1/models", s.handleModels)
 }
 
@@ -201,6 +219,52 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract ID from path: /v1/responses/{id}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/responses/")
+	if id == "" {
+		http.Error(w, "response id is required", http.StatusBadRequest)
+		return
+	}
+
+	conv, err := s.convs.Get(r.Context(), id)
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to look up conversation for deletion",
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("response_id", id),
+			slog.String("error", err.Error()),
+		)
+		http.Error(w, "error looking up conversation", http.StatusInternalServerError)
+		return
+	}
+	if conv == nil {
+		http.Error(w, "conversation not found", http.StatusNotFound)
+		return
+	}
+
+	if err := s.convs.Delete(r.Context(), id); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to delete conversation",
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("response_id", id),
+			slog.String("error", err.Error()),
+		)
+		http.Error(w, "error deleting conversation", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.InfoContext(r.Context(), "conversation deleted",
+		slog.String("request_id", logger.FromContext(r.Context())),
+		slog.String("response_id", id),
+	)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
 	result, err := provider.Generate(r.Context(), providerMsgs, resolvedReq)
 	if err != nil {
@@ -224,22 +288,23 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 
 	responseID := generateID("resp_")
 
-	// Build assistant message for conversation store
-	assistantMsg := api.Message{
-		Role:      "assistant",
-		Content:   []api.ContentBlock{{Type: "output_text", Text: result.Text}},
-		ToolCalls: result.ToolCalls,
-	}
-	allMsgs := append(storeMsgs, assistantMsg)
-	if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs); err != nil {
-		s.logger.ErrorContext(r.Context(), "failed to store conversation",
-			logger.LogAttrsWithTrace(r.Context(),
-				slog.String("request_id", logger.FromContext(r.Context())),
-				slog.String("response_id", responseID),
-				slog.String("error", err.Error()),
-			)...,
-		)
-		// Don't fail the response if storage fails
+	// Persist conversation only when storage policy allows
+	if s.shouldStore(origReq) {
+		assistantMsg := api.Message{
+			Role:      "assistant",
+			Content:   []api.ContentBlock{{Type: "output_text", Text: result.Text}},
+			ToolCalls: result.ToolCalls,
+		}
+		allMsgs := append(storeMsgs, assistantMsg)
+		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs); err != nil {
+			s.logger.ErrorContext(r.Context(), "failed to store conversation",
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("response_id", responseID),
+					slog.String("error", err.Error()),
+				)...,
+			)
+		}
 	}
 
 	// Record token usage for distributed quota tracking
@@ -254,6 +319,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 			slog.Int("input_tokens", result.Usage.InputTokens),
 			slog.Int("output_tokens", result.Usage.OutputTokens),
 			slog.Bool("has_tool_calls", len(result.ToolCalls) > 0),
+			slog.Bool("stored", s.shouldStore(origReq)),
 		)...,
 	)
 
@@ -592,8 +658,8 @@ loop:
 		Response: completedResp,
 	})
 
-	// Store conversation
-	if fullText != "" || len(toolCalls) > 0 {
+	// Store conversation only when storage policy allows
+	if s.shouldStore(origReq) && (fullText != "" || len(toolCalls) > 0) {
 		assistantMsg := api.Message{
 			Role:      "assistant",
 			Content:   []api.ContentBlock{{Type: "output_text", Text: fullText}},
@@ -606,20 +672,22 @@ loop:
 				slog.String("response_id", responseID),
 				slog.String("error", err.Error()),
 			)
-			// Don't fail the response if storage fails
 		}
+	}
 
 		// Record token usage for distributed quota tracking
 		if completedResp.Usage != nil {
 			ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
 		}
 
+	if fullText != "" || len(toolCalls) > 0 {
 		s.logger.InfoContext(r.Context(), "streaming response completed",
 			slog.String("request_id", logger.FromContext(r.Context())),
 			slog.String("provider", provider.Name()),
 			slog.String("model", model),
 			slog.String("response_id", responseID),
 			slog.Bool("has_tool_calls", len(toolCalls) > 0),
+			slog.Bool("stored", s.shouldStore(origReq)),
 		)
 	}
 }
@@ -718,10 +786,7 @@ func (s *GatewayServer) buildResponse(req *api.ResponseRequest, result *api.Prov
 	if req.ParallelToolCalls != nil {
 		parallelToolCalls = *req.ParallelToolCalls
 	}
-	store := true
-	if req.Store != nil {
-		store = *req.Store
-	}
+	store := s.shouldStore(req)
 	background := false
 	if req.Background != nil {
 		background = *req.Background

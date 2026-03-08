@@ -155,7 +155,7 @@ func TestHandleResponses_Sync_Success(t *testing.T) {
 	}{
 		{
 			name:        "simple text response",
-			requestBody: `{"model": "gpt-4", "input": "hello"}`,
+			requestBody: `{"model": "gpt-4", "input": "hello", "store": true}`,
 			setupMock: func(p *mockProvider) {
 				p.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 					return &api.ProviderResult{
@@ -938,7 +938,7 @@ func TestBuildResponse(t *testing.T) {
 				assert.Equal(t, 0.0, resp.FrequencyPenalty)
 				assert.Equal(t, 0, resp.TopLogprobs)
 				assert.True(t, resp.ParallelToolCalls)
-				assert.True(t, resp.Store)
+				assert.False(t, resp.Store)
 				assert.False(t, resp.Background)
 				assert.Equal(t, "disabled", resp.Truncation)
 				assert.Equal(t, "default", resp.ServiceTier)
