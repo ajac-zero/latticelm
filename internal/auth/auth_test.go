@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -262,7 +263,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return httptest.NewRequest(http.MethodGet, "/test", nil)
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "missing authorization header",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "malformed authorization header - no bearer",
@@ -272,7 +273,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid authorization header format",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "malformed authorization header - wrong scheme",
@@ -282,7 +283,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid authorization header format",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "valid token with correct claims",
@@ -323,7 +324,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with wrong issuer",
@@ -343,7 +344,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with wrong audience",
@@ -363,7 +364,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with missing kid",
@@ -385,7 +386,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 	}
 
@@ -399,6 +400,120 @@ func TestMiddleware_Handler(t *testing.T) {
 			assert.Equal(t, tt.expectStatus, rec.Code)
 			if tt.expectBody != "" {
 				assert.Contains(t, rec.Body.String(), tt.expectBody)
+			}
+		})
+	}
+}
+
+func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	m, err := New(cfg, log)
+	require.NoError(t, err)
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := m.Handler(testHandler)
+
+	tests := []struct {
+		name               string
+		setupRequest       func() *http.Request
+		leakPatterns       []string // strings that must NOT appear in response body
+		expectLogSubstring string   // string that MUST appear in server logs
+	}{
+		{
+			name: "expired token does not leak expiry details",
+			setupRequest: func() *http.Request {
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": server.server.URL,
+					"aud": testAudience,
+					"exp": time.Now().Add(-time.Hour).Unix(),
+					"iat": time.Now().Add(-2 * time.Hour).Unix(),
+				}
+				token, err := generateTestJWT(testPrivateKey, claims, testKID)
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"expired", "token is expired", "exp"},
+			expectLogSubstring: "token validation failed",
+		},
+		{
+			name: "unknown key ID does not leak key ID details",
+			setupRequest: func() *http.Request {
+				unknownKey, err := rsa.GenerateKey(rand.Reader, 2048)
+				require.NoError(t, err)
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": server.server.URL,
+					"aud": testAudience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+					"iat": time.Now().Unix(),
+				}
+				token, err := generateTestJWT(unknownKey, claims, "unknown-kid-xyz")
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"unknown-kid-xyz", "unknown key ID"},
+			expectLogSubstring: "token validation failed",
+		},
+		{
+			name: "wrong issuer does not leak issuer details",
+			setupRequest: func() *http.Request {
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": "https://attacker.example.com",
+					"aud": testAudience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+					"iat": time.Now().Unix(),
+				}
+				token, err := generateTestJWT(testPrivateKey, claims, testKID)
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"attacker.example.com", "invalid issuer"},
+			expectLogSubstring: "token validation failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logBuf.Reset()
+			req := tt.setupRequest()
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+			responseBody := rec.Body.String()
+			assert.Equal(t, `{"error":{"message":"Unauthorized"}}`, responseBody)
+
+			// Verify internal details are NOT in the response
+			for _, pattern := range tt.leakPatterns {
+				assert.NotContains(t, responseBody, pattern, "response must not leak: %s", pattern)
+			}
+
+			// Verify detailed error IS logged server-side
+			if tt.expectLogSubstring != "" {
+				assert.Contains(t, logBuf.String(), tt.expectLogSubstring)
 			}
 		})
 	}
