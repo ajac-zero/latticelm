@@ -12,7 +12,7 @@ import (
 
 // parseTools converts generic tool definitions from req.Tools (JSON) to Google's []*genai.Tool format.
 func parseTools(req *api.ResponseRequest) ([]*genai.Tool, error) {
-	if req.Tools == nil || len(req.Tools) == 0 {
+	if len(req.Tools) == 0 {
 		return nil, nil
 	}
 
@@ -71,7 +71,7 @@ func parseTools(req *api.ResponseRequest) ([]*genai.Tool, error) {
 
 // parseToolChoice converts req.ToolChoice to Google's ToolConfig with FunctionCallingConfig.
 func parseToolChoice(req *api.ResponseRequest) (*genai.ToolConfig, error) {
-	if req.ToolChoice == nil || len(req.ToolChoice) == 0 {
+	if len(req.ToolChoice) == 0 {
 		return nil, nil
 	}
 

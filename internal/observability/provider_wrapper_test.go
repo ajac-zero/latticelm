@@ -146,7 +146,7 @@ func TestNewInstrumentedProvider(t *testing.T) {
 			_ = tp
 			if tt.withTracer {
 				tp, _ = NewTestTracer()
-				defer ShutdownTracer(tp)
+				defer func() { _ = ShutdownTracer(tp) }()
 			}
 
 			wrapped := NewInstrumentedProvider(base, registry, tp)
@@ -240,7 +240,7 @@ func TestInstrumentedProvider_Generate(t *testing.T) {
 			InitMetrics() // Ensure metrics are registered
 
 			tp, exporter := NewTestTracer()
-			defer ShutdownTracer(tp)
+			defer func() { _ = ShutdownTracer(tp) }()
 
 			wrapped := NewInstrumentedProvider(base, registry, tp)
 
@@ -397,7 +397,7 @@ func TestInstrumentedProvider_GenerateStream(t *testing.T) {
 			InitMetrics()
 
 			tp, exporter := NewTestTracer()
-			defer ShutdownTracer(tp)
+			defer func() { _ = ShutdownTracer(tp) }()
 
 			wrapped := NewInstrumentedProvider(base, registry, tp)
 
@@ -520,7 +520,7 @@ func TestInstrumentedProvider_MetricsRecording(t *testing.T) {
 func TestInstrumentedProvider_TracingSpans(t *testing.T) {
 	base := newMockBaseProvider("trace-test")
 	tp, exporter := NewTestTracer()
-	defer ShutdownTracer(tp)
+	defer func() { _ = ShutdownTracer(tp) }()
 
 	wrapped := NewInstrumentedProvider(base, nil, tp)
 
@@ -626,7 +626,7 @@ func TestInstrumentedProvider_ConcurrentCalls(t *testing.T) {
 	InitMetrics()
 
 	tp, _ := NewTestTracer()
-	defer ShutdownTracer(tp)
+	defer func() { _ = ShutdownTracer(tp) }()
 
 	wrapped := NewInstrumentedProvider(base, registry, tp)
 

@@ -2,7 +2,6 @@ package observability
 
 import (
 	"context"
-	"io"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -108,7 +107,6 @@ func ShutdownTracer(tp *sdktrace.TracerProvider) error {
 
 // NewTestExporter creates a test exporter that writes to the provided writer
 type TestExporter struct {
-	writer io.Writer
 }
 
 func (e *TestExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {

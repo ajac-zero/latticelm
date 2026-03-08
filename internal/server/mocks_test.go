@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sync"
-	"unsafe"
 
 	"github.com/ajac-zero/latticelm/internal/api"
-	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/providers"
 )
@@ -90,54 +87,6 @@ func (m *mockProvider) getGenerateCalled() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.generateCalled
-}
-
-func (m *mockProvider) getStreamCalled() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.streamCalled
-}
-
-// buildTestRegistry creates a providers.Registry for testing with mock providers
-// Uses reflection to inject mock providers into the registry
-func buildTestRegistry(mockProviders map[string]providers.Provider, modelConfigs []config.ModelEntry) *providers.Registry {
-	// Create empty registry
-	reg := &providers.Registry{}
-
-	// Use reflection to set private fields
-	regValue := reflect.ValueOf(reg).Elem()
-
-	// Set providers field
-	providersField := regValue.FieldByName("providers")
-	providersPtr := unsafe.Pointer(providersField.UnsafeAddr())
-	*(*map[string]providers.Provider)(providersPtr) = mockProviders
-
-	// Set modelList field
-	modelListField := regValue.FieldByName("modelList")
-	modelListPtr := unsafe.Pointer(modelListField.UnsafeAddr())
-	*(*[]config.ModelEntry)(modelListPtr) = modelConfigs
-
-	// Set models map (model name -> provider name)
-	modelsField := regValue.FieldByName("models")
-	modelsPtr := unsafe.Pointer(modelsField.UnsafeAddr())
-	modelsMap := make(map[string]string)
-	for _, m := range modelConfigs {
-		modelsMap[m.Name] = m.Provider
-	}
-	*(*map[string]string)(modelsPtr) = modelsMap
-
-	// Set providerModelIDs map
-	providerModelIDsField := regValue.FieldByName("providerModelIDs")
-	providerModelIDsPtr := unsafe.Pointer(providerModelIDsField.UnsafeAddr())
-	providerModelIDsMap := make(map[string]string)
-	for _, m := range modelConfigs {
-		if m.ProviderModelID != "" {
-			providerModelIDsMap[m.Name] = m.ProviderModelID
-		}
-	}
-	*(*map[string]string)(providerModelIDsPtr) = providerModelIDsMap
-
-	return reg
 }
 
 // mockConversationStore implements conversation.Store for testing
@@ -246,12 +195,6 @@ func (m *mockLogger) Printf(format string, args ...interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logs = append(m.logs, fmt.Sprintf(format, args...))
-}
-
-func (m *mockLogger) getLogs() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]string{}, m.logs...)
 }
 
 func (m *mockLogger) asLogger() *slog.Logger {

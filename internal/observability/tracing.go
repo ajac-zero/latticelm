@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -68,9 +67,6 @@ func createOTLPExporter(cfg config.ExporterConfig) (sdktrace.SpanExporter, error
 	if len(cfg.Headers) > 0 {
 		opts = append(opts, otlptracegrpc.WithHeaders(cfg.Headers))
 	}
-
-	// Add dial options to ensure connection
-	opts = append(opts, otlptracegrpc.WithDialOption(grpc.WithBlock()))
 
 	return otlptracegrpc.New(context.Background(), opts...)
 }
