@@ -1,6 +1,8 @@
 package observability
 
 import (
+	"sync"
+
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/prometheus/client_golang/prometheus"
@@ -34,6 +36,7 @@ func WrapProviderRegistry(registry ProviderRegistry, metricsRegistry *prometheus
 
 // InstrumentedRegistry wraps a provider registry to return instrumented providers.
 type InstrumentedRegistry struct {
+	mu               sync.RWMutex
 	base             ProviderRegistry
 	metrics          *prometheus.Registry
 	tracer           *sdktrace.TracerProvider
@@ -42,8 +45,10 @@ type InstrumentedRegistry struct {
 
 // Get returns an instrumented provider by entry name.
 func (r *InstrumentedRegistry) Get(name string) (providers.Provider, bool) {
-	// Check if we've already wrapped this provider
-	if wrapped, ok := r.wrappedProviders[name]; ok {
+	r.mu.RLock()
+	wrapped, ok := r.wrappedProviders[name]
+	r.mu.RUnlock()
+	if ok {
 		return wrapped, true
 	}
 
@@ -53,9 +58,11 @@ func (r *InstrumentedRegistry) Get(name string) (providers.Provider, bool) {
 		return nil, false
 	}
 
-	// Wrap it
-	wrapped := NewInstrumentedProvider(p, r.metrics, r.tracer)
+	// Wrap it and cache under write lock
+	wrapped = NewInstrumentedProvider(p, r.metrics, r.tracer)
+	r.mu.Lock()
 	r.wrappedProviders[name] = wrapped
+	r.mu.Unlock()
 	return wrapped, true
 }
 
@@ -68,13 +75,18 @@ func (r *InstrumentedRegistry) Default(model string) (providers.Provider, error)
 
 	// Check if we've already wrapped this provider
 	name := p.Name()
-	if wrapped, ok := r.wrappedProviders[name]; ok {
+	r.mu.RLock()
+	wrapped, ok := r.wrappedProviders[name]
+	r.mu.RUnlock()
+	if ok {
 		return wrapped, nil
 	}
 
-	// Wrap it
-	wrapped := NewInstrumentedProvider(p, r.metrics, r.tracer)
+	// Wrap it and cache under write lock
+	wrapped = NewInstrumentedProvider(p, r.metrics, r.tracer)
+	r.mu.Lock()
 	r.wrappedProviders[name] = wrapped
+	r.mu.Unlock()
 	return wrapped, nil
 }
 
