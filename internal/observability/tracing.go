@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ajac-zero/latticelm/internal/config"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -13,6 +14,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const tracerInitTimeout = 5 * time.Second
+
 // InitTracer initializes the OpenTelemetry tracer provider.
 func InitTracer(cfg config.TracingConfig) (*sdktrace.TracerProvider, error) {
 	// Create resource with service information
@@ -21,12 +24,15 @@ func InitTracer(cfg config.TracingConfig) (*sdktrace.TracerProvider, error) {
 		semconv.ServiceName(cfg.ServiceName),
 	)
 
-	// Create exporter
+	// Create exporter with a bounded timeout to prevent hanging on unreachable endpoints
+	ctx, cancel := context.WithTimeout(context.Background(), tracerInitTimeout)
+	defer cancel()
+
 	var exporter sdktrace.SpanExporter
 	var err error
 	switch cfg.Exporter.Type {
 	case "otlp":
-		exporter, err = createOTLPExporter(cfg.Exporter)
+		exporter, err = createOTLPExporter(ctx, cfg.Exporter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 		}
@@ -55,7 +61,7 @@ func InitTracer(cfg config.TracingConfig) (*sdktrace.TracerProvider, error) {
 }
 
 // createOTLPExporter creates an OTLP gRPC exporter.
-func createOTLPExporter(cfg config.ExporterConfig) (sdktrace.SpanExporter, error) {
+func createOTLPExporter(ctx context.Context, cfg config.ExporterConfig) (sdktrace.SpanExporter, error) {
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.Endpoint),
 	}
@@ -68,7 +74,7 @@ func createOTLPExporter(cfg config.ExporterConfig) (sdktrace.SpanExporter, error
 		opts = append(opts, otlptracegrpc.WithHeaders(cfg.Headers))
 	}
 
-	return otlptracegrpc.New(context.Background(), opts...)
+	return otlptracegrpc.New(ctx, opts...)
 }
 
 // createSampler creates a sampler based on the configuration.

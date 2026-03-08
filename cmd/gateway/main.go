@@ -71,7 +71,9 @@ func main() {
 
 		tp, err := observability.InitTracer(tracingCfg)
 		if err != nil {
-			logger.Error("failed to initialize tracing", slog.String("error", err.Error()))
+			logger.Warn("tracing initialization failed, continuing without tracing",
+				slog.String("error", err.Error()),
+			)
 		} else {
 			tracerProvider = tp
 			otel.SetTracerProvider(tracerProvider)

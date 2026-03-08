@@ -427,6 +427,39 @@ func TestInitTracer_ResourceAttributes(t *testing.T) {
 	}
 }
 
+func TestInitTracer_UnreachableOTLP_BoundedTime(t *testing.T) {
+	cfg := config.TracingConfig{
+		Enabled:     true,
+		ServiceName: "test-bounded",
+		Sampler: config.SamplerConfig{
+			Type: "always",
+		},
+		Exporter: config.ExporterConfig{
+			Type:     "otlp",
+			Endpoint: "127.0.0.1:19999", // unreachable endpoint
+			Insecure: true,
+		},
+	}
+
+	start := time.Now()
+	tp, err := InitTracer(cfg)
+	elapsed := time.Since(start)
+
+	// InitTracer must complete within tracerInitTimeout + 1s margin
+	maxAllowed := tracerInitTimeout + 1*time.Second
+	assert.Less(t, elapsed, maxAllowed, "InitTracer should complete within bounded time")
+
+	// The OTLP exporter may or may not return an error depending on the gRPC
+	// connection strategy; either outcome is acceptable as long as it doesn't hang.
+	if err != nil {
+		assert.Nil(t, tp)
+	} else if tp != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tp.Shutdown(ctx)
+	}
+}
+
 func TestProbabilitySampler_Boundaries(t *testing.T) {
 	tests := []struct {
 		name         string
