@@ -13,7 +13,7 @@ import (
 // CircuitBreakerProvider wraps a Provider with circuit breaker functionality.
 type CircuitBreakerProvider struct {
 	provider Provider
-	cb       *gobreaker.CircuitBreaker
+	cb       *gobreaker.TwoStepCircuitBreaker
 }
 
 // CircuitBreakerConfig holds configuration for the circuit breaker.
@@ -81,7 +81,7 @@ func NewCircuitBreakerProvider(provider Provider, cfg CircuitBreakerConfig) *Cir
 
 	return &CircuitBreakerProvider{
 		provider: provider,
-		cb:       gobreaker.NewCircuitBreaker(settings),
+		cb:       gobreaker.NewTwoStepCircuitBreaker(settings),
 	}
 }
 
@@ -92,52 +92,40 @@ func (p *CircuitBreakerProvider) Name() string {
 
 // Generate wraps the provider's Generate method with circuit breaker protection.
 func (p *CircuitBreakerProvider) Generate(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
-	result, err := p.cb.Execute(func() (interface{}, error) {
-		return p.provider.Generate(ctx, messages, req)
-	})
-
+	done, err := p.cb.Allow()
 	if err != nil {
 		return nil, err
 	}
 
-	return result.(*api.ProviderResult), nil
+	result, providerErr := p.provider.Generate(ctx, messages, req)
+	done(providerErr == nil)
+	return result, providerErr
 }
 
 // GenerateStream wraps the provider's GenerateStream method with circuit breaker protection.
+// It uses TwoStepCircuitBreaker.Allow() to properly gate stream initiation (including
+// half-open concurrency control), then records success or failure when the stream completes.
 func (p *CircuitBreakerProvider) GenerateStream(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
-	// For streaming, we check the circuit breaker state before initiating the stream
-	// If the circuit is open, we return an error immediately
-	state := p.cb.State()
-	if state == gobreaker.StateOpen {
+	done, err := p.cb.Allow()
+	if err != nil {
 		errChan := make(chan error, 1)
 		deltaChan := make(chan *api.ProviderStreamDelta)
-		errChan <- gobreaker.ErrOpenState
+		errChan <- err
 		close(deltaChan)
 		close(errChan)
 		return deltaChan, errChan
 	}
 
-	// If circuit is closed or half-open, attempt the stream
 	deltaChan, errChan := p.provider.GenerateStream(ctx, messages, req)
 
-	// Wrap the error channel to report successes/failures to circuit breaker
 	wrappedErrChan := make(chan error, 1)
-
 	go func() {
 		defer close(wrappedErrChan)
-
-		// Wait for the error channel to signal completion
-		if err := <-errChan; err != nil {
-			// Record failure in circuit breaker
-			_, _ = p.cb.Execute(func() (interface{}, error) {
-				return nil, err
-			})
-			wrappedErrChan <- err
+		if streamErr := <-errChan; streamErr != nil {
+			done(false)
+			wrappedErrChan <- streamErr
 		} else {
-			// Record success in circuit breaker
-			_, _ = p.cb.Execute(func() (interface{}, error) {
-				return nil, nil
-			})
+			done(true)
 		}
 	}()
 

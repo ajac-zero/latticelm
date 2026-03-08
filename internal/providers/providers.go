@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ajac-zero/latticelm/internal/api"
 	"github.com/ajac-zero/latticelm/internal/config"
@@ -45,17 +46,13 @@ func NewRegistryWithCircuitBreaker(
 		modelList:        models,
 	}
 
-	// Use default circuit breaker configuration
-	cbConfig := DefaultCircuitBreakerConfig()
-	cbConfig.OnStateChange = onStateChange
-
 	for name, entry := range entries {
 		p, err := buildProvider(entry)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", name, err)
 		}
 		if p != nil {
-			// Wrap provider with circuit breaker
+			cbConfig := circuitBreakerConfigFromEntry(entry, onStateChange)
 			reg.providers[name] = NewCircuitBreakerProvider(p, cbConfig)
 		}
 	}
@@ -150,6 +147,38 @@ func (r *Registry) ResolveModelID(model string) string {
 		return id
 	}
 	return model
+}
+
+// circuitBreakerConfigFromEntry builds a CircuitBreakerConfig from a ProviderEntry,
+// applying per-provider overrides on top of the defaults.
+func circuitBreakerConfigFromEntry(entry config.ProviderEntry, onStateChange func(provider, from, to string)) CircuitBreakerConfig {
+	cfg := DefaultCircuitBreakerConfig()
+	cfg.OnStateChange = onStateChange
+
+	cb := entry.CircuitBreaker
+	if cb == nil {
+		return cfg
+	}
+	if cb.MaxRequests != 0 {
+		cfg.MaxRequests = cb.MaxRequests
+	}
+	if cb.MinRequests != 0 {
+		cfg.MinRequests = cb.MinRequests
+	}
+	if cb.FailureRatio != 0 {
+		cfg.FailureRatio = cb.FailureRatio
+	}
+	if cb.Interval != "" {
+		if d, err := time.ParseDuration(cb.Interval); err == nil {
+			cfg.Interval = d
+		}
+	}
+	if cb.Timeout != "" {
+		if d, err := time.ParseDuration(cb.Timeout); err == nil {
+			cfg.Timeout = d
+		}
+	}
+	return cfg
 }
 
 // Default returns the provider for the given model name.
