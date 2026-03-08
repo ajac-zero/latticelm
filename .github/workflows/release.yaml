@@ -7,6 +7,7 @@ on:
 
 env:
   GO_VERSION: '1.26.1'
+  TRIVY_VERSION: '0.63.0'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -144,11 +145,15 @@ jobs:
       run: cosign attest --yes --predicate sbom.spdx.json --type spdx ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
 
     - name: Run Trivy vulnerability scan
-      uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # v0.31.0
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
-        exit-code: '1'
-        severity: 'HIGH,CRITICAL'
+      run: |
+        mkdir -p "${{ github.workspace }}/.cache/trivy"
+        docker run --rm \
+          -v "$HOME/.docker:/root/.docker:ro" \
+          -v "${{ github.workspace }}/.cache/trivy:/root/.cache/" \
+          aquasec/trivy:${{ env.TRIVY_VERSION }} image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
 
     - name: Generate changelog
       id: changelog
