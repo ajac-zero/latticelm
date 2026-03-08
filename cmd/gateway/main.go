@@ -234,11 +234,6 @@ func main() {
 
 	// Register admin endpoints if enabled
 	if cfg.Admin.Enabled {
-		// Check if frontend dist exists
-		if _, err := os.Stat("internal/admin/dist"); os.IsNotExist(err) {
-			log.Fatalf("admin UI enabled but frontend dist not found")
-		}
-
 		buildInfo := admin.BuildInfo{
 			Version:   "dev",
 			BuildTime: time.Now().Format(time.RFC3339),
