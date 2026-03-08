@@ -134,8 +134,9 @@ func (s *InstrumentedStore) Create(ctx context.Context, id string, model string,
 	if s.registry != nil {
 		conversationOperationsTotal.WithLabelValues("create", s.backend, status).Inc()
 		conversationOperationDuration.WithLabelValues("create", s.backend).Observe(duration)
-		// Update active count
-		conversationActiveCount.WithLabelValues(s.backend).Set(float64(s.base.Size()))
+		if err == nil {
+			conversationActiveCount.WithLabelValues(s.backend).Inc()
+		}
 	}
 
 	return conv, err
@@ -232,8 +233,9 @@ func (s *InstrumentedStore) Delete(ctx context.Context, id string) error {
 	if s.registry != nil {
 		conversationOperationsTotal.WithLabelValues("delete", s.backend, status).Inc()
 		conversationOperationDuration.WithLabelValues("delete", s.backend).Observe(duration)
-		// Update active count
-		conversationActiveCount.WithLabelValues(s.backend).Set(float64(s.base.Size()))
+		if err == nil {
+			conversationActiveCount.WithLabelValues(s.backend).Dec()
+		}
 	}
 
 	return err

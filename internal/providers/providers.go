@@ -51,10 +51,8 @@ func NewRegistryWithCircuitBreaker(
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", name, err)
 		}
-		if p != nil {
-			cbConfig := circuitBreakerConfigFromEntry(entry, onStateChange)
-			reg.providers[name] = NewCircuitBreakerProvider(p, cbConfig)
-		}
+		cbConfig := circuitBreakerConfigFromEntry(entry, onStateChange)
+		reg.providers[name] = NewCircuitBreakerProvider(p, cbConfig)
 	}
 
 	for _, m := range models {
@@ -72,9 +70,9 @@ func NewRegistryWithCircuitBreaker(
 }
 
 func buildProvider(entry config.ProviderEntry) (Provider, error) {
-	// Vertex AI doesn't require APIKey, so check for it separately
+	// Vertex AI uses Application Default Credentials, not an API key.
 	if entry.Type != "vertexai" && entry.APIKey == "" {
-		return nil, nil
+		return nil, fmt.Errorf("api_key is required for provider type %q", entry.Type)
 	}
 
 	switch entry.Type {
