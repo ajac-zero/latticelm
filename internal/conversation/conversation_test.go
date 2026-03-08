@@ -203,32 +203,76 @@ func TestMemoryStore_DeepCopy(t *testing.T) {
 			Content: []api.ContentBlock{
 				{Type: "input_text", Text: "Original"},
 			},
+			ToolCalls: []api.ToolCall{
+				{ID: "call-1", Name: "tool_a"},
+			},
 		},
 	}
 
-	_, err := store.Create(context.Background(),"test-id", "gpt-4", messages, OwnerInfo{})
+	_, err := store.Create(context.Background(), "test-id", "gpt-4", messages, OwnerInfo{})
 	require.NoError(t, err)
 
-	// Get conversation
-	conv1, err := store.Get(context.Background(),"test-id")
+	conv1, err := store.Get(context.Background(), "test-id")
 	require.NoError(t, err)
 
-	// Note: Current implementation copies the Messages slice but not the Content blocks
-	// So modifying the slice structure is safe, but modifying content blocks affects the original
-	// This documents actual behavior - future improvement could add deep copying of content blocks
+	// Mutate returned Content and ToolCalls
+	conv1.Messages[0].Content[0].Text = "Mutated"
+	conv1.Messages[0].ToolCalls[0].Name = "mutated_tool"
 
-	// Safe: appending to Messages slice
-	originalLen := len(conv1.Messages)
-	conv1.Messages = append(conv1.Messages, api.Message{
-		Role: "assistant",
-		Content: []api.ContentBlock{{Type: "output_text", Text: "New message"}},
-	})
-	assert.Equal(t, originalLen+1, len(conv1.Messages), "can modify returned message slice")
-
-	// Verify original is unchanged
-	conv2, err := store.Get(context.Background(),"test-id")
+	// Verify stored conversation is unaffected
+	conv2, err := store.Get(context.Background(), "test-id")
 	require.NoError(t, err)
-	assert.Equal(t, originalLen, len(conv2.Messages), "original conversation unaffected by slice modification")
+	assert.Equal(t, "Original", conv2.Messages[0].Content[0].Text, "Content should not be shared")
+	assert.Equal(t, "tool_a", conv2.Messages[0].ToolCalls[0].Name, "ToolCalls should not be shared")
+}
+
+func TestMemoryStore_DeepCopy_Race(t *testing.T) {
+	store := NewMemoryStore(1 * time.Hour)
+
+	messages := []api.Message{
+		{
+			Role: "user",
+			Content: []api.ContentBlock{
+				{Type: "input_text", Text: "Original"},
+			},
+			ToolCalls: []api.ToolCall{
+				{ID: "call-1", Name: "tool_a"},
+			},
+		},
+	}
+
+	_, err := store.Create(context.Background(), "test-id", "gpt-4", messages, OwnerInfo{})
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	// Readers mutate the returned copy while writers append - should not race
+	for i := 0; i < 5; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			conv, _ := store.Get(context.Background(), "test-id")
+			if conv != nil && len(conv.Messages) > 0 {
+				// Mutate the returned copy; must not affect stored data
+				conv.Messages[0].Content[0].Text = "mutated"
+				if len(conv.Messages[0].ToolCalls) > 0 {
+					conv.Messages[0].ToolCalls[0].Name = "mutated"
+				}
+			}
+		}()
+	}
+	for i := 0; i < 5; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			newMsg := api.Message{
+				Role:    "assistant",
+				Content: []api.ContentBlock{{Type: "output_text", Text: "Response"}},
+			}
+			store.Append(context.Background(), "test-id", newMsg) //nolint:errcheck
+		}()
+	}
+
+	for i := 0; i < 10; i++ {
+		<-done
+	}
 }
 
 func TestMemoryStore_TTLCleanup(t *testing.T) {
