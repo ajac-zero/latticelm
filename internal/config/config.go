@@ -128,6 +128,9 @@ type AdminConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	Claim         string   `yaml:"claim"`          // Optional admin authorization claim. Defaults to role/roles/groups lookup order.
 	AllowedValues []string `yaml:"allowed_values"` // Allowed values for the admin claim. Defaults to ["admin"].
+	// IPAllowlist is an optional list of CIDRs (e.g. "10.0.0.0/8") permitted to
+	// reach admin routes. Empty means all source IPs are allowed.
+	IPAllowlist []string `yaml:"ip_allowlist"`
 }
 
 // ServerConfig controls HTTP server values.

@@ -238,7 +238,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 	apiMux := http.NewServeMux()
 	gatewayServer.RegisterAPIRoutes(apiMux)
 
-	var adminMux *http.ServeMux
+	var adminHandler http.Handler
 
 	// Register admin endpoints if enabled
 	if cfg.Admin.Enabled {
@@ -249,9 +249,26 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 			GoVersion: runtime.Version(),
 		}
 		adminServer := admin.New(registry, convStore, cfg, logger, buildInfo)
-		adminMux = http.NewServeMux()
+		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
+
+		// Parse IP allowlist CIDRs; fail fast if misconfigured.
+		allowlist, err := admin.ParseCIDRs(cfg.Admin.IPAllowlist)
+		if err != nil {
+			logger.Error("invalid admin ip_allowlist", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		// Wrap: security headers (outermost) then IP allowlist check.
+		var wrapped http.Handler = adminMux
+		wrapped = admin.IPAllowlistMiddleware(allowlist)(wrapped)
+		wrapped = admin.SecurityHeadersMiddleware(wrapped)
+		adminHandler = wrapped
+
 		logger.Info("admin UI enabled", slog.String("path", "/admin/"))
+		if len(allowlist) > 0 {
+			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
+		}
 	}
 
 	metricsPath := cfg.Observability.Metrics.Path
@@ -266,7 +283,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 	}
 
 	// Rate limiting is applied inside buildRouteMux AFTER auth, so identity is available
-	mux := buildRouteMux(publicMux, apiMux, adminMux, authMiddleware, adminAuthMiddleware, rateLimitMiddleware, metricsPath, metricsHandler)
+	mux := buildRouteMux(publicMux, apiMux, adminHandler, authMiddleware, adminAuthMiddleware, rateLimitMiddleware, metricsPath, metricsHandler)
 
 	addr := cfg.Server.Address
 	if addr == "" {

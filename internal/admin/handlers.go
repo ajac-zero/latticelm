@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -35,14 +36,50 @@ type HealthCheck struct {
 
 // ConfigResponse contains the sanitized configuration.
 type ConfigResponse struct {
-	Server        config.ServerConfig             `json:"server"`
-	Providers     map[string]SanitizedProvider    `json:"providers"`
-	Models        []config.ModelEntry             `json:"models"`
-	Auth          SanitizedAuthConfig             `json:"auth"`
-	Conversations config.ConversationConfig       `json:"conversations"`
-	Logging       config.LoggingConfig            `json:"logging"`
-	RateLimit     config.RateLimitConfig          `json:"rate_limit"`
-	Observability config.ObservabilityConfig      `json:"observability"`
+	Server        config.ServerConfig          `json:"server"`
+	Providers     map[string]SanitizedProvider `json:"providers"`
+	Models        []config.ModelEntry          `json:"models"`
+	Auth          SanitizedAuthConfig          `json:"auth"`
+	Conversations config.ConversationConfig    `json:"conversations"`
+	Logging       config.LoggingConfig         `json:"logging"`
+	RateLimit     SanitizedRateLimitConfig     `json:"rate_limit"`
+	Observability SanitizedObservabilityConfig `json:"observability"`
+}
+
+// SanitizedRateLimitConfig is rate limit config with connection secrets masked.
+type SanitizedRateLimitConfig struct {
+	Enabled               bool     `json:"enabled"`
+	RedisURL              string   `json:"redis_url,omitempty"`
+	TrustedProxyCIDRs     []string `json:"trusted_proxy_cidrs,omitempty"`
+	RequestsPerSecond     float64  `json:"requests_per_second"`
+	Burst                 int      `json:"burst"`
+	MaxPromptTokens       int      `json:"max_prompt_tokens"`
+	MaxOutputTokens       int      `json:"max_output_tokens"`
+	MaxConcurrentRequests int      `json:"max_concurrent_requests"`
+	DailyTokenQuota       int64    `json:"daily_token_quota"`
+}
+
+// SanitizedObservabilityConfig is observability config with secrets masked.
+type SanitizedObservabilityConfig struct {
+	Enabled bool                       `json:"enabled"`
+	Metrics config.MetricsConfig       `json:"metrics"`
+	Tracing SanitizedTracingConfig     `json:"tracing"`
+}
+
+// SanitizedTracingConfig is tracing config with secrets masked.
+type SanitizedTracingConfig struct {
+	Enabled     bool                     `json:"enabled"`
+	ServiceName string                   `json:"service_name"`
+	Sampler     config.SamplerConfig     `json:"sampler"`
+	Exporter    SanitizedExporterConfig  `json:"exporter"`
+}
+
+// SanitizedExporterConfig is exporter config with auth header values masked.
+type SanitizedExporterConfig struct {
+	Type     string            `json:"type"`
+	Endpoint string            `json:"endpoint"`
+	Insecure bool              `json:"insecure"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 // SanitizedProvider is a provider entry with secrets masked.
@@ -163,19 +200,49 @@ func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 		convConfig.DSN = maskSecret(convConfig.DSN)
 	}
 
+	// Sanitize rate limit config (mask Redis credentials)
+	sanitizedRL := SanitizedRateLimitConfig{
+		Enabled:               s.cfg.RateLimit.Enabled,
+		RedisURL:              maskURL(s.cfg.RateLimit.RedisURL),
+		TrustedProxyCIDRs:     s.cfg.RateLimit.TrustedProxyCIDRs,
+		RequestsPerSecond:     s.cfg.RateLimit.RequestsPerSecond,
+		Burst:                 s.cfg.RateLimit.Burst,
+		MaxPromptTokens:       s.cfg.RateLimit.MaxPromptTokens,
+		MaxOutputTokens:       s.cfg.RateLimit.MaxOutputTokens,
+		MaxConcurrentRequests: s.cfg.RateLimit.MaxConcurrentRequests,
+		DailyTokenQuota:       s.cfg.RateLimit.DailyTokenQuota,
+	}
+
+	// Sanitize observability config (mask exporter auth headers)
+	sanitizedObs := SanitizedObservabilityConfig{
+		Enabled: s.cfg.Observability.Enabled,
+		Metrics: s.cfg.Observability.Metrics,
+		Tracing: SanitizedTracingConfig{
+			Enabled:     s.cfg.Observability.Tracing.Enabled,
+			ServiceName: s.cfg.Observability.Tracing.ServiceName,
+			Sampler:     s.cfg.Observability.Tracing.Sampler,
+			Exporter: SanitizedExporterConfig{
+				Type:     s.cfg.Observability.Tracing.Exporter.Type,
+				Endpoint: s.cfg.Observability.Tracing.Exporter.Endpoint,
+				Insecure: s.cfg.Observability.Tracing.Exporter.Insecure,
+				Headers:  maskHeaderValues(s.cfg.Observability.Tracing.Exporter.Headers),
+			},
+		},
+	}
+
 	response := ConfigResponse{
-		Server:        s.cfg.Server,
-		Providers:     sanitizedProviders,
-		Models:        s.cfg.Models,
-		Auth:          SanitizedAuthConfig{
+		Server:    s.cfg.Server,
+		Providers: sanitizedProviders,
+		Models:    s.cfg.Models,
+		Auth: SanitizedAuthConfig{
 			Enabled:  s.cfg.Auth.Enabled,
 			Issuer:   s.cfg.Auth.Issuer,
 			Audience: s.cfg.Auth.Audience,
 		},
 		Conversations: convConfig,
 		Logging:       s.cfg.Logging,
-		RateLimit:     s.cfg.RateLimit,
-		Observability: s.cfg.Observability,
+		RateLimit:     sanitizedRL,
+		Observability: sanitizedObs,
 	}
 
 	writeSuccess(w, response)
@@ -249,4 +316,38 @@ func formatPart(value int, unit string) string {
 		return "1 " + unit
 	}
 	return fmt.Sprintf("%d %ss", value, unit)
+}
+
+// maskURL masks any password embedded in a URL (e.g. redis://:pass@host/db).
+func maskURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "****"
+	}
+	if u.User == nil {
+		return rawURL
+	}
+	_, hasPassword := u.User.Password()
+	if !hasPassword {
+		return rawURL
+	}
+	u.User = url.UserPassword(u.User.Username(), "****")
+	// url.String() percent-encodes the asterisks; replace them back so the
+	// output stays human-readable.
+	return strings.ReplaceAll(u.String(), "%2A%2A%2A%2A", "****")
+}
+
+// maskHeaderValues replaces every header value with "****" to hide auth tokens.
+func maskHeaderValues(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	masked := make(map[string]string, len(headers))
+	for k := range headers {
+		masked[k] = "****"
+	}
+	return masked
 }
