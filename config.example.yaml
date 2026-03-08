@@ -79,20 +79,15 @@ providers:
   #   api_key: "YOUR_AZURE_ANTHROPIC_API_KEY"
   #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
 
-# conversations:
-#   store: "sql"        # "memory" (default), "sql", or "redis"
-#   ttl: "1h"           # conversation expiration (default: 1h)
-#   driver: "sqlite3"   # SQL driver: "sqlite3", "mysql", "pgx" (required for sql store)
-#   dsn: "conversations.db"  # connection string (required for sql/redis store)
-#   # MySQL example:
-#   # driver: "mysql"
-#   # dsn: "user:password@tcp(localhost:3306)/dbname?parseTime=true"
-#   # PostgreSQL example:
-#   # driver: "pgx"
-#   # dsn: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
-#   # Redis example:
-#   # store: "redis"
-#   # dsn: "redis://:password@localhost:6379/0"
+conversations:
+  enabled: false          # Enable conversation persistence (default: false = no-store)
+  store_by_default: false # Store conversations when client omits "store" field (default: false)
+  # store: "memory"       # Backend: "memory" (default), "sql", or "redis"
+  # ttl: "1h"             # Conversation expiration (e.g. "1h", "30m")
+  # max_ttl: "24h"        # Maximum allowed TTL ceiling; overrides ttl if exceeded
+  # driver: "sqlite3"     # SQL driver: "sqlite3", "mysql", "pgx" (required for sql store)
+  # dsn: "conversations.db"  # Connection string (required for sql/redis store)
+  # See README for DSN connection string format examples (MySQL, PostgreSQL, Redis).
 
 models:
   - name: "gemini-1.5-flash"

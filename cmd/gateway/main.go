@@ -143,19 +143,28 @@ func main() {
 	})
 
 	// Initialize conversation store
-	convStore, storeBackend, err := initConversationStore(cfg.Conversations, logger)
-	if err != nil {
-		logger.Error("failed to initialize conversation store", slog.String("error", err.Error()))
-		os.Exit(1)
+	var convStore conversation.Store
+	storeBackend := "nop"
+	if cfg.Conversations.IsEnabled() {
+		var err error
+		convStore, storeBackend, err = initConversationStore(cfg.Conversations, logger)
+		if err != nil {
+			logger.Error("failed to initialize conversation store", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	} else {
+		convStore = conversation.NewNopStore()
+		logger.Info("conversation storage disabled (default no-store)")
 	}
 
 	// Wrap conversation store with observability
-	if cfg.Observability.Enabled && convStore != nil {
+	if cfg.Observability.Enabled && storeBackend != "nop" {
 		convStore = observability.WrapConversationStore(convStore, storeBackend, metricsRegistry, tracerProvider)
 		logger.Info("conversation store instrumented")
 	}
 
 	gatewayServer := server.New(registry, convStore, logger)
+	gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 
 	// Initialize distributed rate limiting
 	var rateLimitMiddleware *ratelimit.Middleware
@@ -358,6 +367,21 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 			return nil, "", fmt.Errorf("invalid conversation ttl %q: %w", cfg.TTL, err)
 		}
 		ttl = parsed
+	}
+
+	// Enforce max_ttl ceiling
+	if cfg.MaxTTL != "" {
+		maxTTL, err := time.ParseDuration(cfg.MaxTTL)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid conversation max_ttl %q: %w", cfg.MaxTTL, err)
+		}
+		if maxTTL > 0 && (ttl == 0 || ttl > maxTTL) {
+			logger.Warn("clamping conversation TTL to max_ttl",
+				slog.Duration("original_ttl", ttl),
+				slog.Duration("max_ttl", maxTTL),
+			)
+			ttl = maxTTL
+		}
 	}
 
 	switch cfg.Store {
