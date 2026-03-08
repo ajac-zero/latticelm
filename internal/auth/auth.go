@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/ajac-zero/latticelm/internal/logger"
 )
 
 // Config holds OIDC authentication configuration.
@@ -78,13 +80,27 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			m.logger.WarnContext(r.Context(), "auth failed: missing authorization header",
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+				)...,
+			)
+			writeUnauthorized(w)
 			return
 		}
 
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			http.Error(w, "invalid authorization header format", http.StatusUnauthorized)
+			m.logger.WarnContext(r.Context(), "auth failed: invalid authorization header format",
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+				)...,
+			)
+			writeUnauthorized(w)
 			return
 		}
 
@@ -93,7 +109,15 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Validate token
 		claims, err := m.validateToken(tokenString)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("invalid token: %v", err), http.StatusUnauthorized)
+			m.logger.WarnContext(r.Context(), "auth failed: token validation failed",
+				logger.LogAttrsWithTrace(r.Context(),
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.String("error", err.Error()),
+				)...,
+			)
+			writeUnauthorized(w)
 			return
 		}
 
@@ -102,6 +126,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// writeUnauthorized writes a generic 401 Unauthorized JSON response without
+// exposing any internal validation details to the client.
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = fmt.Fprintf(w, `{"error":{"message":"Unauthorized"}}`)
 }
 
 type contextKey string
