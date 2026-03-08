@@ -10,7 +10,7 @@ import (
 
 // parseTools converts Open Responses tools to Anthropic format
 func parseTools(req *api.ResponseRequest) ([]anthropic.ToolUnionParam, error) {
-	if req.Tools == nil || len(req.Tools) == 0 {
+	if len(req.Tools) == 0 {
 		return nil, nil
 	}
 
@@ -60,7 +60,7 @@ func parseTools(req *api.ResponseRequest) ([]anthropic.ToolUnionParam, error) {
 func parseToolChoice(req *api.ResponseRequest) (anthropic.ToolChoiceUnionParam, error) {
 	var result anthropic.ToolChoiceUnionParam
 
-	if req.ToolChoice == nil || len(req.ToolChoice) == 0 {
+	if len(req.ToolChoice) == 0 {
 		return result, nil
 	}
 
@@ -140,15 +140,3 @@ func extractToolCalls(content []anthropic.ContentBlockUnion) []api.ToolCall {
 	return toolCalls
 }
 
-// extractToolCallDelta extracts tool call delta from streaming content block delta
-func extractToolCallDelta(delta anthropic.RawContentBlockDeltaUnion, index int) *api.ToolCallDelta {
-	// Check if this is an input_json_delta (streaming tool arguments)
-	if delta.Type == "input_json_delta" {
-		return &api.ToolCallDelta{
-			Index:     index,
-			Arguments: delta.PartialJSON,
-		}
-	}
-
-	return nil
-}

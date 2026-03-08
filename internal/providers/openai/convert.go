@@ -11,7 +11,7 @@ import (
 
 // parseTools converts Open Responses tools to OpenAI format
 func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolUnionParam, error) {
-	if req.Tools == nil || len(req.Tools) == 0 {
+	if len(req.Tools) == 0 {
 		return nil, nil
 	}
 
@@ -50,7 +50,7 @@ func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolUnionParam
 func parseToolChoice(req *api.ResponseRequest) (openai.ChatCompletionToolChoiceOptionUnionParam, error) {
 	var result openai.ChatCompletionToolChoiceOptionUnionParam
 
-	if req.ToolChoice == nil || len(req.ToolChoice) == 0 {
+	if len(req.ToolChoice) == 0 {
 		return result, nil
 	}
 

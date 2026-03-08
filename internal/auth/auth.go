@@ -23,6 +23,13 @@ type Config struct {
 	Audience string `yaml:"audience"` // e.g., your client ID
 }
 
+// AdminConfig holds authorization settings for admin-only routes.
+type AdminConfig struct {
+	Enabled       bool
+	Claim         string
+	AllowedValues []string
+}
+
 // Middleware provides JWT validation middleware.
 type Middleware struct {
 	cfg    Config
@@ -106,6 +113,34 @@ func GetClaims(ctx context.Context) (jwt.MapClaims, bool) {
 	return claims, ok
 }
 
+// AdminMiddleware enforces an admin claim on an already-authenticated request.
+type AdminMiddleware struct {
+	cfg AdminConfig
+}
+
+// NewAdmin creates an admin authorization middleware.
+func NewAdmin(cfg AdminConfig) *AdminMiddleware {
+	return &AdminMiddleware{cfg: cfg}
+}
+
+// Handler wraps an HTTP handler with admin authorization.
+func (m *AdminMiddleware) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !m.cfg.Enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		claims, ok := GetClaims(r.Context())
+		if !ok || !hasAdminAccess(claims, m.cfg) {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (m *Middleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Verify signing method
@@ -181,6 +216,60 @@ func (m *Middleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 	}
 
 	return claims, nil
+}
+
+func hasAdminAccess(claims jwt.MapClaims, cfg AdminConfig) bool {
+	allowedValues := cfg.AllowedValues
+	if len(allowedValues) == 0 {
+		allowedValues = []string{"admin"}
+	}
+
+	if cfg.Claim != "" {
+		return claimHasAllowedValue(claims[cfg.Claim], allowedValues)
+	}
+
+	for _, claimName := range []string{"role", "roles", "groups"} {
+		if claimHasAllowedValue(claims[claimName], allowedValues) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func claimHasAllowedValue(rawValue any, allowedValues []string) bool {
+	if rawValue == nil {
+		return false
+	}
+
+	allowed := make(map[string]struct{}, len(allowedValues))
+	for _, value := range allowedValues {
+		allowed[value] = struct{}{}
+	}
+
+	switch value := rawValue.(type) {
+	case string:
+		_, ok := allowed[value]
+		return ok
+	case []string:
+		for _, entry := range value {
+			if _, ok := allowed[entry]; ok {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, entry := range value {
+			text, ok := entry.(string)
+			if !ok {
+				continue
+			}
+			if _, ok := allowed[text]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (m *Middleware) refreshJWKS() error {

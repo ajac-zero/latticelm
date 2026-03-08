@@ -26,7 +26,6 @@ var (
 	testPrivateKey *rsa.PrivateKey
 	testPublicKey  *rsa.PublicKey
 	testKID        = "test-key-id-1"
-	testIssuer     = "https://test-issuer.example.com"
 	testAudience   = "test-client-id"
 )
 
@@ -44,7 +43,6 @@ func init() {
 type mockJWKSServer struct {
 	server       *httptest.Server
 	jwksResponse []byte
-	oidcResponse []byte
 	mu           sync.Mutex
 	requestCount int
 	failNext     bool
@@ -93,7 +91,7 @@ func newMockJWKSServer(publicKey *rsa.PublicKey, kid string) *mockJWKSServer {
 			"jwks_uri": m.server.URL + "/jwks",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oidcConfig)
+		_ = json.NewEncoder(w).Encode(oidcConfig)
 	})
 
 	// JWKS endpoint
@@ -112,7 +110,7 @@ func newMockJWKSServer(publicKey *rsa.PublicKey, kid string) *mockJWKSServer {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(m.jwksResponse)
+		_, _ = w.Write(m.jwksResponse)
 	})
 
 	m.server = httptest.NewServer(mux)
@@ -121,12 +119,6 @@ func newMockJWKSServer(publicKey *rsa.PublicKey, kid string) *mockJWKSServer {
 
 func (m *mockJWKSServer) close() {
 	m.server.Close()
-}
-
-func (m *mockJWKSServer) getRequestCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.requestCount
 }
 
 func (m *mockJWKSServer) setFailNext() {
@@ -248,10 +240,10 @@ func TestMiddleware_Handler(t *testing.T) {
 		claims, ok := GetClaims(r.Context())
 		if ok {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("sub:%s", claims["sub"])))
+			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", claims["sub"])))
 		} else {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("no-claims"))
+			_, _ = w.Write([]byte("no-claims"))
 		}
 	})
 
@@ -421,7 +413,7 @@ func TestMiddleware_Handler_DisabledAuth(t *testing.T) {
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	handler := m.Handler(testHandler)
@@ -432,6 +424,92 @@ func TestMiddleware_Handler_DisabledAuth(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "success", rec.Body.String())
+}
+
+func TestAdminMiddleware_Handler(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	tests := []struct {
+		name         string
+		cfg          AdminConfig
+		claims       jwt.MapClaims
+		expectStatus int
+	}{
+		{
+			name: "disabled middleware allows request",
+			cfg: AdminConfig{
+				Enabled: false,
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "default role claim allows admin",
+			cfg: AdminConfig{
+				Enabled: true,
+			},
+			claims: jwt.MapClaims{
+				"role": "admin",
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "groups claim allows configured admin value",
+			cfg: AdminConfig{
+				Enabled:       true,
+				AllowedValues: []string{"platform-admin"},
+			},
+			claims: jwt.MapClaims{
+				"groups": []interface{}{"engineering", "platform-admin"},
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "custom claim allows configured value",
+			cfg: AdminConfig{
+				Enabled:       true,
+				Claim:         "permissions",
+				AllowedValues: []string{"gateway:admin"},
+			},
+			claims: jwt.MapClaims{
+				"permissions": []string{"gateway:read", "gateway:admin"},
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "missing claims denied",
+			cfg: AdminConfig{
+				Enabled: true,
+			},
+			expectStatus: http.StatusForbidden,
+		},
+		{
+			name: "non admin claim denied",
+			cfg: AdminConfig{
+				Enabled: true,
+			},
+			claims: jwt.MapClaims{
+				"role": "user",
+			},
+			expectStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+			if tt.claims != nil {
+				req = req.WithContext(context.WithValue(req.Context(), claimsKey, tt.claims))
+			}
+
+			rec := httptest.NewRecorder()
+			NewAdmin(tt.cfg).Handler(next).ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.expectStatus, rec.Code)
+		})
+	}
 }
 
 func TestValidateToken(t *testing.T) {
@@ -922,21 +1000,21 @@ func TestRefreshJWKS_Concurrency(t *testing.T) {
 
 func TestGetClaims(t *testing.T) {
 	tests := []struct {
-		name          string
-		setupContext  func() context.Context
-		expectFound   bool
+		name            string
+		setupContext    func() context.Context
+		expectFound     bool
 		validateSubject string
 	}{
 		{
 			name: "context with claims",
 			setupContext: func() context.Context {
 				claims := jwt.MapClaims{
-					"sub": "user123",
+					"sub":   "user123",
 					"email": "user@example.com",
 				}
 				return context.WithValue(context.Background(), claimsKey, claims)
 			},
-			expectFound:   true,
+			expectFound:     true,
 			validateSubject: "user123",
 		},
 		{

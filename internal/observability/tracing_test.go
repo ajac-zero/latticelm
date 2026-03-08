@@ -465,7 +465,7 @@ func TestProbabilitySampler_Boundaries(t *testing.T) {
 			tp := sdktrace.NewTracerProvider(
 				sdktrace.WithSampler(sampler),
 			)
-			defer tp.Shutdown(context.Background())
+			defer func() { _ = tp.Shutdown(context.Background()) }()
 
 			tracer := tp.Tracer("test")
 

@@ -139,7 +139,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 	}
 
 	// Add tools if present
-	if req.Tools != nil && len(req.Tools) > 0 {
+	if len(req.Tools) > 0 {
 		tools, err := parseTools(req)
 		if err != nil {
 			return nil, fmt.Errorf("parse tools: %w", err)
@@ -148,7 +148,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 	}
 
 	// Add tool_choice if present
-	if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+	if len(req.ToolChoice) > 0 {
 		toolChoice, err := parseToolChoice(req)
 		if err != nil {
 			return nil, fmt.Errorf("parse tool_choice: %w", err)
@@ -283,7 +283,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 		}
 
 		// Add tools if present
-		if req.Tools != nil && len(req.Tools) > 0 {
+		if len(req.Tools) > 0 {
 			tools, err := parseTools(req)
 			if err != nil {
 				errChan <- fmt.Errorf("parse tools: %w", err)
@@ -293,7 +293,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 		}
 
 		// Add tool_choice if present
-		if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+		if len(req.ToolChoice) > 0 {
 			toolChoice, err := parseToolChoice(req)
 			if err != nil {
 				errChan <- fmt.Errorf("parse tool_choice: %w", err)

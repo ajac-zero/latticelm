@@ -33,6 +33,11 @@ observability:
 
 admin:
   enabled: true  # Enable admin UI and API (default: false)
+  # Optional admin authorization policy when auth is enabled.
+  # If claim is omitted, the gateway checks role, roles, then groups for "admin".
+  # claim: "role"
+  # allowed_values:
+  #   - "admin"
 
 providers:
   google:

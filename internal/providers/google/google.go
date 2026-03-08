@@ -77,7 +77,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 
 	// Parse tools if present
 	var tools []*genai.Tool
-	if req.Tools != nil && len(req.Tools) > 0 {
+	if len(req.Tools) > 0 {
 		var err error
 		tools, err = parseTools(req)
 		if err != nil {
@@ -87,7 +87,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 
 	// Parse tool_choice if present
 	var toolConfig *genai.ToolConfig
-	if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+	if len(req.ToolChoice) > 0 {
 		var err error
 		toolConfig, err = parseToolChoice(req)
 		if err != nil {
@@ -155,7 +155,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 
 		// Parse tools if present
 		var tools []*genai.Tool
-		if req.Tools != nil && len(req.Tools) > 0 {
+		if len(req.Tools) > 0 {
 			var err error
 			tools, err = parseTools(req)
 			if err != nil {
@@ -166,7 +166,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 
 		// Parse tool_choice if present
 		var toolConfig *genai.ToolConfig
-		if req.ToolChoice != nil && len(req.ToolChoice) > 0 {
+		if len(req.ToolChoice) > 0 {
 			var err error
 			toolConfig, err = parseToolChoice(req)
 			if err != nil {

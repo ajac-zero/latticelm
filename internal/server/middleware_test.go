@@ -27,7 +27,7 @@ func TestPanicRecoveryMiddleware(t *testing.T) {
 			name: "no panic - request succeeds",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("success"))
+				_, _ = w.Write([]byte("success"))
 			},
 			expectPanic:    false,
 			expectedStatus: http.StatusOK,
@@ -234,7 +234,7 @@ func TestRequestSizeLimitMiddleware_WithJSONDecoding(t *testing.T) {
 					return
 				}
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]string{"status": "decoded"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "decoded"})
 			})
 
 			// Wrap with size limit middleware

@@ -49,8 +49,18 @@ func isCircuitBreakerError(err error) bool {
 
 // RegisterRoutes wires the HTTP handlers onto the provided mux.
 func (s *GatewayServer) RegisterRoutes(mux *http.ServeMux) {
+	s.RegisterAPIRoutes(mux)
+	s.RegisterPublicRoutes(mux)
+}
+
+// RegisterAPIRoutes wires the authenticated API handlers onto the provided mux.
+func (s *GatewayServer) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
 	mux.HandleFunc("/v1/models", s.handleModels)
+}
+
+// RegisterPublicRoutes wires the unauthenticated probe handlers onto the provided mux.
+func (s *GatewayServer) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ready", s.handleReady)
 }
