@@ -157,6 +157,64 @@ func main() {
 
 	gatewayServer := server.New(registry, convStore, logger)
 
+	// Initialize distributed rate limiting
+	var rateLimitMiddleware *ratelimit.Middleware
+	if cfg.RateLimit.Enabled {
+		rateLimitConfig := ratelimit.Config{
+			Enabled:               true,
+			RedisURL:              cfg.RateLimit.RedisURL,
+			TrustedProxyCIDRs:     cfg.RateLimit.TrustedProxyCIDRs,
+			RequestsPerSecond:     cfg.RateLimit.RequestsPerSecond,
+			Burst:                 cfg.RateLimit.Burst,
+			MaxPromptTokens:       cfg.RateLimit.MaxPromptTokens,
+			MaxOutputTokens:       cfg.RateLimit.MaxOutputTokens,
+			MaxConcurrentRequests: cfg.RateLimit.MaxConcurrentRequests,
+			DailyTokenQuota:       cfg.RateLimit.DailyTokenQuota,
+		}
+
+		if rateLimitConfig.RedisURL == "" {
+			logger.Error("rate limiting requires redis_url configuration")
+			os.Exit(1)
+		}
+
+		rlOpts, err := redis.ParseURL(rateLimitConfig.RedisURL)
+		if err != nil {
+			logger.Error("failed to parse rate limit redis URL", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		rlRedisClient := redis.NewClient(rlOpts)
+
+		rlCtx, rlCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer rlCancel()
+		if err := rlRedisClient.Ping(rlCtx).Err(); err != nil {
+			logger.Error("failed to connect to rate limit Redis", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		backend := ratelimit.NewRedisBackend(rlRedisClient)
+		rateLimitMiddleware, err = ratelimit.New(rateLimitConfig, backend, logger)
+		if err != nil {
+			logger.Error("failed to initialize rate limiting", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		// Set token limits on the gateway server
+		gatewayServer.SetTokenLimits(server.TokenLimits{
+			MaxPromptTokens: rateLimitConfig.MaxPromptTokens,
+			MaxOutputTokens: rateLimitConfig.MaxOutputTokens,
+		})
+
+		logger.Info("distributed rate limiting enabled",
+			slog.Float64("requests_per_second", rateLimitConfig.RequestsPerSecond),
+			slog.Int("burst", rateLimitConfig.Burst),
+			slog.Int("max_concurrent_requests", rateLimitConfig.MaxConcurrentRequests),
+			slog.Int64("daily_token_quota", rateLimitConfig.DailyTokenQuota),
+			slog.Int("max_output_tokens", rateLimitConfig.MaxOutputTokens),
+			slog.Int("max_prompt_tokens", rateLimitConfig.MaxPromptTokens),
+			slog.Int("trusted_proxy_cidrs", len(rateLimitConfig.TrustedProxyCIDRs)),
+		)
+	}
+
 	publicMux := http.NewServeMux()
 	gatewayServer.RegisterPublicRoutes(publicMux)
 
@@ -195,33 +253,12 @@ func main() {
 		logger.Info("metrics endpoint registered", slog.String("path", metricsPath))
 	}
 
-	mux := buildRouteMux(publicMux, apiMux, adminMux, authMiddleware, adminAuthMiddleware, metricsPath, metricsHandler)
+	// Rate limiting is applied inside buildRouteMux AFTER auth, so identity is available
+	mux := buildRouteMux(publicMux, apiMux, adminMux, authMiddleware, adminAuthMiddleware, rateLimitMiddleware, metricsPath, metricsHandler)
 
 	addr := cfg.Server.Address
 	if addr == "" {
 		addr = ":8080"
-	}
-
-	// Initialize rate limiting
-	rateLimitConfig := ratelimit.Config{
-		Enabled:           cfg.RateLimit.Enabled,
-		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
-		Burst:             cfg.RateLimit.Burst,
-	}
-	// Set defaults if not configured
-	if rateLimitConfig.Enabled && rateLimitConfig.RequestsPerSecond == 0 {
-		rateLimitConfig.RequestsPerSecond = 10 // default 10 req/s
-	}
-	if rateLimitConfig.Enabled && rateLimitConfig.Burst == 0 {
-		rateLimitConfig.Burst = 20 // default burst of 20
-	}
-	rateLimitMiddleware := ratelimit.New(rateLimitConfig, logger)
-
-	if cfg.RateLimit.Enabled {
-		logger.Info("rate limiting enabled",
-			slog.Float64("requests_per_second", rateLimitConfig.RequestsPerSecond),
-			slog.Int("burst", rateLimitConfig.Burst),
-		)
 	}
 
 	// Determine max request body size
@@ -234,13 +271,14 @@ func main() {
 		slog.Int64("max_request_body_bytes", maxRequestBodySize),
 	)
 
-	// Build handler chain: panic recovery -> request size limit -> logging -> tracing -> metrics -> rate limiting -> route-specific auth -> routes
+	// Build handler chain: panic recovery -> request size limit -> logging -> tracing -> metrics -> routes
+	// Rate limiting is applied per-route inside buildRouteMux after auth identity extraction
 	handler := server.PanicRecoveryMiddleware(
 		server.RequestSizeLimitMiddleware(
 			loggingMiddleware(
 				observability.TracingMiddleware(
 					observability.MetricsMiddleware(
-						rateLimitMiddleware.Handler(mux),
+						mux,
 						metricsRegistry,
 						tracerProvider,
 					),
@@ -457,7 +495,7 @@ type handlerMiddleware interface {
 	Handler(http.Handler) http.Handler
 }
 
-func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth, adminAuth handlerMiddleware, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
+func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth, adminAuth, rateLimiter handlerMiddleware, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
 	root := http.NewServeMux()
 
 	if publicHandler != nil {
@@ -466,6 +504,10 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth
 	}
 
 	if apiHandler != nil {
+		// Apply rate limiting AFTER auth so identity claims are available
+		if rateLimiter != nil {
+			apiHandler = rateLimiter.Handler(apiHandler)
+		}
 		if apiAuth != nil {
 			apiHandler = apiAuth.Handler(apiHandler)
 		}

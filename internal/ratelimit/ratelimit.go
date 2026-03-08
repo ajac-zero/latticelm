@@ -1,49 +1,68 @@
 package ratelimit
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
-	"sync"
 	"time"
-
-	"golang.org/x/time/rate"
 )
 
-// Config defines rate limiting configuration.
+// Config defines distributed rate limiting configuration.
 type Config struct {
-	// RequestsPerSecond is the number of requests allowed per second per IP.
-	RequestsPerSecond float64
-	// Burst is the maximum burst size allowed.
-	Burst int
-	// Enabled controls whether rate limiting is active.
-	Enabled bool
+	Enabled               bool     `yaml:"enabled"`
+	RedisURL              string   `yaml:"redis_url"`
+	TrustedProxyCIDRs     []string `yaml:"trusted_proxy_cidrs"`
+	RequestsPerSecond     float64  `yaml:"requests_per_second"`
+	Burst                 int      `yaml:"burst"`
+	MaxPromptTokens       int      `yaml:"max_prompt_tokens"`
+	MaxOutputTokens       int      `yaml:"max_output_tokens"`
+	MaxConcurrentRequests int      `yaml:"max_concurrent_requests"`
+	DailyTokenQuota       int64    `yaml:"daily_token_quota"`
 }
 
-// Middleware provides per-IP rate limiting using token bucket algorithm.
+// RateLimitError is a structured error response for rate limit violations.
+type RateLimitError struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
+}
+
+// Middleware provides distributed, identity-based rate limiting.
 type Middleware struct {
-	limiters map[string]*rate.Limiter
-	mu       sync.RWMutex
-	config   Config
-	logger   *slog.Logger
+	backend      Backend
+	config       Config
+	logger       *slog.Logger
+	trustedCIDRs []*net.IPNet
 }
 
-// New creates a new rate limiting middleware.
-func New(config Config, logger *slog.Logger) *Middleware {
-	m := &Middleware{
-		limiters: make(map[string]*rate.Limiter),
-		config:   config,
-		logger:   logger,
+// New creates a new distributed rate limiting middleware.
+func New(config Config, backend Backend, logger *slog.Logger) (*Middleware, error) {
+	cidrs, err := parseCIDRs(config.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, fmt.Errorf("parse trusted proxy CIDRs: %w", err)
 	}
 
-	// Start cleanup goroutine to remove old limiters
-	if config.Enabled {
-		go m.cleanupLimiters()
+	if config.RequestsPerSecond == 0 {
+		config.RequestsPerSecond = 10
+	}
+	if config.Burst == 0 {
+		config.Burst = 20
 	}
 
-	return m
+	return &Middleware{
+		backend:      backend,
+		config:       config,
+		logger:       logger,
+		trustedCIDRs: cidrs,
+	}, nil
 }
 
-// Handler wraps an http.Handler with rate limiting.
+// Handler wraps an http.Handler with distributed rate limiting.
+// This middleware expects to run AFTER authentication middleware so that
+// JWT claims are available in the request context.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.config.Enabled {
@@ -51,87 +70,131 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// Extract client IP (handle X-Forwarded-For for proxies)
-		ip := m.getClientIP(r)
+		identity := extractIdentity(r, m.trustedCIDRs)
 
-		limiter := m.getLimiter(ip)
-		if !limiter.Allow() {
-			m.logger.Warn("rate limit exceeded",
-				slog.String("ip", ip),
-				slog.String("path", r.URL.Path),
+		// Check request rate
+		rateKey := fmt.Sprintf("rl:rate:%s", identity.Key())
+		allowed, err := m.backend.AllowRequest(r.Context(), rateKey, m.config.RequestsPerSecond, m.config.Burst)
+		if err != nil {
+			m.logger.Error("rate limit backend error, failing open",
+				slog.String("identity", identity.Key()),
+				slog.String("error", err.Error()),
 			)
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(http.StatusTooManyRequests)
-			if _, err := w.Write([]byte(`{"error":"rate limit exceeded","message":"too many requests"}`)); err != nil {
-			m.logger.Error("failed to write rate limit response", slog.String("error", err.Error()))
-		}
+		} else if !allowed {
+			m.logger.Warn("rate limit exceeded",
+				slog.String("identity", identity.Key()),
+				slog.String("tenant", identity.TenantKey()),
+				slog.String("ip", identity.IP),
+				slog.String("path", r.URL.Path),
+				slog.String("limit_type", "request_rate"),
+			)
+			writeRateLimitResponse(w, http.StatusTooManyRequests,
+				"rate limit exceeded", "rate_limit_exceeded", 1)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Check concurrent requests
+		if m.config.MaxConcurrentRequests > 0 {
+			concKey := fmt.Sprintf("rl:conc:%s", identity.TenantKey())
+			acquired, err := m.backend.AcquireConcurrent(r.Context(), concKey, m.config.MaxConcurrentRequests)
+			if err != nil {
+				m.logger.Error("concurrent limit backend error, failing open",
+					slog.String("identity", identity.Key()),
+					slog.String("error", err.Error()),
+				)
+			} else if !acquired {
+				m.logger.Warn("concurrent request limit exceeded",
+					slog.String("identity", identity.Key()),
+					slog.String("tenant", identity.TenantKey()),
+					slog.String("ip", identity.IP),
+					slog.String("path", r.URL.Path),
+					slog.String("limit_type", "concurrent_requests"),
+					slog.Int("max_concurrent", m.config.MaxConcurrentRequests),
+				)
+				writeRateLimitResponse(w, http.StatusTooManyRequests,
+					"too many concurrent requests", "concurrent_limit_exceeded", 1)
+				return
+			} else {
+				defer func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := m.backend.ReleaseConcurrent(ctx, concKey); err != nil {
+						m.logger.Error("failed to release concurrent slot",
+							slog.String("identity", identity.Key()),
+							slog.String("error", err.Error()),
+						)
+					}
+				}()
+			}
+		}
+
+		// Check daily token quota
+		if m.config.DailyTokenQuota > 0 {
+			quotaKey := m.dailyQuotaKey(identity.TenantKey())
+			remaining, quotaOK, err := m.backend.CheckQuota(r.Context(), quotaKey, m.config.DailyTokenQuota)
+			if err != nil {
+				m.logger.Error("quota check backend error, failing open",
+					slog.String("identity", identity.Key()),
+					slog.String("error", err.Error()),
+				)
+			} else if !quotaOK {
+				m.logger.Warn("daily token quota exceeded",
+					slog.String("identity", identity.Key()),
+					slog.String("tenant", identity.TenantKey()),
+					slog.String("ip", identity.IP),
+					slog.String("path", r.URL.Path),
+					slog.String("limit_type", "daily_quota"),
+					slog.Int64("daily_quota", m.config.DailyTokenQuota),
+				)
+				writeRateLimitResponse(w, http.StatusForbidden,
+					"daily token quota exceeded", "quota_exceeded", 0)
+				return
+			} else {
+				w.Header().Set("X-RateLimit-Remaining-Tokens", fmt.Sprintf("%d", remaining))
+			}
+		}
+
+		// Put usage recorder in context for downstream handlers
+		ctx := WithUsageRecorder(r.Context(), func(inputTokens, outputTokens int) {
+			if m.config.DailyTokenQuota > 0 {
+				totalTokens := int64(inputTokens + outputTokens)
+				quotaKey := m.dailyQuotaKey(identity.TenantKey())
+				recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := m.backend.RecordUsage(recordCtx, quotaKey, totalTokens); err != nil {
+					m.logger.Error("failed to record token usage",
+						slog.String("identity", identity.Key()),
+						slog.String("error", err.Error()),
+						slog.Int64("tokens", totalTokens),
+					)
+				}
+			}
+		})
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// getLimiter returns the rate limiter for a given IP, creating one if needed.
-func (m *Middleware) getLimiter(ip string) *rate.Limiter {
-	m.mu.RLock()
-	limiter, exists := m.limiters[ip]
-	m.mu.RUnlock()
-
-	if exists {
-		return limiter
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	limiter, exists = m.limiters[ip]
-	if exists {
-		return limiter
-	}
-
-	limiter = rate.NewLimiter(rate.Limit(m.config.RequestsPerSecond), m.config.Burst)
-	m.limiters[ip] = limiter
-	return limiter
+// GetConfig returns the rate limiter configuration (for token limit enforcement).
+func (m *Middleware) GetConfig() Config {
+	return m.config
 }
 
-// getClientIP extracts the client IP from the request.
-func (m *Middleware) getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (for proxies/load balancers)
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		// X-Forwarded-For can be a comma-separated list, use the first IP
-		for idx := 0; idx < len(xff); idx++ {
-			if xff[idx] == ',' {
-				return xff[:idx]
-			}
-		}
-		return xff
-	}
-
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+func (m *Middleware) dailyQuotaKey(tenant string) string {
+	date := time.Now().UTC().Format("2006-01-02")
+	return fmt.Sprintf("rl:quota:%s:%s", tenant, date)
 }
 
-// cleanupLimiters periodically removes unused limiters to prevent memory leaks.
-func (m *Middleware) cleanupLimiters() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		m.mu.Lock()
-		// Clear all limiters periodically
-		// In production, you might want a more sophisticated LRU cache
-		m.limiters = make(map[string]*rate.Limiter)
-		m.mu.Unlock()
-
-		m.logger.Debug("cleaned up rate limiters")
+func writeRateLimitResponse(w http.ResponseWriter, status int, message, errType string, retryAfter int) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
 	}
+	w.WriteHeader(status)
+	resp := RateLimitError{
+		Error:   errType,
+		Message: message,
+		Type:    errType,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
