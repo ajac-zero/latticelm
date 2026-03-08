@@ -33,7 +33,9 @@ COPY --from=frontend-builder /frontend/dist ./internal/admin/dist
 
 # Build the binary with optimizations
 # CGO is required for SQLite support
-RUN CGO_ENABLED=1 go build \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -o gateway \
@@ -43,7 +45,7 @@ RUN CGO_ENABLED=1 go build \
 FROM alpine:3.19
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata wget
 
 # Create non-root user
 RUN addgroup -g 1000 gateway && \
