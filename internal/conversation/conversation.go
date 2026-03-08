@@ -8,10 +8,17 @@ import (
 	"github.com/ajac-zero/latticelm/internal/api"
 )
 
+// OwnerInfo holds the identity metadata stamped onto every conversation.
+type OwnerInfo struct {
+	OwnerIss string
+	OwnerSub string
+	TenantID string
+}
+
 // Store defines the interface for conversation storage backends.
 type Store interface {
 	Get(ctx context.Context, id string) (*Conversation, error)
-	Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error)
+	Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error)
 	Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error)
 	Delete(ctx context.Context, id string) error
 	Size() int
@@ -31,6 +38,9 @@ type Conversation struct {
 	ID        string
 	Messages  []api.Message
 	Model     string
+	OwnerIss  string
+	OwnerSub  string
+	TenantID  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -69,13 +79,16 @@ func (s *MemoryStore) Get(ctx context.Context, id string) (*Conversation, error)
 		ID:        conv.ID,
 		Messages:  msgsCopy,
 		Model:     conv.Model,
+		OwnerIss:  conv.OwnerIss,
+		OwnerSub:  conv.OwnerSub,
+		TenantID:  conv.TenantID,
 		CreatedAt: conv.CreatedAt,
 		UpdatedAt: conv.UpdatedAt,
 	}, nil
 }
 
 // Create creates a new conversation with the given messages.
-func (s *MemoryStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *MemoryStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -89,6 +102,9 @@ func (s *MemoryStore) Create(ctx context.Context, id string, model string, messa
 		ID:        id,
 		Messages:  msgsCopy,
 		Model:     model,
+		OwnerIss:  owner.OwnerIss,
+		OwnerSub:  owner.OwnerSub,
+		TenantID:  owner.TenantID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -100,6 +116,9 @@ func (s *MemoryStore) Create(ctx context.Context, id string, model string, messa
 		ID:        id,
 		Messages:  messages,
 		Model:     model,
+		OwnerIss:  owner.OwnerIss,
+		OwnerSub:  owner.OwnerSub,
+		TenantID:  owner.TenantID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil
@@ -126,6 +145,9 @@ func (s *MemoryStore) Append(ctx context.Context, id string, messages ...api.Mes
 		ID:        conv.ID,
 		Messages:  msgsCopy,
 		Model:     conv.Model,
+		OwnerIss:  conv.OwnerIss,
+		OwnerSub:  conv.OwnerSub,
+		TenantID:  conv.TenantID,
 		CreatedAt: conv.CreatedAt,
 		UpdatedAt: conv.UpdatedAt,
 	}, nil

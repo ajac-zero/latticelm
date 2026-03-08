@@ -47,12 +47,15 @@ func (s *RedisStore) Get(ctx context.Context, id string) (*Conversation, error) 
 }
 
 // Create creates a new conversation with the given messages.
-func (s *RedisStore) Create(ctx context.Context, id string, model string, messages []api.Message) (*Conversation, error) {
+func (s *RedisStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error) {
 	now := time.Now()
 	conv := &Conversation{
 		ID:        id,
 		Messages:  messages,
 		Model:     model,
+		OwnerIss:  owner.OwnerIss,
+		OwnerSub:  owner.OwnerSub,
+		TenantID:  owner.TenantID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

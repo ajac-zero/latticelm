@@ -163,8 +163,14 @@ func main() {
 		logger.Info("conversation store instrumented")
 	}
 
-	gatewayServer := server.New(registry, convStore, logger)
-	gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
+gatewayServer := server.New(registry, convStore, logger,
+	server.WithAdminConfig(auth.AdminConfig{
+		Enabled:       cfg.Auth.Enabled && cfg.Admin.Enabled,
+		Claim:         cfg.Admin.Claim,
+		AllowedValues: cfg.Admin.AllowedValues,
+	}),
+)
+gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 
 	// Initialize distributed rate limiting
 	var rateLimitMiddleware *ratelimit.Middleware
