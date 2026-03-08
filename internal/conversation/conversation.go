@@ -45,6 +45,37 @@ type Conversation struct {
 	UpdatedAt time.Time
 }
 
+// copyMessages returns a deep copy of a Message slice, duplicating nested Content and ToolCalls slices.
+func copyMessages(messages []api.Message) []api.Message {
+	out := make([]api.Message, len(messages))
+	for i, msg := range messages {
+		out[i] = msg
+		if msg.Content != nil {
+			out[i].Content = make([]api.ContentBlock, len(msg.Content))
+			copy(out[i].Content, msg.Content)
+		}
+		if msg.ToolCalls != nil {
+			out[i].ToolCalls = make([]api.ToolCall, len(msg.ToolCalls))
+			copy(out[i].ToolCalls, msg.ToolCalls)
+		}
+	}
+	return out
+}
+
+// copyConversation returns a deep copy of a Conversation.
+func copyConversation(conv *Conversation) *Conversation {
+	return &Conversation{
+		ID:        conv.ID,
+		Messages:  copyMessages(conv.Messages),
+		Model:     conv.Model,
+		OwnerIss:  conv.OwnerIss,
+		OwnerSub:  conv.OwnerSub,
+		TenantID:  conv.TenantID,
+		CreatedAt: conv.CreatedAt,
+		UpdatedAt: conv.UpdatedAt,
+	}
+}
+
 // NewMemoryStore creates an in-memory conversation store with the given TTL.
 func NewMemoryStore(ttl time.Duration) *MemoryStore {
 	s := &MemoryStore{
@@ -71,20 +102,7 @@ func (s *MemoryStore) Get(ctx context.Context, id string) (*Conversation, error)
 		return nil, nil
 	}
 
-	// Return a deep copy to prevent data races
-	msgsCopy := make([]api.Message, len(conv.Messages))
-	copy(msgsCopy, conv.Messages)
-
-	return &Conversation{
-		ID:        conv.ID,
-		Messages:  msgsCopy,
-		Model:     conv.Model,
-		OwnerIss:  conv.OwnerIss,
-		OwnerSub:  conv.OwnerSub,
-		TenantID:  conv.TenantID,
-		CreatedAt: conv.CreatedAt,
-		UpdatedAt: conv.UpdatedAt,
-	}, nil
+	return copyConversation(conv), nil
 }
 
 // Create creates a new conversation with the given messages.
@@ -94,13 +112,9 @@ func (s *MemoryStore) Create(ctx context.Context, id string, model string, messa
 
 	now := time.Now()
 
-	// Store a copy to prevent external modifications
-	msgsCopy := make([]api.Message, len(messages))
-	copy(msgsCopy, messages)
-
 	conv := &Conversation{
 		ID:        id,
-		Messages:  msgsCopy,
+		Messages:  copyMessages(messages),
 		Model:     model,
 		OwnerIss:  owner.OwnerIss,
 		OwnerSub:  owner.OwnerSub,
@@ -111,17 +125,7 @@ func (s *MemoryStore) Create(ctx context.Context, id string, model string, messa
 
 	s.conversations[id] = conv
 
-	// Return a copy
-	return &Conversation{
-		ID:        id,
-		Messages:  messages,
-		Model:     model,
-		OwnerIss:  owner.OwnerIss,
-		OwnerSub:  owner.OwnerSub,
-		TenantID:  owner.TenantID,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}, nil
+	return copyConversation(conv), nil
 }
 
 // Append adds new messages to an existing conversation.
@@ -134,23 +138,10 @@ func (s *MemoryStore) Append(ctx context.Context, id string, messages ...api.Mes
 		return nil, nil
 	}
 
-	conv.Messages = append(conv.Messages, messages...)
+	conv.Messages = append(conv.Messages, copyMessages(messages)...)
 	conv.UpdatedAt = time.Now()
 
-	// Return a deep copy
-	msgsCopy := make([]api.Message, len(conv.Messages))
-	copy(msgsCopy, conv.Messages)
-
-	return &Conversation{
-		ID:        conv.ID,
-		Messages:  msgsCopy,
-		Model:     conv.Model,
-		OwnerIss:  conv.OwnerIss,
-		OwnerSub:  conv.OwnerSub,
-		TenantID:  conv.TenantID,
-		CreatedAt: conv.CreatedAt,
-		UpdatedAt: conv.UpdatedAt,
-	}, nil
+	return copyConversation(conv), nil
 }
 
 // Delete removes a conversation from the store.

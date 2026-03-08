@@ -3,11 +3,13 @@ package observability
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -713,4 +715,81 @@ Done:
 	counter := providerStreamChunks.WithLabelValues("ttfb-test", "ttfb-model")
 	value := testutil.ToFloat64(counter)
 	assert.Greater(t, value, 0.0)
+}
+
+// mockProviderRegistry implements ProviderRegistry for testing InstrumentedRegistry.
+type mockProviderRegistry struct {
+	providers map[string]*mockBaseProvider
+	models    map[string]string // model -> provider name
+}
+
+func newMockProviderRegistry(providerNames ...string) *mockProviderRegistry {
+	r := &mockProviderRegistry{
+		providers: make(map[string]*mockBaseProvider),
+		models:    make(map[string]string),
+	}
+	for _, name := range providerNames {
+		r.providers[name] = newMockBaseProvider(name)
+		r.models["model-"+name] = name
+	}
+	return r
+}
+
+func (r *mockProviderRegistry) Get(name string) (providers.Provider, bool) {
+	p, ok := r.providers[name]
+	return p, ok
+}
+
+func (r *mockProviderRegistry) Default(model string) (providers.Provider, error) {
+	name, ok := r.models[model]
+	if !ok {
+		return nil, fmt.Errorf("no provider for model %q", model)
+	}
+	p, ok := r.providers[name]
+	if !ok {
+		return nil, fmt.Errorf("provider %q not found", name)
+	}
+	return p, nil
+}
+
+func (r *mockProviderRegistry) Models() []struct{ Provider, Model string } {
+	var out []struct{ Provider, Model string }
+	for model, provider := range r.models {
+		out = append(out, struct{ Provider, Model string }{Provider: provider, Model: model})
+	}
+	return out
+}
+
+func (r *mockProviderRegistry) ResolveModelID(model string) string {
+	return model
+}
+
+func TestInstrumentedRegistry_ConcurrentAccess(t *testing.T) {
+	base := newMockProviderRegistry("openai", "anthropic", "google")
+	registry := NewTestRegistry()
+	InitMetrics()
+
+	instrumented := WrapProviderRegistry(base, registry, nil)
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			// Alternate between Get and Default to exercise both paths concurrently.
+			if idx%2 == 0 {
+				p, ok := instrumented.Get("openai")
+				assert.True(t, ok)
+				assert.NotNil(t, p)
+			} else {
+				p, err := instrumented.Default("model-anthropic")
+				assert.NoError(t, err)
+				assert.NotNil(t, p)
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
