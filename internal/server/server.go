@@ -16,6 +16,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
+	"github.com/ajac-zero/latticelm/internal/ratelimit"
 )
 
 // ProviderRegistry is an interface for provider registries.
@@ -26,11 +27,18 @@ type ProviderRegistry interface {
 	Default(model string) (providers.Provider, error)
 }
 
+// TokenLimits defines per-request token limits enforced by the gateway.
+type TokenLimits struct {
+	MaxPromptTokens int
+	MaxOutputTokens int
+}
+
 // GatewayServer hosts the Open Responses API for the gateway.
 type GatewayServer struct {
-	registry ProviderRegistry
-	convs    conversation.Store
-	logger   *slog.Logger
+	registry    ProviderRegistry
+	convs       conversation.Store
+	logger      *slog.Logger
+	tokenLimits TokenLimits
 }
 
 // New creates a GatewayServer bound to the provider registry.
@@ -40,6 +48,11 @@ func New(registry ProviderRegistry, convs conversation.Store, logger *slog.Logge
 		convs:    convs,
 		logger:   logger,
 	}
+}
+
+// SetTokenLimits configures per-request token limits.
+func (s *GatewayServer) SetTokenLimits(limits TokenLimits) {
+	s.tokenLimits = limits
 }
 
 // isCircuitBreakerError checks if the error is from a circuit breaker.
@@ -115,6 +128,15 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 
 	if err := req.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Enforce per-request token limits
+	if s.tokenLimits.MaxOutputTokens > 0 && req.MaxOutputTokens != nil && *req.MaxOutputTokens > s.tokenLimits.MaxOutputTokens {
+		WriteJSONError(w, s.logger, fmt.Sprintf(
+			"max_output_tokens %d exceeds configured limit of %d",
+			*req.MaxOutputTokens, s.tokenLimits.MaxOutputTokens,
+		), http.StatusBadRequest)
 		return
 	}
 
@@ -219,6 +241,9 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 		)
 		// Don't fail the response if storage fails
 	}
+
+	// Record token usage for distributed quota tracking
+	ratelimit.RecordUsageFromContext(r.Context(), result.Usage.InputTokens, result.Usage.OutputTokens)
 
 	s.logger.InfoContext(r.Context(), "response generated",
 		logger.LogAttrsWithTrace(r.Context(),
@@ -582,6 +607,11 @@ loop:
 				slog.String("error", err.Error()),
 			)
 			// Don't fail the response if storage fails
+		}
+
+		// Record token usage for distributed quota tracking
+		if completedResp.Usage != nil {
+			ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
 		}
 
 		s.logger.InfoContext(r.Context(), "streaming response completed",

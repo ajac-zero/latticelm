@@ -107,6 +107,12 @@ type contextKey string
 
 const claimsKey contextKey = "jwt_claims"
 
+// ClaimsContextKey returns the context key used for JWT claims.
+// This allows other packages (e.g., rate limiting) to read claims from context.
+func ClaimsContextKey() contextKey {
+	return claimsKey
+}
+
 // GetClaims extracts JWT claims from request context.
 func GetClaims(ctx context.Context) (jwt.MapClaims, bool) {
 	claims, ok := ctx.Value(claimsKey).(jwt.MapClaims)

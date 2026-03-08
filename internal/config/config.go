@@ -42,14 +42,26 @@ type LoggingConfig struct {
 	Level string `yaml:"level"`
 }
 
-// RateLimitConfig controls rate limiting behavior.
+// RateLimitConfig controls distributed identity-based rate limiting.
 type RateLimitConfig struct {
 	// Enabled controls whether rate limiting is active.
 	Enabled bool `yaml:"enabled"`
-	// RequestsPerSecond is the number of requests allowed per second per IP.
+	// RedisURL is the Redis connection URL for distributed state (required when enabled).
+	RedisURL string `yaml:"redis_url"`
+	// TrustedProxyCIDRs is a list of CIDRs whose X-Forwarded-For headers are trusted.
+	TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs"`
+	// RequestsPerSecond is the number of requests allowed per second per identity.
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	// Burst is the maximum burst size allowed.
 	Burst int `yaml:"burst"`
+	// MaxPromptTokens is the maximum prompt tokens allowed per request.
+	MaxPromptTokens int `yaml:"max_prompt_tokens"`
+	// MaxOutputTokens is the maximum output tokens allowed per request.
+	MaxOutputTokens int `yaml:"max_output_tokens"`
+	// MaxConcurrentRequests is the maximum concurrent requests per tenant.
+	MaxConcurrentRequests int `yaml:"max_concurrent_requests"`
+	// DailyTokenQuota is the per-tenant daily token budget.
+	DailyTokenQuota int64 `yaml:"daily_token_quota"`
 }
 
 // ObservabilityConfig controls observability features.

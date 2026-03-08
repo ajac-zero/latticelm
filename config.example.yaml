@@ -7,9 +7,18 @@ logging:
   level: "info"   # "debug", "info", "warn", or "error"
 
 rate_limit:
-  enabled: false  # Enable rate limiting (recommended for production)
-  requests_per_second: 10  # Max requests per second per IP (default: 10)
+  enabled: false  # Enable distributed identity-based rate limiting (recommended for production)
+  redis_url: "redis://localhost:6379/1"  # Redis URL for distributed rate limit state (required when enabled)
+  trusted_proxy_cidrs:  # Only trust X-Forwarded-For from these CIDRs
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  requests_per_second: 10  # Max requests per second per identity (default: 10)
   burst: 20  # Maximum burst size (default: 20)
+  max_prompt_tokens: 100000  # Max prompt tokens per request (0 = unlimited)
+  max_output_tokens: 16384  # Max output tokens per request (0 = unlimited)
+  max_concurrent_requests: 10  # Max concurrent requests per tenant (0 = unlimited)
+  daily_token_quota: 1000000  # Per-tenant daily token budget (0 = unlimited)
 
 observability:
   enabled: false  # Enable observability features (metrics and tracing)
