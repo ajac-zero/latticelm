@@ -1,11 +1,16 @@
 package main
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ajac-zero/latticelm/internal/config"
 )
 
 var _ http.Flusher = (*responseWriter)(nil)
@@ -194,4 +199,47 @@ func TestBuildRouteMuxSeparatesSecurityBoundaries(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), tt.expectBody)
 		})
 	}
+}
+
+func TestInitConversationStore_BadDSN_FailsFast(t *testing.T) {
+	cfg := config.ConversationConfig{
+		Store:  "sql",
+		Driver: "sqlite3",
+		// Path in a non-existent directory; sqlite3 cannot create the file.
+		DSN: "/nonexistent_dir_for_latticelm_test/bad.db",
+	}
+	store, _, err := initConversationStore(cfg, slog.Default())
+	require.Error(t, err, "expected error for bad DSN")
+	assert.Nil(t, store, "store must be nil on failure")
+	assert.Contains(t, err.Error(), "ping database", "error should mention ping failure")
+}
+
+func TestInitConversationStore_DefaultPoolSettings(t *testing.T) {
+	cfg := config.ConversationConfig{
+		Store:  "sql",
+		Driver: "sqlite3",
+		DSN:    ":memory:",
+	}
+	store, backend, err := initConversationStore(cfg, slog.Default())
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	assert.Equal(t, "sql", backend)
+	_ = store.Close()
+}
+
+func TestInitConversationStore_CustomPoolSettings(t *testing.T) {
+	cfg := config.ConversationConfig{
+		Store:           "sql",
+		Driver:          "sqlite3",
+		DSN:             ":memory:",
+		MaxOpenConns:    10,
+		MaxIdleConns:    2,
+		ConnMaxLifetime: "10m",
+		ConnMaxIdleTime: "2m",
+	}
+	store, backend, err := initConversationStore(cfg, slog.Default())
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	assert.Equal(t, "sql", backend)
+	_ = store.Close()
 }
