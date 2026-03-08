@@ -7,7 +7,7 @@ WORKDIR /frontend
 
 # Copy package files for better caching
 COPY frontend/admin/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy frontend source and build
 COPY frontend/admin/ ./
@@ -33,7 +33,7 @@ COPY --from=frontend-builder /frontend/dist ./internal/admin/dist
 
 # Build the binary with optimizations
 # CGO is required for SQLite support
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=1 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
     -o gateway \
