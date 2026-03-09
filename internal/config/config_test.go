@@ -43,7 +43,7 @@ auth:
 conversations:
   store: memory
   ttl: 1h
-admin:
+ui:
   enabled: true
   claim: groups
   allowed_values:
@@ -59,9 +59,9 @@ admin:
 				assert.Equal(t, "gpt-4", cfg.Models[0].Name)
 				assert.True(t, cfg.Auth.Enabled)
 				assert.Equal(t, "memory", cfg.Conversations.Store)
-				assert.True(t, cfg.Admin.Enabled)
-				assert.Equal(t, "groups", cfg.Admin.Claim)
-				assert.Equal(t, []string{"platform-admin", "ops"}, cfg.Admin.AllowedValues)
+				assert.True(t, cfg.UI.Enabled)
+				assert.Equal(t, "groups", cfg.UI.Claim)
+				assert.Equal(t, []string{"platform-admin", "ops"}, cfg.UI.AllowedValues)
 			},
 		},
 		{

@@ -3,12 +3,12 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  base: '/admin/',
+  base: '/',
   server: {
     port: 5173,
     allowedHosts: ['.coder.ia-innovacion.work', 'localhost'],
     proxy: {
-      '/admin/api': {
+      '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },

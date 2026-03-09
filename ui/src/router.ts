@@ -3,7 +3,7 @@ import Dashboard from './views/Dashboard.vue'
 import Chat from './views/Chat.vue'
 
 const router = createRouter({
-  history: createWebHistory('/admin/'),
+  history: createWebHistory('/'),
   routes: [
     {
       path: '/',

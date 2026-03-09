@@ -17,7 +17,7 @@ type Config struct {
 	Logging       LoggingConfig            `yaml:"logging"`
 	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
 	Observability ObservabilityConfig      `yaml:"observability"`
-	Admin         AdminConfig              `yaml:"admin"`
+	UI            UIConfig                 `yaml:"ui"`
 }
 
 // ConversationConfig controls conversation storage.
@@ -131,13 +131,13 @@ type AuthConfig struct {
 	Audience string `yaml:"audience"`
 }
 
-// AdminConfig controls the admin UI.
-type AdminConfig struct {
+// UIConfig controls the web UI.
+type UIConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	Claim         string   `yaml:"claim"`          // Optional admin authorization claim. Defaults to role/roles/groups lookup order.
 	AllowedValues []string `yaml:"allowed_values"` // Allowed values for the admin claim. Defaults to ["admin"].
 	// IPAllowlist is an optional list of CIDRs (e.g. "10.0.0.0/8") permitted to
-	// reach admin routes. Empty means all source IPs are allowed.
+	// reach UI routes. Empty means all source IPs are allowed.
 	IPAllowlist []string `yaml:"ip_allowlist"`
 }
 
