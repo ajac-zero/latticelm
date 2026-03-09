@@ -128,6 +128,7 @@ func TestBuildRouteMuxSeparatesSecurityBoundaries(t *testing.T) {
 		publicMux,
 		apiHandler,
 		adminHandler,
+		nil, // authHandler not needed for this test
 		"/metrics",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)

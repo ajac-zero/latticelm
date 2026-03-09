@@ -282,11 +282,13 @@ func (c *OIDCClient) HandleUser(w http.ResponseWriter, r *http.Request) {
 
 	// Return user info
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"email":    session.Email,
 		"name":     session.Name,
 		"is_admin": session.IsAdmin,
-	})
+	}); err != nil {
+		c.logger.Error("failed to encode user info", "error", err)
+	}
 }
 
 // SessionMiddleware checks for a valid session cookie.
