@@ -476,6 +476,11 @@ loop:
 		select {
 		case delta, ok := <-deltaChan:
 			if !ok {
+				// deltaChan closed — drain errChan to catch any error
+				// that was sent before the goroutine exited.
+				if err, ok := <-errChan; ok && err != nil {
+					streamErr = err
+				}
 				break loop
 			}
 			if delta.Model != "" && providerModel == "" {
