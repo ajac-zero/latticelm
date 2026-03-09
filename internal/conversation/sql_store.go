@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/ajac-zero/latticelm/internal/api"
@@ -45,21 +46,17 @@ type SQLStore struct {
 	done    chan struct{}
 }
 
-// NewSQLStore creates a SQL-backed conversation store. It creates the
-// conversations table if it does not already exist and starts a background
+// NewSQLStore creates a SQL-backed conversation store. It runs all pending
+// schema migrations, verifies the schema version, and starts a background
 // goroutine to remove expired rows.
 func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error) {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS conversations (
-		id         TEXT PRIMARY KEY,
-		model      TEXT NOT NULL,
-		messages   TEXT NOT NULL,
-		owner_iss  TEXT NOT NULL DEFAULT '',
-		owner_sub  TEXT NOT NULL DEFAULT '',
-		tenant_id  TEXT NOT NULL DEFAULT '',
-		created_at TIMESTAMP NOT NULL,
-		updated_at TIMESTAMP NOT NULL
-	)`)
-	if err != nil {
+	ctx := context.Background()
+
+	if _, err := Migrate(ctx, db, driver); err != nil {
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+
+	if err := CheckSchemaVersion(ctx, db); err != nil {
 		return nil, err
 	}
 
