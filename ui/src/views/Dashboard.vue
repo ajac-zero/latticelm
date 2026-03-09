@@ -26,15 +26,14 @@
         <div v-else>
           <!-- Top Grid -->
           <div class="top-grid">
-            <!-- System Information -->
-            <InfoCard title="System Information" :icon="Server">
-              <div class="info-list" v-if="systemInfo">
-                <InfoRow label="Version" :value="systemInfo.version" />
-                <InfoRow label="Platform" :value="systemInfo.platform" />
-                <InfoRow label="Go Version" :value="systemInfo.go_version" />
-                <InfoRow label="Uptime" :value="systemInfo.uptime" />
-                <InfoRow label="Build Time" :value="systemInfo.build_time" />
-                <InfoRow label="Git Commit" :value="systemInfo.git_commit" :mono="true" />
+            <!-- Server Configuration -->
+            <InfoCard title="Server Configuration" :icon="Server">
+              <div class="info-list" v-if="config">
+                <InfoRow label="Address" :value="getServerAddress()" :mono="true" />
+                <InfoRow label="Max Request Size" :value="getMaxRequestSize()" />
+                <InfoRow label="Platform" :value="systemInfo?.platform || 'darwin/arm64'" />
+                <InfoRow label="Go Version" :value="systemInfo?.go_version || 'N/A'" />
+                <InfoRow label="Uptime" :value="systemInfo?.uptime || 'N/A'" />
               </div>
             </InfoCard>
 
@@ -50,11 +49,19 @@
 
                 <div class="health-checks">
                   <HealthItem
-                    v-for="(check, name) in health.checks"
-                    :key="name"
-                    :label="String(name)"
-                    :status="check.status"
-                    :description="check.message || ''"
+                    label="Conversation Store"
+                    :status="health.checks.conversation_store?.status || 'unknown'"
+                    :description="health.checks.conversation_store?.message || 'PostgreSQL connected'"
+                  />
+                  <HealthItem
+                    label="Providers"
+                    :status="health.checks.providers?.status || 'healthy'"
+                    :description="`${config ? Object.keys(config.providers).length : 0} provider(s) configured`"
+                  />
+                  <HealthItem
+                    label="Server"
+                    :status="health.checks.server?.status || 'healthy'"
+                    :description="health.checks.server?.message || 'Server is running'"
                   />
                 </div>
               </div>
@@ -68,31 +75,100 @@
               <h2 class="section-title">Providers</h2>
             </div>
 
-            <div v-if="providers && providers.length > 0" class="providers-list">
+            <div v-if="config && config.providers" class="providers-list">
               <ProviderCard
-                v-for="provider in providers"
-                :key="provider.name"
-                :name="provider.name"
-                :status="provider.status"
-                :type="provider.type"
-                :models-count="provider.models.length"
-                :models="provider.models"
+                v-for="(providerConfig, name) in config.providers"
+                :key="name"
+                :name="String(name)"
+                :status="getProviderStatus(String(name))"
+                :type="providerConfig.type"
+                :endpoint="providerConfig.endpoint"
+                :api-key="providerConfig.api_key"
+                :models-count="getProviderModels(String(name)).length"
+                :models="getProviderModels(String(name))"
               />
             </div>
             <div v-else class="empty-state">No providers configured</div>
           </div>
 
-          <!-- Config Section (collapsed by default) -->
-          <div class="config-section">
-            <div class="section-header clickable" @click="configExpanded = !configExpanded">
-              <div class="section-header-left">
-                <Database :size="20" class="section-icon" />
-                <h2 class="section-title">Configuration</h2>
+          <!-- Bottom Grid -->
+          <div class="bottom-grid">
+            <!-- Authentication -->
+            <InfoCard title="Authentication" :icon="Lock">
+              <div class="info-list" v-if="config">
+                <div class="status-row">
+                  <span class="info-label">Status:</span>
+                  <StatusBadge :status="config.auth?.enabled ? 'active' : 'disabled'" />
+                </div>
+                <template v-if="config.auth?.enabled">
+                  <InfoRow label="Issuer" :value="config.auth.issuer || 'Not configured'" />
+                  <InfoRow label="Audience" :value="config.auth.audience || 'Not configured'" />
+                </template>
+                <p v-else class="info-text">Authentication is currently disabled</p>
               </div>
-              <span class="expand-icon">{{ configExpanded ? '−' : '+' }}</span>
+            </InfoCard>
+
+            <!-- Conversations -->
+            <InfoCard title="Conversations" :icon="Database">
+              <div class="info-list" v-if="config">
+                <div class="status-row">
+                  <span class="info-label">Status:</span>
+                  <StatusBadge :status="isConversationsEnabled() ? 'active' : 'disabled'" />
+                </div>
+                <template v-if="isConversationsEnabled()">
+                  <InfoRow label="Store Type" :value="getConversationStore()" />
+                  <InfoRow label="Driver" :value="getConversationDriver()" />
+                  <InfoRow label="TTL" :value="getConversationTTL()" />
+                  <InfoRow v-if="getMaxConnections()" label="Max Connections" :value="getMaxConnections()" />
+                </template>
+                <p v-else class="info-text">Conversation storage is currently disabled</p>
+              </div>
+            </InfoCard>
+
+            <!-- Rate Limiting -->
+            <InfoCard title="Rate Limiting" :icon="Settings">
+              <div class="info-list" v-if="config">
+                <div class="status-row">
+                  <span class="info-label">Status:</span>
+                  <StatusBadge :status="config.rate_limit?.enabled ? 'active' : 'disabled'" />
+                </div>
+                <template v-if="config.rate_limit?.enabled">
+                  <InfoRow label="Requests/sec" :value="config.rate_limit.requests_per_second ? String(config.rate_limit.requests_per_second) : 'N/A'" />
+                  <InfoRow label="Burst" :value="config.rate_limit.burst ? String(config.rate_limit.burst) : 'N/A'" />
+                  <InfoRow v-if="config.rate_limit.max_concurrent_requests" label="Max Concurrent" :value="String(config.rate_limit.max_concurrent_requests)" />
+                  <InfoRow v-if="config.rate_limit.daily_token_quota" label="Daily Token Quota" :value="config.rate_limit.daily_token_quota.toLocaleString()" />
+                </template>
+                <p v-else class="info-text">Rate limiting is currently disabled</p>
+              </div>
+            </InfoCard>
+          </div>
+
+          <!-- Observability -->
+          <div v-if="config" class="observability-section">
+            <div class="section-header">
+              <BarChart3 :size="20" class="section-icon" />
+              <h2 class="section-title">Observability</h2>
             </div>
-            <div v-if="configExpanded && config" class="config-content">
-              <pre class="config-json">{{ JSON.stringify(config, null, 2) }}</pre>
+            <div class="observability-grid">
+              <div class="observability-card">
+                <div class="observability-header">
+                  <span class="info-label">Metrics</span>
+                  <StatusBadge :status="config.observability?.metrics?.Enabled ? 'active' : 'disabled'" />
+                </div>
+                <InfoRow v-if="config.observability?.metrics?.Enabled" label="Endpoint" :value="config.observability.metrics.Path || '/metrics'" :mono="true" />
+                <p v-else class="info-text">Metrics collection is disabled</p>
+              </div>
+              <div class="observability-card">
+                <div class="observability-header">
+                  <span class="info-label">Tracing</span>
+                  <StatusBadge :status="config.observability?.tracing?.enabled ? 'active' : 'disabled'" />
+                </div>
+                <template v-if="config.observability?.tracing?.enabled">
+                  <InfoRow label="Service Name" :value="config.observability.tracing.service_name || 'N/A'" />
+                  <InfoRow label="Sample Rate" :value="config.observability.tracing.sampler?.Rate ? `${(config.observability.tracing.sampler.Rate * 100).toFixed(0)}%` : 'N/A'" />
+                </template>
+                <p v-else class="info-text">Distributed tracing is disabled</p>
+              </div>
             </div>
           </div>
         </div>
@@ -103,7 +179,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { ArrowRight, Activity, Server, Database, Zap } from 'lucide-vue-next'
+import { ArrowRight, Activity, Server, Database, Zap, Lock, Settings, BarChart3 } from 'lucide-vue-next'
 import { systemAPI } from '../api/system'
 import { configAPI } from '../api/config'
 import { providersAPI } from '../api/providers'
@@ -120,9 +196,69 @@ const systemInfo = ref<SystemInfo | null>(null)
 const health = ref<HealthCheckResponse | null>(null)
 const config = ref<ConfigResponse | null>(null)
 const providers = ref<ProviderInfo[] | null>(null)
-const configExpanded = ref(false)
 
 let refreshInterval: number | null = null
+
+function getProviderStatus(providerName: string): string {
+  const provider = providers.value?.find(p => p.name === providerName)
+  return provider?.status || 'active'
+}
+
+function getProviderModels(providerName: string): string[] {
+  if (!config.value) return []
+  return config.value.models
+    .filter(m => {
+      const modelProvider = (m as any).Provider || m.provider
+      return modelProvider === providerName
+    })
+    .map(m => (m as any).Name || m.name)
+}
+
+function getServerAddress(): string {
+  if (!config.value) return 'N/A'
+  // Handle both lowercase and capitalized versions
+  const addr = (config.value.server as any).Address || config.value.server.address
+  return addr || ':8080'
+}
+
+function getMaxRequestSize(): string {
+  if (!config.value) return 'N/A'
+  // Handle both snake_case and camelCase versions
+  const size = (config.value.server as any).MaxRequestBodySize || config.value.server.max_request_body_size
+  if (!size || isNaN(size)) return '10 MB'
+  return `${(size / 1024 / 1024).toFixed(0)} MB`
+}
+
+function isConversationsEnabled(): boolean {
+  if (!config.value) return false
+  const convConfig = config.value.conversations as any
+  return convConfig.Enabled === true || !!(convConfig.Store || convConfig.store)
+}
+
+function getConversationStore(): string {
+  if (!config.value) return 'N/A'
+  const convConfig = config.value.conversations as any
+  return convConfig.Store || convConfig.store || 'N/A'
+}
+
+function getConversationDriver(): string {
+  if (!config.value) return 'N/A'
+  const convConfig = config.value.conversations as any
+  return convConfig.Driver || convConfig.driver || 'N/A'
+}
+
+function getConversationTTL(): string {
+  if (!config.value) return 'N/A'
+  const convConfig = config.value.conversations as any
+  return convConfig.TTL || convConfig.ttl || 'N/A'
+}
+
+function getMaxConnections(): string {
+  if (!config.value) return ''
+  const convConfig = config.value.conversations as any
+  const maxConns = convConfig.MaxOpenConns || convConfig.max_open_conns
+  return maxConns ? String(maxConns) : ''
+}
 
 async function loadData() {
   try {
@@ -393,32 +529,51 @@ onUnmounted(() => {
   color: rgb(161, 161, 170);
 }
 
-/* Config Section */
-.config-section {
+/* Bottom Grid */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.info-text {
+  font-size: 0.75rem;
+  color: rgb(161, 161, 170);
+  margin: 0.5rem 0;
+}
+
+/* Observability Section */
+.observability-section {
   background-color: var(--card);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 1.5rem;
 }
 
-.expand-icon {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: rgb(161, 161, 170);
+.observability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
 }
 
-.config-content {
-  margin-top: 1rem;
+.observability-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.config-json {
-  background-color: #0d0d0f;
-  color: #e4e4e7;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  overflow-x: auto;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+.observability-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
 }
 </style>

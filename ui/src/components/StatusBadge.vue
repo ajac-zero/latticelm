@@ -17,6 +17,8 @@ const statusClass = computed(() => {
       return 'status-healthy'
     case 'active':
       return 'status-active'
+    case 'disabled':
+      return 'status-disabled'
     case 'warning':
       return 'status-warning'
     case 'error':
@@ -49,6 +51,12 @@ const statusClass = computed(() => {
   background-color: rgba(59, 130, 246, 0.1);
   color: rgb(96, 165, 250);
   border-color: rgba(59, 130, 246, 0.2);
+}
+
+.status-disabled {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: rgb(161, 161, 170);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .status-warning {

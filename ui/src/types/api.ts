@@ -39,39 +39,83 @@ export interface SanitizedProvider {
 }
 
 export interface ModelEntry {
-  name: string
-  provider: string
+  Name?: string
+  name?: string
+  Provider?: string
+  provider?: string
+  ProviderModelID?: string
   provider_model_id?: string
 }
 
 export interface ConfigResponse {
   server: {
-    address: string
-    max_request_body_size: number
+    Address?: string
+    address?: string
+    MaxRequestBodySize?: number
+    max_request_body_size?: number
   }
   providers: Record<string, SanitizedProvider>
   models: ModelEntry[]
-  auth: {
+  auth?: {
     enabled: boolean
-    issuer: string
-    audience: string
+    issuer?: string
+    audience?: string
   }
   conversations: {
-    store: string
-    ttl: string
-    dsn: string
-    driver: string
+    Enabled?: boolean
+    StoreByDefault?: boolean
+    Store?: string
+    store?: string
+    TTL?: string
+    ttl?: string
+    DSN?: string
+    dsn?: string
+    Driver?: string
+    driver?: string
+    MaxOpenConns?: number
+    max_open_conns?: number
+    MaxIdleConns?: number
+    max_idle_conns?: number
+    ConnMaxLifetime?: string
+    conn_max_lifetime?: string
+    ConnMaxIdleTime?: string
+    conn_max_idle_time?: string
   }
-  logging: {
-    format: string
-    level: string
+  logging?: {
+    format?: string
+    level?: string
   }
-  rate_limit: {
+  rate_limit?: {
     enabled: boolean
-    requests_per_second: number
-    burst: number
+    requests_per_second?: number
+    burst?: number
+    max_concurrent_requests?: number
+    daily_token_quota?: number
+    max_prompt_tokens?: number
+    max_output_tokens?: number
+    redis_url?: string
+    trusted_proxy_cidrs?: string[]
   }
-  observability: any
+  observability?: {
+    enabled?: boolean
+    metrics?: {
+      Enabled: boolean
+      Path?: string
+    }
+    tracing?: {
+      enabled: boolean
+      service_name?: string
+      sampler?: {
+        Type?: string
+        Rate?: number
+      }
+      exporter?: {
+        type?: string
+        endpoint?: string
+        insecure?: boolean
+      }
+    }
+  }
 }
 
 export interface ProviderInfo {
