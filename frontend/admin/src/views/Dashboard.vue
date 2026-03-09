@@ -1,115 +1,118 @@
 <template>
   <div class="dashboard">
+    <!-- Header -->
     <header class="header">
-      <div class="header-row">
-        <h1>LLM Gateway Admin</h1>
-        <router-link to="/chat" class="nav-link">Playground →</router-link>
+      <div class="container">
+        <div class="header-content">
+          <div class="header-left">
+            <div class="logo">
+              <Zap :size="16" class="logo-icon" />
+            </div>
+            <h1 class="header-title">LLM Gateway Admin</h1>
+          </div>
+          <router-link to="/chat" class="playground-button">
+            <span>Playground</span>
+            <ArrowRight :size="16" class="arrow-icon" />
+          </router-link>
+        </div>
       </div>
     </header>
 
-    <div class="container">
-      <div v-if="loading" class="loading">Loading...</div>
-      <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else class="grid">
-        <!-- System Info Card -->
-        <div class="card">
-          <h2>System Information</h2>
-          <div class="info-grid" v-if="systemInfo">
-            <div class="info-item">
-              <span class="label">Version:</span>
-              <span class="value">{{ systemInfo.version }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">Platform:</span>
-              <span class="value">{{ systemInfo.platform }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">Go Version:</span>
-              <span class="value">{{ systemInfo.go_version }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">Uptime:</span>
-              <span class="value">{{ systemInfo.uptime }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">Build Time:</span>
-              <span class="value">{{ systemInfo.build_time }}</span>
-            </div>
-            <div class="info-item">
-              <span class="label">Git Commit:</span>
-              <span class="value code">{{ systemInfo.git_commit }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Health Status Card -->
-        <div class="card">
-          <h2>Health Status</h2>
-          <div v-if="health">
-            <div class="health-overall">
-              <span class="label">Overall Status:</span>
-              <span :class="['badge', health.status]">{{ health.status }}</span>
-            </div>
-            <div class="health-checks">
-              <div v-for="(check, name) in health.checks" :key="name" class="health-check">
-                <span class="check-name">{{ name }}:</span>
-                <span :class="['badge', check.status]">{{ check.status }}</span>
-                <span v-if="check.message" class="check-message">{{ check.message }}</span>
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="container">
+        <div v-if="loading" class="loading">Loading...</div>
+        <div v-else-if="error" class="error">{{ error }}</div>
+        <div v-else>
+          <!-- Top Grid -->
+          <div class="top-grid">
+            <!-- System Information -->
+            <InfoCard title="System Information" :icon="Server">
+              <div class="info-list" v-if="systemInfo">
+                <InfoRow label="Version" :value="systemInfo.version" />
+                <InfoRow label="Platform" :value="systemInfo.platform" />
+                <InfoRow label="Go Version" :value="systemInfo.go_version" />
+                <InfoRow label="Uptime" :value="systemInfo.uptime" />
+                <InfoRow label="Build Time" :value="systemInfo.build_time" />
+                <InfoRow label="Git Commit" :value="systemInfo.git_commit" :mono="true" />
               </div>
-            </div>
-          </div>
-        </div>
+            </InfoCard>
 
-        <!-- Providers Card -->
-        <div class="card full-width">
-          <h2>Providers</h2>
-          <div v-if="providers && providers.length > 0" class="providers-grid">
-            <div v-for="provider in providers" :key="provider.name" class="provider-card">
-              <div class="provider-header">
-                <h3>{{ provider.name }}</h3>
-                <span :class="['badge', provider.status]">{{ provider.status }}</span>
-              </div>
-              <div class="provider-info">
-                <div class="info-item">
-                  <span class="label">Type:</span>
-                  <span class="value">{{ provider.type }}</span>
+            <!-- Health Status -->
+            <InfoCard title="Health Status" :icon="Activity">
+              <div v-if="health">
+                <div class="health-overall">
+                  <span class="health-label">Overall Status:</span>
+                  <StatusBadge :status="health.status" />
                 </div>
-                <div class="info-item">
-                  <span class="label">Models:</span>
-                  <span class="value">{{ provider.models.length }}</span>
+
+                <div class="health-divider"></div>
+
+                <div class="health-checks">
+                  <HealthItem
+                    v-for="(check, name) in health.checks"
+                    :key="name"
+                    :label="String(name)"
+                    :status="check.status"
+                    :description="check.message || ''"
+                  />
                 </div>
               </div>
-              <div v-if="provider.models.length > 0" class="models-list">
-                <span v-for="model in provider.models" :key="model" class="model-tag">
-                  {{ model }}
-                </span>
-              </div>
-            </div>
+            </InfoCard>
           </div>
-          <div v-else class="empty-state">No providers configured</div>
-        </div>
 
-        <!-- Config Card -->
-        <div class="card full-width collapsible">
-          <div class="card-header" @click="configExpanded = !configExpanded">
-            <h2>Configuration</h2>
-            <span class="expand-icon">{{ configExpanded ? '−' : '+' }}</span>
+          <!-- Providers Section -->
+          <div class="providers-section">
+            <div class="section-header">
+              <Database :size="20" class="section-icon" />
+              <h2 class="section-title">Providers</h2>
+            </div>
+
+            <div v-if="providers && providers.length > 0" class="providers-list">
+              <ProviderCard
+                v-for="provider in providers"
+                :key="provider.name"
+                :name="provider.name"
+                :status="provider.status"
+                :type="provider.type"
+                :models-count="provider.models.length"
+                :models="provider.models"
+              />
+            </div>
+            <div v-else class="empty-state">No providers configured</div>
           </div>
-          <div v-if="configExpanded && config" class="config-content">
-            <pre class="config-json">{{ JSON.stringify(config, null, 2) }}</pre>
+
+          <!-- Config Section (collapsed by default) -->
+          <div class="config-section">
+            <div class="section-header clickable" @click="configExpanded = !configExpanded">
+              <div class="section-header-left">
+                <Database :size="20" class="section-icon" />
+                <h2 class="section-title">Configuration</h2>
+              </div>
+              <span class="expand-icon">{{ configExpanded ? '−' : '+' }}</span>
+            </div>
+            <div v-if="configExpanded && config" class="config-content">
+              <pre class="config-json">{{ JSON.stringify(config, null, 2) }}</pre>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { ArrowRight, Activity, Server, Database, Zap } from 'lucide-vue-next'
 import { systemAPI } from '../api/system'
 import { configAPI } from '../api/config'
 import { providersAPI } from '../api/providers'
 import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo } from '../types/api'
+import StatusBadge from '../components/StatusBadge.vue'
+import InfoCard from '../components/InfoCard.vue'
+import ProviderCard from '../components/ProviderCard.vue'
+import InfoRow from '../components/InfoRow.vue'
+import HealthItem from '../components/HealthItem.vue'
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -161,48 +164,89 @@ onUnmounted(() => {
 <style scoped>
 .dashboard {
   min-height: 100vh;
-  background-color: #f5f5f5;
+  background-color: var(--background);
 }
 
+/* Header */
 .header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: rgba(13, 13, 15, 0.8);
 }
 
-.header-row {
+.header-content {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
 }
 
-.header h1 {
-  font-size: 2rem;
-  font-weight: 600;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.nav-link {
-  color: rgba(255, 255, 255, 0.85);
-  text-decoration: none;
-  font-size: 1rem;
+.logo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, rgba(139, 133, 255, 0.2) 0%, rgba(139, 133, 255, 0.05) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(139, 133, 255, 0.2);
+}
+
+.logo-icon {
+  color: var(--primary);
+}
+
+.header-title {
+  font-size: 1.25rem;
   font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.playground-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.5rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 8px;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 0.875rem;
   transition: all 0.2s;
 }
 
-.nav-link:hover {
-  color: white;
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.1);
+.playground-button:hover {
+  border-color: rgba(139, 133, 255, 0.5);
+}
+
+.arrow-icon {
+  transition: transform 0.2s;
+}
+
+.playground-button:hover .arrow-icon {
+  transform: translateX(2px);
+}
+
+/* Main Content */
+.main-content {
+  padding: 2rem 0;
 }
 
 .container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 0 1.5rem;
 }
 
 .loading,
@@ -213,186 +257,154 @@ onUnmounted(() => {
 }
 
 .error {
-  color: #e53e3e;
+  color: rgb(248, 113, 113);
 }
 
-.grid {
+/* Top Grid */
+.top-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
-.card {
-  background: white;
-  border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.full-width {
-  grid-column: 1 / -1;
-}
-
-.card h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
-  color: #2d3748;
-}
-
-.info-grid {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.info-item {
+/* Info Rows */
+.info-list {
   display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   padding: 0.5rem 0;
-  border-bottom: 1px solid #e2e8f0;
 }
 
-.info-item:last-child {
-  border-bottom: none;
-}
-
-.label {
-  font-weight: 500;
-  color: #4a5568;
-}
-
-.value {
-  color: #2d3748;
-}
-
-.code {
-  font-family: 'Courier New', monospace;
-  font-size: 0.9rem;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
+.info-label {
   font-size: 0.875rem;
-  font-weight: 500;
+  color: rgb(161, 161, 170);
 }
 
-.badge.healthy {
-  background-color: #c6f6d5;
-  color: #22543d;
+.info-value {
+  font-size: 0.875rem;
+  color: var(--foreground);
 }
 
-.badge.unhealthy {
-  background-color: #fed7d7;
-  color: #742a2a;
+.info-value.mono {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
-.badge.active {
-  background-color: #bee3f8;
-  color: #2c5282;
-}
-
+/* Health Status */
 .health-overall {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background-color: #f7fafc;
-  border-radius: 6px;
-  margin-bottom: 1rem;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.health-label {
+  font-size: 0.875rem;
+  color: rgb(161, 161, 170);
+}
+
+.health-divider {
+  height: 1px;
+  background-color: var(--border);
+  margin: 1rem 0;
 }
 
 .health-checks {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
 }
 
-.health-check {
+.health-item {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
 }
 
-.check-name {
-  font-weight: 500;
-  color: #4a5568;
+.health-item-content {
+  flex: 1;
+}
+
+.health-item-label {
+  font-size: 0.875rem;
+  color: var(--foreground);
   text-transform: capitalize;
 }
 
-.check-message {
-  color: #718096;
-  font-size: 0.875rem;
+.health-item-description {
+  font-size: 0.75rem;
+  color: rgb(161, 161, 170);
 }
 
-.providers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
+/* Providers Section */
+.providers-section {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
-.provider-card {
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 1rem;
-  background-color: #f7fafc;
-}
-
-.provider-header {
+.section-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.provider-header h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #2d3748;
-}
-
-.provider-info {
-  display: grid;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1.5rem;
 }
 
-.models-list {
+.section-header.clickable {
+  cursor: pointer;
+  user-select: none;
+  justify-content: space-between;
+}
+
+.section-header-left {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
-  margin-top: 0.75rem;
 }
 
-.model-tag {
-  background-color: #edf2f7;
-  color: #4a5568;
-  padding: 0.25rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.875rem;
+.section-icon {
+  color: rgb(161, 161, 170);
+}
+
+.section-title {
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.providers-list {
+  display: grid;
+  gap: 1rem;
 }
 
 .empty-state {
   text-align: center;
   padding: 2rem;
-  color: #718096;
+  color: rgb(161, 161, 170);
 }
 
-.collapsible .card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
+/* Config Section */
+.config-section {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
 }
 
 .expand-icon {
   font-size: 1.5rem;
   font-weight: bold;
-  color: #4a5568;
+  color: rgb(161, 161, 170);
 }
 
 .config-content {
@@ -400,12 +412,13 @@ onUnmounted(() => {
 }
 
 .config-json {
-  background-color: #2d3748;
-  color: #e2e8f0;
+  background-color: #0d0d0f;
+  color: #e4e4e7;
   padding: 1rem;
-  border-radius: 6px;
+  border-radius: 0.5rem;
   overflow-x: auto;
   font-size: 0.875rem;
   line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 </style>
