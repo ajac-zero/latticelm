@@ -1,23 +1,5 @@
 <template>
   <div class="dashboard">
-    <!-- Header -->
-    <header class="header">
-      <div class="container">
-        <div class="header-content">
-          <div class="header-left">
-            <div class="logo">
-              <Zap :size="16" class="logo-icon" />
-            </div>
-            <h1 class="header-title">LLM Gateway Admin</h1>
-          </div>
-          <router-link to="/chat" class="playground-button">
-            <span>Playground</span>
-            <ArrowRight :size="16" class="arrow-icon" />
-          </router-link>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="main-content">
       <div class="container">
@@ -179,7 +161,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { ArrowRight, Activity, Server, Database, Zap, Lock, Settings, BarChart3 } from 'lucide-vue-next'
+import { Activity, Server, Database, Lock, Settings, BarChart3 } from 'lucide-vue-next'
 import { systemAPI } from '../api/system'
 import { configAPI } from '../api/config'
 import { providersAPI } from '../api/providers'
@@ -301,77 +283,6 @@ onUnmounted(() => {
 .dashboard {
   min-height: 100vh;
   background-color: var(--background);
-}
-
-/* Header */
-.header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(8px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background-color: rgba(13, 13, 15, 0.8);
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.5rem;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.logo {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  background: linear-gradient(135deg, rgba(139, 133, 255, 0.2) 0%, rgba(139, 133, 255, 0.05) 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(139, 133, 255, 0.2);
-}
-
-.logo-icon {
-  color: var(--primary);
-}
-
-.header-title {
-  font-size: 1.25rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--foreground);
-  margin: 0;
-}
-
-.playground-button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border);
-  color: var(--foreground);
-  text-decoration: none;
-  font-size: 0.875rem;
-  transition: all 0.2s;
-}
-
-.playground-button:hover {
-  border-color: rgba(139, 133, 255, 0.5);
-}
-
-.arrow-icon {
-  transition: transform 0.2s;
-}
-
-.playground-button:hover .arrow-icon {
-  transform: translateX(2px);
 }
 
 /* Main Content */

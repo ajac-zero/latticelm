@@ -1,15 +1,9 @@
 <template>
   <div class="chat-page">
-    <header class="header">
-      <div class="header-content">
-        <router-link to="/" class="back-link">← Dashboard</router-link>
-        <h1>Playground</h1>
-      </div>
-    </header>
-
     <div class="chat-container">
-      <!-- Sidebar -->
+      <!-- Left Sidebar -->
       <aside class="sidebar">
+        <!-- Model Selection -->
         <div class="sidebar-section">
           <label class="field-label">Model</label>
           <select v-model="selectedModel" class="select-input" :disabled="modelsLoading">
@@ -20,6 +14,7 @@
           </select>
         </div>
 
+        <!-- System Instructions -->
         <div class="sidebar-section">
           <label class="field-label">System Instructions</label>
           <textarea
@@ -30,15 +25,17 @@
           ></textarea>
         </div>
 
+        <!-- Temperature -->
         <div class="sidebar-section">
-          <label class="field-label">Temperature</label>
-          <div class="slider-row">
-            <input type="range" v-model.number="temperature" min="0" max="2" step="0.1" class="slider" />
+          <div class="slider-header">
+            <label class="field-label">Temperature</label>
             <span class="slider-value">{{ temperature }}</span>
           </div>
+          <input type="range" v-model.number="temperature" min="0" max="2" step="0.1" class="slider" />
         </div>
 
-        <div class="sidebar-section">
+        <!-- Stream Toggle -->
+        <div class="sidebar-section toggle-section">
           <label class="field-label">Stream</label>
           <label class="toggle">
             <input type="checkbox" v-model="stream" />
@@ -46,11 +43,13 @@
           </label>
         </div>
 
+        <!-- Clear Chat Button -->
         <button class="btn-clear" @click="clearChat">Clear Chat</button>
       </aside>
 
-      <!-- Chat Area -->
+      <!-- Main Chat Area -->
       <main class="chat-main">
+        <!-- Messages -->
         <div class="messages" ref="messagesContainer">
           <div v-if="messages.length === 0" class="empty-chat">
             <p>Send a message to start chatting.</p>
@@ -58,32 +57,39 @@
           <div
             v-for="(msg, i) in messages"
             :key="i"
-            :class="['message', `message-${msg.role}`]"
+            :class="['message-wrapper', `message-${msg.role}`]"
           >
-            <div class="message-role">{{ msg.role }}</div>
-            <div class="message-content" v-html="renderContent(msg.content)"></div>
+            <div class="message">
+              <div v-if="msg.role === 'assistant'" class="message-role">Assistant</div>
+              <div class="message-content" v-html="renderContent(msg.content)"></div>
+            </div>
           </div>
-          <div v-if="isLoading" class="message message-assistant">
-            <div class="message-role">assistant</div>
-            <div class="message-content">
-              <span class="typing-indicator">
-                <span></span><span></span><span></span>
-              </span>
-              {{ streamingText }}
+          <div v-if="isLoading" class="message-wrapper message-assistant">
+            <div class="message">
+              <div class="message-role">Assistant</div>
+              <div class="message-content">
+                <span class="typing-indicator">
+                  <span></span><span></span><span></span>
+                </span>
+                {{ streamingText }}
+              </div>
             </div>
           </div>
         </div>
 
+        <!-- Input Area -->
         <div class="input-area">
-          <textarea
-            v-model="userInput"
-            class="chat-input"
-            placeholder="Type a message..."
-            rows="1"
-            @keydown.enter.exact.prevent="sendMessage"
-            @input="autoResize"
-            ref="chatInputEl"
-          ></textarea>
+          <div class="input-container">
+            <textarea
+              v-model="userInput"
+              class="chat-input"
+              placeholder="Type a message..."
+              rows="1"
+              @keydown.enter.exact.prevent="sendMessage"
+              @input="autoResize"
+              ref="chatInputEl"
+            ></textarea>
+          </div>
           <button class="btn-send" @click="sendMessage" :disabled="isLoading || !userInput.trim()">
             Send
           </button>
@@ -248,56 +254,33 @@ onMounted(() => {
 
 <style scoped>
 .chat-page {
-  min-height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
-  background-color: #f5f5f5;
+  background-color: var(--background);
 }
 
-.header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 1rem 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
-
-.back-link {
-  color: rgba(255, 255, 255, 0.85);
-  text-decoration: none;
-  font-size: 0.95rem;
-}
-
-.back-link:hover {
-  color: white;
-}
-
-.header h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
+/* Chat Container */
 .chat-container {
   flex: 1;
   display: flex;
   overflow: hidden;
-  height: calc(100vh - 65px);
+  min-height: 0;
 }
 
 /* Sidebar */
 .sidebar {
-  width: 280px;
-  background: white;
-  border-right: 1px solid #e2e8f0;
+  width: 18rem;
+  border-right: 1px solid var(--border);
+  background-color: var(--card);
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
   overflow-y: auto;
 }
 
@@ -307,48 +290,105 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
+.sidebar-section.toggle-section {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .field-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #4a5568;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .select-input {
   padding: 0.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
   font-size: 0.875rem;
-  background: white;
-  color: #2d3748;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--foreground);
+  transition: background-color 0.2s;
+}
+
+.select-input:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.select-input:focus {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .textarea-input {
-  padding: 0.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
   font-size: 0.875rem;
   resize: vertical;
   font-family: inherit;
-  color: #2d3748;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--foreground);
+  min-height: 6rem;
+  transition: background-color 0.2s;
 }
 
-.slider-row {
+.textarea-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.textarea-input:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.textarea-input:focus {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.slider-header {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
 }
 
 .slider {
-  flex: 1;
-  accent-color: #667eea;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: none;
 }
 
 .slider-value {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #2d3748;
+  color: var(--foreground);
   min-width: 2rem;
   text-align: right;
 }
@@ -369,7 +409,7 @@ onMounted(() => {
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background-color: #cbd5e0;
+  background-color: rgba(255, 255, 255, 0.2);
   border-radius: 24px;
   transition: 0.2s;
 }
@@ -387,7 +427,7 @@ onMounted(() => {
 }
 
 .toggle input:checked + .toggle-slider {
-  background-color: #667eea;
+  background-color: var(--primary);
 }
 
 .toggle input:checked + .toggle-slider::before {
@@ -396,18 +436,19 @@ onMounted(() => {
 
 .btn-clear {
   margin-top: auto;
-  padding: 0.5rem;
-  background: #fed7d7;
-  color: #742a2a;
-  border: none;
-  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: rgb(248, 113, 113);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 0.375rem;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
 .btn-clear:hover {
-  background: #feb2b2;
+  background-color: rgba(239, 68, 68, 0.2);
 }
 
 /* Chat Main */
@@ -416,6 +457,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .messages {
@@ -432,45 +474,51 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #a0aec0;
-  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 1rem;
+}
+
+.message-wrapper {
+  display: flex;
+}
+
+.message-wrapper.message-user {
+  justify-content: flex-end;
+}
+
+.message-wrapper.message-assistant {
+  justify-content: flex-start;
 }
 
 .message {
-  max-width: 80%;
+  max-width: 48rem;
+  border-radius: 0.5rem;
   padding: 0.75rem 1rem;
-  border-radius: 12px;
-  line-height: 1.5;
 }
 
-.message-user {
-  align-self: flex-end;
-  background: #667eea;
+.message-user .message {
+  background-color: #6366f1;
   color: white;
 }
 
-.message-user .message-role {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.message-assistant {
-  align-self: flex-start;
-  background: white;
-  border: 1px solid #e2e8f0;
-  color: #2d3748;
+.message-assistant .message {
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--foreground);
 }
 
 .message-role {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 0.25rem;
-  color: #a0aec0;
+  margin-bottom: 0.5rem;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .message-content {
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
   word-break: break-word;
 }
 
@@ -479,13 +527,14 @@ onMounted(() => {
   display: inline-flex;
   gap: 3px;
   margin-right: 6px;
+  vertical-align: middle;
 }
 
 .typing-indicator span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #a0aec0;
+  background: rgba(255, 255, 255, 0.4);
   animation: bounce 1.2s infinite;
 }
 
@@ -499,44 +548,51 @@ onMounted(() => {
 
 /* Input Area */
 .input-area {
-  padding: 1rem 1.5rem;
-  background: white;
-  border-top: 1px solid #e2e8f0;
+  padding: 1.5rem;
+  background-color: var(--card);
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 0.75rem;
   align-items: flex-end;
 }
 
-.chat-input {
+.input-container {
   flex: 1;
-  padding: 0.75rem 1rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 0.95rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.chat-input {
+  width: 100%;
+  background: transparent;
+  color: var(--foreground);
+  border: none;
+  font-size: 0.9375rem;
   font-family: inherit;
   resize: none;
-  color: #2d3748;
+  outline: none;
   line-height: 1.4;
   max-height: 150px;
   overflow-y: auto;
 }
 
-.chat-input:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+.chat-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .btn-send {
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #6366f1;
   color: white;
   border: none;
-  border-radius: 12px;
-  font-size: 0.95rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color 0.2s;
 }
 
 .btn-send:disabled {
@@ -545,6 +601,6 @@ onMounted(() => {
 }
 
 .btn-send:hover:not(:disabled) {
-  opacity: 0.9;
+  background-color: #5558e3;
 }
 </style>

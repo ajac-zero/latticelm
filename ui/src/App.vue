@@ -3,16 +3,24 @@
     <!-- Header when auth is enabled and user is logged in -->
     <header v-if="authEnabled && user" class="app-header">
       <div class="header-content">
-        <div class="logo">
-          <router-link to="/" class="logo-link">LLM Gateway</router-link>
+        <div class="header-left">
+          <div class="logo">
+            <Zap :size="16" class="logo-icon" />
+          </div>
+          <h1 class="header-title">LLM Gateway Admin</h1>
         </div>
-        <nav class="nav">
-          <router-link to="/chat" class="nav-link">Chat</router-link>
-          <router-link v-if="user.is_admin" to="/" class="nav-link">Dashboard</router-link>
-        </nav>
-        <div class="user-menu">
-          <span class="user-email">{{ user.email }}</span>
-          <button @click="handleLogout" class="logout-btn">Logout</button>
+        <div class="header-right">
+          <nav class="nav">
+            <router-link to="/" class="nav-link">Dashboard</router-link>
+            <router-link to="/chat" class="nav-link">
+              <span>Playground</span>
+              <ArrowRight :size="14" class="arrow-icon" />
+            </router-link>
+          </nav>
+          <div class="user-menu">
+            <span class="user-email">{{ user.email }}</span>
+            <button @click="handleLogout" class="logout-btn">Logout</button>
+          </div>
         </div>
       </div>
     </header>
@@ -20,12 +28,18 @@
     <!-- Header when auth is disabled -->
     <header v-else-if="!authEnabled" class="app-header">
       <div class="header-content">
-        <div class="logo">
-          <router-link to="/" class="logo-link">LLM Gateway</router-link>
+        <div class="header-left">
+          <div class="logo">
+            <Zap :size="16" class="logo-icon" />
+          </div>
+          <h1 class="header-title">LLM Gateway Admin</h1>
         </div>
         <nav class="nav">
-          <router-link to="/chat" class="nav-link">Chat</router-link>
           <router-link to="/" class="nav-link">Dashboard</router-link>
+          <router-link to="/chat" class="nav-link">
+            <span>Playground</span>
+            <ArrowRight :size="14" class="arrow-icon" />
+          </router-link>
         </nav>
       </div>
     </header>
@@ -38,6 +52,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Zap, ArrowRight } from 'lucide-vue-next'
 import { getCurrentUser, logout, isAuthEnabled, type User } from './auth'
 
 const user = ref<User | null>(null)
@@ -94,9 +109,10 @@ body {
 }
 
 .app-header {
-  background-color: var(--card);
-  border-bottom: 1px solid var(--border);
-  padding: 1rem 2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+  background-color: rgba(13, 13, 15, 0.8);
+  flex-shrink: 0;
 }
 
 .header-content {
@@ -105,48 +121,84 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 1rem 1.5rem;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .logo {
-  font-size: 1.25rem;
-  font-weight: 600;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, rgba(139, 133, 255, 0.2) 0%, rgba(139, 133, 255, 0.05) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(139, 133, 255, 0.2);
 }
 
-.logo-link {
+.logo-icon {
   color: var(--primary);
-  text-decoration: none;
 }
 
-.logo-link:hover {
-  opacity: 0.8;
+.header-title {
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
 }
 
 .nav {
   display: flex;
-  gap: 1.5rem;
+  gap: 0.5rem;
 }
 
 .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--foreground);
   text-decoration: none;
   padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  transition: background-color 0.2s;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  transition: all 0.2s;
 }
 
 .nav-link:hover {
-  background-color: var(--muted);
+  border-color: rgba(139, 133, 255, 0.3);
 }
 
 .nav-link.router-link-active {
-  background-color: var(--secondary);
-  color: var(--primary);
+  border-color: var(--border);
+}
+
+.arrow-icon {
+  transition: transform 0.2s;
+}
+
+.nav-link:hover .arrow-icon {
+  transform: translateX(2px);
 }
 
 .user-menu {
   display: flex;
   align-items: center;
   gap: 1rem;
+  padding-left: 2rem;
+  border-left: 1px solid var(--border);
 }
 
 .user-email {
@@ -171,5 +223,7 @@ body {
 
 .main-content {
   flex: 1;
+  min-height: 0;
+  position: relative;
 }
 </style>
