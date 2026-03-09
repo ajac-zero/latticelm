@@ -4,6 +4,7 @@
 # dependencies = [
 #     "rich>=13.7.0",
 #     "openai>=1.0.0",
+#     "typer>=0.12.0",
 # ]
 # ///
 
@@ -17,11 +18,11 @@ Usage:
     python chat.py --token $(gcloud auth print-identity-token)
 """
 
-import argparse
 import json
-import sys
 from datetime import datetime
-from typing import Optional, Any
+from typing import Annotated, Optional, Any
+
+import typer
 
 from openai import OpenAI, APIStatusError
 from rich.console import Console
@@ -121,6 +122,8 @@ class ChatClient:
         self.messages = []
         self.console = Console()
         self.tools_enabled = True
+        self.store_enabled = False
+        self.previous_response_id: Optional[str] = None
     
     def chat(self, user_message: str, model: str, stream: bool = True):
         """Send a chat message and get response."""
@@ -186,8 +189,15 @@ class ChatClient:
                 }
                 if self.tools_enabled:
                     kwargs["tools"] = TOOLS
+                if self.store_enabled:
+                    kwargs["store"] = True
+                    if self.previous_response_id:
+                        kwargs["previous_response_id"] = self.previous_response_id
 
                 response = self.client.responses.create(**kwargs)
+
+            if self.store_enabled:
+                self.previous_response_id = response.id
 
             # Check if there are tool calls
             tool_calls = []
@@ -273,6 +283,10 @@ class ChatClient:
                 }
                 if self.tools_enabled:
                     kwargs["tools"] = TOOLS
+                if self.store_enabled:
+                    kwargs["store"] = True
+                    if self.previous_response_id:
+                        kwargs["previous_response_id"] = self.previous_response_id
 
                 stream = self.client.responses.create(**kwargs)
 
@@ -281,6 +295,12 @@ class ChatClient:
                         assistant_text += event.delta
                         live.update(Markdown(assistant_text))
                     elif event.type == "response.completed":
+                        # Capture response ID for conversation continuity.
+                        if self.store_enabled:
+                            response_obj = self._get_attr(event, "response")
+                            resp_id = self._get_attr(response_obj, "id")
+                            if resp_id:
+                                self.previous_response_id = resp_id
                         # Some providers may emit final text only in response.completed.
                         if not assistant_text:
                             completed_text = self._extract_completed_text(event)
@@ -366,6 +386,7 @@ class ChatClient:
     def clear_history(self):
         """Clear conversation history."""
         self.messages = []
+        self.previous_response_id = None
 
 
 def print_models_table(client: OpenAI):
@@ -401,47 +422,54 @@ def print_tools_table():
     console.print(table)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Chat with latticelm")
-    parser.add_argument("--url", default="http://localhost:8080", help="Gateway URL")
-    parser.add_argument("--model", default=None, help="Model to use (defaults to first available)")
-    parser.add_argument("--token", help="Auth token (Bearer)")
-    parser.add_argument("--no-stream", action="store_true", help="Disable streaming")
-    args = parser.parse_args()
-    
+app = typer.Typer(help="Chat with latticelm")
+
+
+@app.command()
+def main(
+    url: Annotated[str, typer.Option(help="Gateway URL")] = "http://localhost:8080",
+    model: Annotated[Optional[str], typer.Option(help="Model to use (defaults to first available)")] = None,
+    token: Annotated[Optional[str], typer.Option(help="Auth token (Bearer)")] = None,
+    no_stream: Annotated[bool, typer.Option("--no-stream", help="Disable streaming")] = False,
+    store: Annotated[bool, typer.Option(help="Enable server-side conversation storage")] = False,
+):
+    """Terminal chat interface for latticelm."""
     console = Console()
-    client = ChatClient(args.url, args.token)
+    client = ChatClient(url, token)
     
     # Fetch available models and select default
     try:
         available_models = list(client.client.models.list())
     except Exception as e:
         console.print(f"[bold red]Failed to connect to gateway:[/bold red] {e}")
-        sys.exit(1)
+        raise typer.Exit(1)
     
     if not available_models:
         console.print("[bold red]Error:[/bold red] No models are configured on the gateway.")
-        sys.exit(1)
+        raise typer.Exit(1)
     
-    if args.model:
-        current_model = args.model
+    if model:
+        current_model = model
     else:
         current_model = available_models[0].id
-    stream_enabled = not args.no_stream
+    stream_enabled = not no_stream
+    client.store_enabled = store
     
     # Welcome banner
     console.print(Panel.fit(
         "[bold cyan]latticelm Chat Interface[/bold cyan]\n"
-        f"Connected to: [green]{args.url}[/green]\n"
+        f"Connected to: [green]{url}[/green]\n"
         f"Model: [yellow]{current_model}[/yellow]\n"
         f"Streaming: [{'green' if stream_enabled else 'red'}]{stream_enabled}[/]\n"
-        f"Tools: [{'green' if client.tools_enabled else 'red'}]{client.tools_enabled}[/]\n\n"
+        f"Tools: [{'green' if client.tools_enabled else 'red'}]{client.tools_enabled}[/]\n"
+        f"Store: [{'green' if client.store_enabled else 'red'}]{client.store_enabled}[/]\n\n"
         "Commands:\n"
         "  [bold]/model <name>[/bold] - Switch model\n"
         "  [bold]/models[/bold] - List available models\n"
         "  [bold]/stream[/bold] - Toggle streaming\n"
         "  [bold]/tools[/bold] - Toggle tool calling\n"
         "  [bold]/listtools[/bold] - List available tools\n"
+        "  [bold]/store[/bold] - Toggle server-side storage\n"
         "  [bold]/clear[/bold] - Clear conversation\n"
         "  [bold]/quit[/bold] or [bold]/exit[/bold] - Exit\n"
         "  [bold]/help[/bold] - Show this help",
@@ -484,6 +512,7 @@ def main():
                         "  /stream - Toggle streaming\n"
                         "  /tools - Toggle tool calling\n"
                         "  /listtools - List available tools\n"
+                        "  /store - Toggle server-side storage\n"
                         "  /clear - Clear conversation\n"
                         "  /quit - Exit",
                         title="Help",
@@ -515,6 +544,10 @@ def main():
                     client.tools_enabled = not client.tools_enabled
                     console.print(f"[green]Tools {'enabled' if client.tools_enabled else 'disabled'}[/green]")
 
+                elif cmd == "/store":
+                    client.store_enabled = not client.store_enabled
+                    console.print(f"[green]Server-side storage {'enabled' if client.store_enabled else 'disabled'}[/green]")
+
                 elif cmd == "/clear":
                     client.clear_history()
                     console.print("[green]Conversation history cleared[/green]")
@@ -538,11 +571,10 @@ def main():
             except Exception as e:
                 console.print(f"[bold red]Error:[/bold red] {e}")
         
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Use /quit to exit[/yellow]")
-        except EOFError:
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Goodbye! 👋[/yellow]")
             break
 
 
 if __name__ == "__main__":
-    main()
+    app()
