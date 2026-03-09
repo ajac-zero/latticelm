@@ -282,8 +282,27 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		logger.Info("metrics endpoint registered", slog.String("path", metricsPath))
 	}
 
-	// Rate limiting is applied inside buildRouteMux AFTER auth, so identity is available
-	mux := buildRouteMux(publicMux, apiMux, adminHandler, authMiddleware, adminAuthMiddleware, rateLimitMiddleware, metricsPath, metricsHandler)
+	// Compose middleware on API handler before registering routes.
+	// Order: auth (outermost) → rate limiting → handler
+	var apiHandler http.Handler = apiMux
+	if rateLimitMiddleware != nil {
+		apiHandler = rateLimitMiddleware.Handler(apiHandler)
+	}
+	if authMiddleware != nil {
+		apiHandler = authMiddleware.Handler(apiHandler)
+	}
+
+	// Compose middleware on admin handler
+	if adminHandler != nil {
+		if adminAuthMiddleware != nil {
+			adminHandler = adminAuthMiddleware.Handler(adminHandler)
+		}
+		if authMiddleware != nil {
+			adminHandler = authMiddleware.Handler(adminHandler)
+		}
+	}
+
+	mux := buildRouteMux(publicMux, apiHandler, adminHandler, metricsPath, metricsHandler)
 
 	addr := cfg.Server.Address
 	if addr == "" {
@@ -573,11 +592,7 @@ func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-type handlerMiddleware interface {
-	Handler(http.Handler) http.Handler
-}
-
-func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth, adminAuth, rateLimiter handlerMiddleware, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
+func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
 	root := http.NewServeMux()
 
 	if publicHandler != nil {
@@ -586,23 +601,10 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, apiAuth
 	}
 
 	if apiHandler != nil {
-		// Apply rate limiting AFTER auth so identity claims are available
-		if rateLimiter != nil {
-			apiHandler = rateLimiter.Handler(apiHandler)
-		}
-		if apiAuth != nil {
-			apiHandler = apiAuth.Handler(apiHandler)
-		}
 		root.Handle("/v1/", apiHandler)
 	}
 
 	if adminHandler != nil {
-		if adminAuth != nil {
-			adminHandler = adminAuth.Handler(adminHandler)
-		}
-		if apiAuth != nil {
-			adminHandler = apiAuth.Handler(adminHandler)
-		}
 		root.Handle("/admin/", adminHandler)
 	}
 

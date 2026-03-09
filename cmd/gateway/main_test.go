@@ -116,13 +116,18 @@ func TestBuildRouteMuxSeparatesSecurityBoundaries(t *testing.T) {
 		},
 	}
 
+	// Compose middleware at the call site (matching production code)
+	var apiHandler http.Handler = apiMux
+	apiHandler = apiAuth.Handler(apiHandler)
+
+	var adminHandler http.Handler = adminMux
+	adminHandler = adminAuth.Handler(adminHandler)
+	adminHandler = apiAuth.Handler(adminHandler)
+
 	mux := buildRouteMux(
 		publicMux,
-		apiMux,
-		adminMux,
-		apiAuth,
-		adminAuth,
-		nil, // no rate limiter for this test
+		apiHandler,
+		adminHandler,
 		"/metrics",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
