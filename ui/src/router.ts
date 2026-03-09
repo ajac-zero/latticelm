@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import Dashboard from './views/Dashboard.vue'
 import Chat from './views/Chat.vue'
-import { getCurrentUser } from './auth'
+import { getCurrentUser, isAuthEnabled } from './auth'
 
 const router = createRouter({
   history: createWebHistory('/'),
@@ -29,6 +29,15 @@ router.beforeEach(async (to: RouteLocationNormalized) => {
     return true
   }
 
+  // Check if auth is enabled
+  const authEnabled = await isAuthEnabled()
+
+  // If auth is disabled, allow all routes
+  if (!authEnabled) {
+    return true
+  }
+
+  // Auth is enabled - proceed with auth checks
   const user = await getCurrentUser()
 
   // Check if route requires authentication

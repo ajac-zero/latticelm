@@ -1,6 +1,7 @@
 <template>
   <div id="app">
-    <header v-if="user" class="app-header">
+    <!-- Header when auth is enabled and user is logged in -->
+    <header v-if="authEnabled && user" class="app-header">
       <div class="header-content">
         <div class="logo">
           <router-link to="/" class="logo-link">LLM Gateway</router-link>
@@ -15,6 +16,20 @@
         </div>
       </div>
     </header>
+
+    <!-- Header when auth is disabled -->
+    <header v-else-if="!authEnabled" class="app-header">
+      <div class="header-content">
+        <div class="logo">
+          <router-link to="/" class="logo-link">LLM Gateway</router-link>
+        </div>
+        <nav class="nav">
+          <router-link to="/chat" class="nav-link">Chat</router-link>
+          <router-link to="/" class="nav-link">Dashboard</router-link>
+        </nav>
+      </div>
+    </header>
+
     <main class="main-content">
       <router-view />
     </main>
@@ -23,12 +38,19 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getCurrentUser, logout, type User } from './auth'
+import { getCurrentUser, logout, isAuthEnabled, type User } from './auth'
 
 const user = ref<User | null>(null)
+const authEnabled = ref<boolean>(false)
 
 onMounted(async () => {
-  user.value = await getCurrentUser()
+  // Load config first to determine if auth is enabled
+  authEnabled.value = await isAuthEnabled()
+
+  // Only try to get user if auth is enabled
+  if (authEnabled.value) {
+    user.value = await getCurrentUser()
+  }
 })
 
 function handleLogout() {
