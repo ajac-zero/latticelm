@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -11,7 +14,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,20 +25,28 @@ import (
 
 // Test fixtures
 var (
-	testPrivateKey *rsa.PrivateKey
-	testPublicKey  *rsa.PublicKey
-	testKID        = "test-key-id-1"
-	testAudience   = "test-client-id"
+	testPrivateKey    *rsa.PrivateKey
+	testPublicKey     *rsa.PublicKey
+	testECPrivateKey  *ecdsa.PrivateKey
+	testECPublicKey   *ecdsa.PublicKey
+	testKID           = "test-key-id-1"
+	testECKID         = "test-ec-key-id-1"
+	testAudience      = "test-client-id"
 )
 
 func init() {
-	// Generate test RSA key pair
 	var err error
 	testPrivateKey, err = rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		panic(fmt.Sprintf("failed to generate test key: %v", err))
+		panic(fmt.Sprintf("failed to generate RSA test key: %v", err))
 	}
 	testPublicKey = &testPrivateKey.PublicKey
+
+	testECPrivateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate ECDSA test key: %v", err))
+	}
+	testECPublicKey = &testECPrivateKey.PublicKey
 }
 
 // mockJWKSServer provides a mock OIDC/JWKS server for testing
@@ -51,7 +61,6 @@ type mockJWKSServer struct {
 func newMockJWKSServer(publicKey *rsa.PublicKey, kid string) *mockJWKSServer {
 	m := &mockJWKSServer{}
 
-	// Encode public key components for JWKS
 	nBytes := publicKey.N.Bytes()
 	eBytes := big.NewInt(int64(publicKey.E)).Bytes()
 	n := base64.RawURLEncoding.EncodeToString(nBytes)
@@ -133,11 +142,61 @@ func (m *mockJWKSServer) updateJWKS(newResponse []byte) {
 	m.jwksResponse = newResponse
 }
 
-// generateTestJWT creates a signed JWT with the given claims
+// generateTestJWT creates an RS256-signed JWT with the given claims.
 func generateTestJWT(privateKey *rsa.PrivateKey, claims jwt.MapClaims, kid string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid
 	return token.SignedString(privateKey)
+}
+
+// generateECTestJWT creates an ES256-signed JWT with the given claims.
+func generateECTestJWT(privateKey *ecdsa.PrivateKey, claims jwt.MapClaims, kid string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = kid
+	return token.SignedString(privateKey)
+}
+
+// newMockJWKSServerWithEC creates a mock OIDC/JWKS server serving a single EC P-256 key.
+func newMockJWKSServerWithEC(publicKey *ecdsa.PublicKey, kid string) *mockJWKSServer {
+	m := &mockJWKSServer{}
+
+	x := base64.RawURLEncoding.EncodeToString(publicKey.X.Bytes())
+	y := base64.RawURLEncoding.EncodeToString(publicKey.Y.Bytes())
+
+	jwks := map[string]interface{}{
+		"keys": []map[string]interface{}{
+			{
+				"kid": kid,
+				"kty": "EC",
+				"use": "sig",
+				"alg": "ES256",
+				"crv": "P-256",
+				"x":   x,
+				"y":   y,
+			},
+		},
+	}
+	m.jwksResponse, _ = json.Marshal(jwks)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		m.requestCount++
+		m.mu.Unlock()
+		oidcConfig := map[string]string{"jwks_uri": m.server.URL + "/jwks"}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(oidcConfig)
+	})
+	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		m.requestCount++
+		m.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(m.jwksResponse)
+	})
+
+	m.server = httptest.NewServer(mux)
+	return m
 }
 
 func TestNew(t *testing.T) {
@@ -262,7 +321,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return httptest.NewRequest(http.MethodGet, "/test", nil)
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "missing authorization header",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "malformed authorization header - no bearer",
@@ -272,7 +331,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid authorization header format",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "malformed authorization header - wrong scheme",
@@ -282,7 +341,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid authorization header format",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "valid token with correct claims",
@@ -323,7 +382,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with wrong issuer",
@@ -343,7 +402,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with wrong audience",
@@ -363,7 +422,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "token with missing kid",
@@ -385,7 +444,7 @@ func TestMiddleware_Handler(t *testing.T) {
 				return req
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "invalid token",
+			expectBody:   "Unauthorized",
 		},
 	}
 
@@ -399,6 +458,120 @@ func TestMiddleware_Handler(t *testing.T) {
 			assert.Equal(t, tt.expectStatus, rec.Code)
 			if tt.expectBody != "" {
 				assert.Contains(t, rec.Body.String(), tt.expectBody)
+			}
+		})
+	}
+}
+
+func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	m, err := New(cfg, log)
+	require.NoError(t, err)
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := m.Handler(testHandler)
+
+	tests := []struct {
+		name               string
+		setupRequest       func() *http.Request
+		leakPatterns       []string // strings that must NOT appear in response body
+		expectLogSubstring string   // string that MUST appear in server logs
+	}{
+		{
+			name: "expired token does not leak expiry details",
+			setupRequest: func() *http.Request {
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": server.server.URL,
+					"aud": testAudience,
+					"exp": time.Now().Add(-time.Hour).Unix(),
+					"iat": time.Now().Add(-2 * time.Hour).Unix(),
+				}
+				token, err := generateTestJWT(testPrivateKey, claims, testKID)
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"expired", "token is expired", "exp"},
+			expectLogSubstring: "token validation failed",
+		},
+		{
+			name: "unknown key ID does not leak key ID details",
+			setupRequest: func() *http.Request {
+				unknownKey, err := rsa.GenerateKey(rand.Reader, 2048)
+				require.NoError(t, err)
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": server.server.URL,
+					"aud": testAudience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+					"iat": time.Now().Unix(),
+				}
+				token, err := generateTestJWT(unknownKey, claims, "unknown-kid-xyz")
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"unknown-kid-xyz", "unknown key ID"},
+			expectLogSubstring: "token validation failed",
+		},
+		{
+			name: "wrong issuer does not leak issuer details",
+			setupRequest: func() *http.Request {
+				claims := jwt.MapClaims{
+					"sub": "user123",
+					"iss": "https://attacker.example.com",
+					"aud": testAudience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+					"iat": time.Now().Unix(),
+				}
+				token, err := generateTestJWT(testPrivateKey, claims, testKID)
+				require.NoError(t, err)
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				return req
+			},
+			leakPatterns:       []string{"attacker.example.com", "invalid issuer"},
+			expectLogSubstring: "token validation failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logBuf.Reset()
+			req := tt.setupRequest()
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+			responseBody := rec.Body.String()
+			assert.Equal(t, `{"error":{"message":"Unauthorized"}}`, responseBody)
+
+			// Verify internal details are NOT in the response
+			for _, pattern := range tt.leakPatterns {
+				assert.NotContains(t, responseBody, pattern, "response must not leak: %s", pattern)
+			}
+
+			// Verify detailed error IS logged server-side
+			if tt.expectLogSubstring != "" {
+				assert.Contains(t, logBuf.String(), tt.expectLogSubstring)
 			}
 		})
 	}
@@ -832,7 +1005,7 @@ func TestRefreshJWKS(t *testing.T) {
 			},
 		},
 		{
-			name: "JWKS with non-RSA keys skipped",
+			name: "JWKS with EC key with missing coordinates skipped gracefully",
 			setupServer: func() *mockJWKSServer {
 				server := newMockJWKSServer(testPublicKey, testKID)
 
@@ -846,10 +1019,11 @@ func TestRefreshJWKS(t *testing.T) {
 							"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(testPublicKey.E)).Bytes()),
 						},
 						{
-							"kid": "ec-key",
-							"kty": "EC", // Non-RSA key
+							"kid": "ec-key-bad",
+							"kty": "EC",
 							"use": "sig",
 							"crv": "P-256",
+							// x and y missing — parseECKey should fail, key skipped
 						},
 					},
 				}
@@ -859,7 +1033,7 @@ func TestRefreshJWKS(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(t *testing.T, m *Middleware) {
-				// Only RSA key should be loaded
+				// Only the valid RSA key should be loaded; malformed EC key skipped.
 				assert.Len(t, m.keys, 1)
 				assert.Contains(t, m.keys, testKID)
 			},
@@ -947,8 +1121,9 @@ func TestRefreshJWKS(t *testing.T) {
 
 			m := &Middleware{
 				cfg:    cfg,
-				keys:   make(map[string]*rsa.PublicKey),
+				keys:   make(map[string]interface{}),
 				client: &http.Client{Timeout: 10 * time.Second},
+				logger: slog.Default(),
 			}
 
 			err := m.refreshJWKS()
@@ -1055,21 +1230,24 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 	server := newMockJWKSServer(testPublicKey, testKID)
 	defer server.close()
 
-	// Test that issuer with trailing slash works
+	// New() normalises the issuer by trimming trailing slashes, so a config
+	// with a trailing slash should work transparently.
 	cfg := Config{
 		Enabled:  true,
-		Issuer:   server.server.URL + "/", // Trailing slash
+		Issuer:   server.server.URL + "/", // trailing slash
 		Audience: testAudience,
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	assert.Len(t, m.keys, 1)
+	// Issuer should have been normalised.
+	assert.Equal(t, server.server.URL, m.cfg.Issuer)
 
-	// Validate that token with issuer without trailing slash still works
+	// Token iss without trailing slash must be accepted.
 	claims := jwt.MapClaims{
 		"sub": "user123",
-		"iss": strings.TrimSuffix(server.server.URL, "/"),
+		"iss": server.server.URL,
 		"aud": testAudience,
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
@@ -1077,10 +1255,386 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 	token, err := generateTestJWT(testPrivateKey, claims, testKID)
 	require.NoError(t, err)
 
-	// Update middleware to use issuer without trailing slash for comparison
-	m.cfg.Issuer = strings.TrimSuffix(m.cfg.Issuer, "/")
-
 	validatedClaims, err := m.validateToken(token)
 	require.NoError(t, err)
 	assert.Equal(t, "user123", validatedClaims["sub"])
+}
+
+// ---------------------------------------------------------------------------
+// New tests: algorithm support, nbf, clock-skew, stale-key, rate limiting
+// ---------------------------------------------------------------------------
+
+func TestValidateToken_ES256(t *testing.T) {
+	server := newMockJWKSServerWithEC(testECPublicKey, testECKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	claims := jwt.MapClaims{
+		"sub": "user-ec",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	token, err := generateECTestJWT(testECPrivateKey, claims, testECKID)
+	require.NoError(t, err)
+
+	validated, err := m.validateToken(token)
+	require.NoError(t, err)
+	assert.Equal(t, "user-ec", validated["sub"])
+}
+
+func TestValidateToken_UnsupportedAlgorithm(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token.Header["kid"] = testKID
+	tokenString, err := token.SignedString([]byte("symmetric-secret"))
+	require.NoError(t, err)
+
+	_, err = m.validateToken(tokenString)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported signing algorithm")
+}
+
+func TestValidateToken_NotBefore(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// nbf one minute in the future → token not yet valid.
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(2 * time.Hour).Unix(),
+		"nbf": time.Now().Add(time.Minute).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	_, err = m.validateToken(token)
+	assert.Error(t, err, "token with future nbf should be rejected")
+}
+
+func TestValidateToken_ClockSkew_NBF(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:   true,
+		Issuer:    server.server.URL,
+		Audience:  testAudience,
+		ClockSkew: 30 * time.Second,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// nbf 10 s in the future — within the 30 s leeway window.
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"nbf": time.Now().Add(10 * time.Second).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	validated, err := m.validateToken(token)
+	require.NoError(t, err, "token with nbf within clock-skew leeway should be accepted")
+	assert.Equal(t, "user123", validated["sub"])
+}
+
+func TestValidateToken_ClockSkew_Expiry(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:   true,
+		Issuer:    server.server.URL,
+		Audience:  testAudience,
+		ClockSkew: 30 * time.Second,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// exp 10 s in the past — within the 30 s leeway window.
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(-10 * time.Second).Unix(),
+		"iat": time.Now().Add(-time.Hour).Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	validated, err := m.validateToken(token)
+	require.NoError(t, err, "token expired within clock-skew leeway should be accepted")
+	assert.Equal(t, "user123", validated["sub"])
+}
+
+func TestValidateToken_ClockSkew_ExpiredBeyondLeeway(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:   true,
+		Issuer:    server.server.URL,
+		Audience:  testAudience,
+		ClockSkew: 30 * time.Second,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// exp 2 min in the past — beyond the 30 s leeway window.
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(-2 * time.Minute).Unix(),
+		"iat": time.Now().Add(-3 * time.Minute).Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	_, err = m.validateToken(token)
+	assert.Error(t, err, "token expired beyond clock-skew leeway should be rejected")
+}
+
+// TestStaleKeys_IssuerOutage verifies that previously fetched keys continue to be
+// used when the IdP JWKS endpoint becomes temporarily unavailable.
+func TestStaleKeys_IssuerOutage(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+		// StaleTTL=0: serve stale keys indefinitely during outages.
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	validClaims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+
+	// Confirm token works while IdP is up.
+	token, err := generateTestJWT(testPrivateKey, validClaims, testKID)
+	require.NoError(t, err)
+	_, err = m.validateToken(token)
+	require.NoError(t, err)
+
+	// Simulate IdP going down by closing the test server.
+	server.server.Close()
+
+	// Force a failed periodic-refresh cycle.
+	_ = m.refreshJWKS()
+
+	// Token with known cached key should still validate using stale keys.
+	token2, err := generateTestJWT(testPrivateKey, validClaims, testKID)
+	require.NoError(t, err)
+	validated, err := m.validateToken(token2)
+	require.NoError(t, err, "stale keys should keep serving known key IDs during outage")
+	assert.Equal(t, "user123", validated["sub"])
+}
+
+// TestStaleTTL_EnforcedOnExpiry verifies that tokens are rejected when stale keys
+// exceed the configured StaleTTL and refresh continues to fail.
+func TestStaleTTL_EnforcedOnExpiry(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+		StaleTTL: 50 * time.Millisecond,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// Backdate lastFetchedAt beyond StaleTTL.
+	m.mu.Lock()
+	m.lastFetchedAt = time.Now().Add(-time.Second)
+	m.mu.Unlock()
+
+	// Bring IdP down so forced refresh fails.
+	server.server.Close()
+
+	claims := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	_, err = m.validateToken(token)
+	assert.Error(t, err, "tokens should be rejected when stale keys exceed StaleTTL and refresh fails")
+	assert.Contains(t, err.Error(), "stale")
+}
+
+// TestRefresh_RateLimiting verifies that rapid unknown-kid requests trigger at most
+// one on-demand JWKS refresh within the cooldown window.
+func TestRefresh_RateLimiting(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// Record the request count after initialisation.
+	server.mu.Lock()
+	baseline := server.requestCount
+	server.mu.Unlock()
+
+	// Set lastRefreshAt to now so the cooldown is active.
+	m.refreshMu.Lock()
+	m.lastRefreshAt = time.Now()
+	m.refreshMu.Unlock()
+
+	// Issue multiple concurrent refreshIfCooledDown calls — all should be no-ops.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = m.refreshIfCooledDown()
+		}()
+	}
+	wg.Wait()
+
+	server.mu.Lock()
+	after := server.requestCount
+	server.mu.Unlock()
+
+	assert.Equal(t, baseline, after, "no additional JWKS requests should be made within cooldown window")
+}
+
+// TestRefreshJWKS_ECKeys verifies that EC keys in the JWKS are parsed and loaded correctly.
+func TestRefreshJWKS_ECKeys(t *testing.T) {
+	server := newMockJWKSServerWithEC(testECPublicKey, testECKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+
+	m := &Middleware{
+		cfg:    cfg,
+		keys:   make(map[string]interface{}),
+		client: &http.Client{Timeout: 10 * time.Second},
+		logger: slog.Default(),
+	}
+
+	err := m.refreshJWKS()
+	require.NoError(t, err)
+	assert.Len(t, m.keys, 1)
+	assert.Contains(t, m.keys, testECKID)
+
+	key, ok := m.keys[testECKID].(*ecdsa.PublicKey)
+	require.True(t, ok, "loaded key should be *ecdsa.PublicKey")
+	assert.Equal(t, elliptic.P256(), key.Curve)
+}
+
+// TestRefreshJWKS_MixedRSAandEC verifies that a JWKS containing both RSA and EC keys
+// loads all usable signing keys.
+func TestRefreshJWKS_MixedRSAandEC(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	jwks := map[string]interface{}{
+		"keys": []map[string]interface{}{
+			{
+				"kid": testKID,
+				"kty": "RSA",
+				"use": "sig",
+				"n":   base64.RawURLEncoding.EncodeToString(testPublicKey.N.Bytes()),
+				"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(testPublicKey.E)).Bytes()),
+			},
+			{
+				"kid": testECKID,
+				"kty": "EC",
+				"use": "sig",
+				"alg": "ES256",
+				"crv": "P-256",
+				"x":   base64.RawURLEncoding.EncodeToString(testECPublicKey.X.Bytes()),
+				"y":   base64.RawURLEncoding.EncodeToString(testECPublicKey.Y.Bytes()),
+			},
+		},
+	}
+	jwksResponse, _ := json.Marshal(jwks)
+	server.updateJWKS(jwksResponse)
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+
+	m := &Middleware{
+		cfg:    cfg,
+		keys:   make(map[string]interface{}),
+		client: &http.Client{Timeout: 10 * time.Second},
+		logger: slog.Default(),
+	}
+
+	err := m.refreshJWKS()
+	require.NoError(t, err)
+	assert.Len(t, m.keys, 2)
+	assert.Contains(t, m.keys, testKID)
+	assert.Contains(t, m.keys, testECKID)
+	_, rsaOK := m.keys[testKID].(*rsa.PublicKey)
+	_, ecOK := m.keys[testECKID].(*ecdsa.PublicKey)
+	assert.True(t, rsaOK, "RSA key should be *rsa.PublicKey")
+	assert.True(t, ecOK, "EC key should be *ecdsa.PublicKey")
 }

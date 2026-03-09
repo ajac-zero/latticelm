@@ -47,6 +47,11 @@ admin:
   # claim: "role"
   # allowed_values:
   #   - "admin"
+  # Optional IP allowlist (CIDR notation). When set, only requests from matching
+  # source IPs reach admin routes. Empty means all IPs are permitted.
+  # ip_allowlist:
+  #   - "10.0.0.0/8"       # internal VPN range
+  #   - "192.168.1.0/24"   # office network
 
 providers:
   google:

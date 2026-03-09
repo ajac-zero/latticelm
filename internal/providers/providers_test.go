@@ -61,7 +61,7 @@ func TestNewRegistry(t *testing.T) {
 			},
 		},
 		{
-			name: "no providers returns error",
+			name: "missing API key returns error",
 			entries: map[string]config.ProviderEntry{
 				"openai": {
 					Type:   "openai",
@@ -70,7 +70,7 @@ func TestNewRegistry(t *testing.T) {
 			},
 			models:      []config.ModelEntry{},
 			expectError: true,
-			errorMsg:    "no providers configured",
+			errorMsg:    "api_key is required",
 		},
 		{
 			name: "Azure OpenAI without endpoint returns error",
@@ -189,7 +189,7 @@ func TestNewRegistry(t *testing.T) {
 			errorMsg:    "unknown provider type",
 		},
 		{
-			name: "provider with no API key is skipped",
+			name: "provider with no API key returns error",
 			entries: map[string]config.ProviderEntry{
 				"openai-no-key": {
 					Type:   "openai",
@@ -203,11 +203,8 @@ func TestNewRegistry(t *testing.T) {
 			models: []config.ModelEntry{
 				{Name: "claude-3", Provider: "anthropic-with-key"},
 			},
-			validate: func(t *testing.T, reg *Registry) {
-				assert.Len(t, reg.providers, 1)
-				assert.Contains(t, reg.providers, "anthropic-with-key")
-				assert.NotContains(t, reg.providers, "openai-no-key")
-			},
+			expectError: true,
+			errorMsg:    "api_key is required",
 		},
 		{
 			name: "model with provider_model_id",
@@ -503,23 +500,16 @@ func TestRegistry_Default(t *testing.T) {
 		{
 			name: "returns error for model whose provider is unavailable",
 			setupReg: func() *Registry {
-				reg, _ := NewRegistry(
-					map[string]config.ProviderEntry{
-						"openai": {
-							Type:   "openai",
-							APIKey: "", // unavailable provider
-						},
-						"google": {
-							Type:   "google",
-							APIKey: "test-key",
-						},
+				return &Registry{
+					providers: map[string]Provider{
+						"google": &CircuitBreakerProvider{},
 					},
-					[]config.ModelEntry{
-						{Name: "gpt-4", Provider: "openai"},
-						{Name: "gemini-pro", Provider: "google"},
+					models: map[string]string{
+						"gpt-4":      "openai",
+						"gemini-pro": "google",
 					},
-				)
-				return reg
+					providerModelIDs: map[string]string{},
+				}
 			},
 			modelName:   "gpt-4",
 			expectError: true,
@@ -572,23 +562,23 @@ func TestRegistry_Default(t *testing.T) {
 }
 
 func TestRegistry_Models_FiltersUnavailableProviders(t *testing.T) {
-	reg, err := NewRegistry(
-		map[string]config.ProviderEntry{
-			"openai": {
-				Type:   "openai",
-				APIKey: "", // unavailable provider
-			},
-			"google": {
-				Type:   "google",
-				APIKey: "test-key",
-			},
+	// Manually construct a registry where "openai" is mapped in models but
+	// missing from providers, simulating the case where a provider was removed
+	// after initial configuration.
+	reg := &Registry{
+		providers: map[string]Provider{
+			"google": &CircuitBreakerProvider{},
 		},
-		[]config.ModelEntry{
+		models: map[string]string{
+			"gpt-4":      "openai",
+			"gemini-pro": "google",
+		},
+		providerModelIDs: map[string]string{},
+		modelList: []config.ModelEntry{
 			{Name: "gpt-4", Provider: "openai"},
 			{Name: "gemini-pro", Provider: "google"},
 		},
-	)
-	require.NoError(t, err)
+	}
 
 	models := reg.Models()
 	require.Len(t, models, 1)
@@ -647,12 +637,13 @@ func TestBuildProvider(t *testing.T) {
 			},
 		},
 		{
-			name: "provider without API key returns nil",
+			name: "provider without API key returns error",
 			entry: config.ProviderEntry{
 				Type:   "openai",
 				APIKey: "",
 			},
-			expectNil: true,
+			expectError: true,
+			errorMsg:    "api_key is required",
 		},
 		{
 			name: "unknown provider type",

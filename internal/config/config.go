@@ -40,6 +40,14 @@ type ConversationConfig struct {
 	// Driver is the SQL driver name, required when store is "sql".
 	// Examples: "sqlite3", "postgres", "mysql".
 	Driver string `yaml:"driver"`
+	// MaxOpenConns sets the maximum number of open connections to the database. Defaults to 25.
+	MaxOpenConns int `yaml:"max_open_conns"`
+	// MaxIdleConns sets the maximum number of idle connections in the pool. Defaults to 5.
+	MaxIdleConns int `yaml:"max_idle_conns"`
+	// ConnMaxLifetime is the maximum amount of time a connection may be reused (e.g. "5m"). Defaults to "5m".
+	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
+	// ConnMaxIdleTime is the maximum amount of time a connection may sit idle (e.g. "1m"). Defaults to "1m".
+	ConnMaxIdleTime string `yaml:"conn_max_idle_time"`
 }
 
 // IsEnabled returns whether conversation persistence is enabled.
@@ -128,6 +136,9 @@ type AdminConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	Claim         string   `yaml:"claim"`          // Optional admin authorization claim. Defaults to role/roles/groups lookup order.
 	AllowedValues []string `yaml:"allowed_values"` // Allowed values for the admin claim. Defaults to ["admin"].
+	// IPAllowlist is an optional list of CIDRs (e.g. "10.0.0.0/8") permitted to
+	// reach admin routes. Empty means all source IPs are allowed.
+	IPAllowlist []string `yaml:"ip_allowlist"`
 }
 
 // ServerConfig controls HTTP server values.
