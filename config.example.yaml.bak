@@ -40,15 +40,6 @@ observability:
       # headers:  # Optional: custom headers for authentication
       #   authorization: "Bearer your-token-here"
 
-auth:
-  enabled: false  # Enable OIDC authentication
-  issuer: "https://accounts.google.com"  # OIDC issuer URL
-  audience: "your-client-id.apps.googleusercontent.com"  # OIDC audience (for API JWT validation)
-  # OIDC client configuration for UI login (optional, enables session-based auth)
-  # client_id: "your-client-id.apps.googleusercontent.com"
-  # client_secret: "your-client-secret"  # Optional for public clients
-  # redirect_uri: "http://localhost:8080/auth/callback"
-
 ui:
   enabled: true  # Enable web UI and API (default: false)
   # Optional admin authorization policy when auth is enabled.

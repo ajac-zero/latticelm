@@ -138,11 +138,33 @@ func main() {
 		logger.Warn("authentication disabled - API is publicly accessible")
 	}
 
-	adminAuthMiddleware := auth.NewAdmin(auth.AdminConfig{
+	adminAuthConfig := auth.AdminConfig{
 		Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
 		Claim:         cfg.UI.Claim,
 		AllowedValues: cfg.UI.AllowedValues,
-	})
+	}
+	adminAuthMiddleware := auth.NewAdmin(adminAuthConfig)
+
+	// Initialize OIDC client for UI authentication
+	var oidcClient *auth.OIDCClient
+	if cfg.Auth.Enabled && cfg.UI.Enabled && cfg.Auth.ClientID != "" {
+		sessionStore := auth.NewSessionStore(24 * time.Hour)
+		oidcClientConfig := auth.OIDCClientConfig{
+			Issuer:       cfg.Auth.Issuer,
+			ClientID:     cfg.Auth.ClientID,
+			ClientSecret: cfg.Auth.ClientSecret,
+			RedirectURI:  cfg.Auth.RedirectURI,
+		}
+		oidcClient, err = auth.NewOIDCClient(oidcClientConfig, sessionStore, adminAuthConfig, logger)
+		if err != nil {
+			logger.Error("failed to initialize OIDC client", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		logger.Info("OIDC client enabled for UI authentication",
+			slog.String("client_id", cfg.Auth.ClientID),
+			slog.String("redirect_uri", cfg.Auth.RedirectURI),
+		)
+	}
 
 	// Initialize conversation store
 	var convStore conversation.Store
@@ -292,17 +314,32 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		apiHandler = authMiddleware.Handler(apiHandler)
 	}
 
+	// Register OIDC auth routes if enabled
+	var authRoutes http.Handler
+	if oidcClient != nil {
+		authMux := http.NewServeMux()
+		authMux.HandleFunc("/auth/login", oidcClient.HandleLogin)
+		authMux.HandleFunc("/auth/callback", oidcClient.HandleCallback)
+		authMux.HandleFunc("/auth/logout", oidcClient.HandleLogout)
+		authMux.HandleFunc("/auth/user", oidcClient.HandleUser)
+		authRoutes = authMux
+	}
+
 	// Compose middleware on admin handler
 	if adminHandler != nil {
-		if adminAuthMiddleware != nil {
+		if oidcClient != nil {
+			// Use session-based auth for UI
+			adminHandler = oidcClient.SessionMiddleware(adminHandler)
+		} else if adminAuthMiddleware != nil {
+			// Fall back to JWT auth
 			adminHandler = adminAuthMiddleware.Handler(adminHandler)
-		}
-		if authMiddleware != nil {
-			adminHandler = authMiddleware.Handler(adminHandler)
+			if authMiddleware != nil {
+				adminHandler = authMiddleware.Handler(adminHandler)
+			}
 		}
 	}
 
-	mux := buildRouteMux(publicMux, apiHandler, adminHandler, metricsPath, metricsHandler)
+	mux := buildRouteMux(publicMux, apiHandler, adminHandler, authRoutes, metricsPath, metricsHandler)
 
 	addr := cfg.Server.Address
 	if addr == "" {
@@ -592,7 +629,7 @@ func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
+func buildRouteMux(publicHandler, apiHandler, adminHandler, authHandler http.Handler, metricsPath string, metricsHandler http.Handler) *http.ServeMux {
 	root := http.NewServeMux()
 
 	if publicHandler != nil {
@@ -602,6 +639,10 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, metrics
 
 	if apiHandler != nil {
 		root.Handle("/v1/", apiHandler)
+	}
+
+	if authHandler != nil {
+		root.Handle("/auth/", authHandler)
 	}
 
 	if adminHandler != nil {
