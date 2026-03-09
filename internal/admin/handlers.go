@@ -276,6 +276,25 @@ func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, providers)
 }
 
+// UIConfigResponse contains UI configuration for the frontend.
+type UIConfigResponse struct {
+	AuthEnabled bool `json:"auth_enabled"`
+}
+
+// handleUIConfig returns UI configuration for the frontend to adapt its behavior.
+func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
+		return
+	}
+
+	response := UIConfigResponse{
+		AuthEnabled: s.cfg.Auth.Enabled,
+	}
+
+	writeSuccess(w, response)
+}
+
 // maskSecret masks a secret string for display.
 func maskSecret(secret string) string {
 	if secret == "" {

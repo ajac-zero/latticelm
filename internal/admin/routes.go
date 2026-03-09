@@ -12,6 +12,9 @@ func (s *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
 	mux.HandleFunc("/api/v1/providers", s.handleProviders)
 
+	// Lightweight config endpoint for UI (no auth required)
+	mux.HandleFunc("/api/config", s.handleUIConfig)
+
 	// Serve frontend SPA
 	mux.Handle("/", s.serveSPA())
 }

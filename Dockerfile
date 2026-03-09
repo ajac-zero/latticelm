@@ -1,7 +1,7 @@
 # Multi-stage build for Go LLM Gateway
 
 # Stage 1: Build the frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /frontend
 

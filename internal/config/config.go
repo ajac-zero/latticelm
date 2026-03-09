@@ -126,9 +126,13 @@ type ExporterConfig struct {
 
 // AuthConfig holds OIDC authentication settings.
 type AuthConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Issuer   string `yaml:"issuer"`
-	Audience string `yaml:"audience"`
+	Enabled      bool   `yaml:"enabled"`
+	Issuer       string `yaml:"issuer"`
+	Audience     string `yaml:"audience"`
+	// OIDC client configuration for UI login
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	RedirectURI  string `yaml:"redirect_uri"`
 }
 
 // UIConfig controls the web UI.
