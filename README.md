@@ -120,7 +120,7 @@ latticelm (unified API)
 
 - Go 1.21+ (for building from source)
 - Docker (optional, for containerized deployment)
-- Node.js 18+ (optional, for Admin UI development)
+- Node.js 18+ (optional, for Web UI development)
 
 ### Running Locally
 
@@ -138,14 +138,14 @@ export GOOGLE_API_KEY="your-key"
 cp config.example.yaml config.yaml
 # Edit config.yaml to customize settings
 
-# 4. Build (includes Admin UI)
+# 4. Build (includes Web UI)
 make build-all
 
 # 5. Run
 ./bin/llm-gateway
 
 # Gateway starts on http://localhost:8080
-# Admin UI available at http://localhost:8080/admin/
+# Web UI available at http://localhost:8080/
 ```
 
 ### Testing the API
@@ -305,16 +305,16 @@ Returns 503 if any check fails.
 
 ### Admin Endpoints
 
-#### GET /admin/
-Web dashboard (when admin UI is enabled).
+#### GET /
+Web dashboard (when web UI is enabled).
 
-#### GET /admin/api/info
+#### GET /api/info
 System information.
 
-#### GET /admin/api/health
+#### GET /api/health
 Detailed health status.
 
-#### GET /admin/api/config
+#### GET /api/config
 Current configuration (secrets masked).
 
 ### Observability Endpoints
@@ -344,7 +344,7 @@ Prometheus metrics (when observability is enabled).
 latticelm/
 ├── cmd/gateway/          # Main application entry point
 ├── internal/
-│   ├── admin/            # Admin UI backend and embedded frontend
+│   ├── admin/            # Web UI backend and embedded frontend
 │   ├── api/              # Open Responses types and validation
 │   ├── auth/             # OAuth2/OIDC authentication
 │   ├── config/           # YAML configuration loader
@@ -361,7 +361,7 @@ latticelm/
 │   ├── ratelimit/        # Rate limiting implementation
 │   ├── server/           # HTTP server and handlers
 │   └── tracing/          # OpenTelemetry tracing
-├── frontend/admin/       # Vue.js Admin UI
+├── ui/                   # Vue.js Web UI
 ├── k8s/                  # Kubernetes manifests
 ├── tests/                # Integration tests
 ├── config.example.yaml   # Example configuration
@@ -441,8 +441,8 @@ conversations:
   driver: "sqlite3"
   dsn: "conversations.db"
 
-# Admin UI
-admin:
+# Web UI
+ui:
   enabled: true
 ```
 
@@ -640,11 +640,11 @@ The gateway includes a built-in admin web interface for monitoring and configura
 - **Provider Status** - View configured providers and their models
 - **Configuration** - View current configuration (with secrets masked)
 
-### Accessing the Admin UI
+### Accessing the Web UI
 
 1. Enable in config:
 ```yaml
-admin:
+ui:
   enabled: true
 ```
 
@@ -653,7 +653,7 @@ admin:
 make build-all
 ```
 
-3. Access at: `http://localhost:8080/admin/`
+3. Access at: `http://localhost:8080/`
 
 ### Development Mode
 
@@ -678,7 +678,7 @@ Frontend dev server runs on `http://localhost:5173` and proxies API requests to 
 Build and run with Docker:
 
 ```bash
-# Build Docker image (includes Admin UI automatically)
+# Build Docker image (includes Web UI automatically)
 docker build -t llm-gateway:latest .
 
 # Run container
@@ -718,7 +718,7 @@ docker-compose up -d
 
 The Docker image:
 - Uses 3-stage build (frontend → backend → runtime) for minimal size (~50MB)
-- Automatically builds and embeds the Admin UI
+- Automatically builds and embeds the Web UI
 - Runs as non-root user (UID 1000) for security
 - Includes health checks for orchestration
 - No need for Node.js or Go installed locally
@@ -851,7 +851,7 @@ Comprehensive guides and documentation are available in the `/docs` directory:
 
 - **[Docker Deployment Guide](./docs/DOCKER_DEPLOYMENT.md)** - Deploy with pre-built images or build from source
 - **[Kubernetes Deployment Guide](./k8s/README.md)** - Production deployment with Kubernetes
-- **[Admin UI Documentation](./docs/ADMIN_UI.md)** - Using the web dashboard
+- **[Web UI Documentation](./docs/ADMIN_UI.md)** - Using the web dashboard
 - **[Configuration Reference](./config.example.yaml)** - All configuration options explained
 
 See the **[docs directory README](./docs/README.md)** for a complete documentation index.

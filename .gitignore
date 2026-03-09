@@ -58,6 +58,6 @@ __pycache__/*
 tests/node_modules/
 
 # Frontend
-frontend/admin/node_modules/
-frontend/admin/dist/
+ui/node_modules/
+ui/dist/
 internal/admin/dist/

@@ -139,9 +139,9 @@ func main() {
 	}
 
 	adminAuthMiddleware := auth.NewAdmin(auth.AdminConfig{
-		Enabled:       cfg.Auth.Enabled && cfg.Admin.Enabled,
-		Claim:         cfg.Admin.Claim,
-		AllowedValues: cfg.Admin.AllowedValues,
+		Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
+		Claim:         cfg.UI.Claim,
+		AllowedValues: cfg.UI.AllowedValues,
 	})
 
 	// Initialize conversation store
@@ -167,9 +167,9 @@ func main() {
 
 gatewayServer := server.New(registry, convStore, logger,
 	server.WithAdminConfig(auth.AdminConfig{
-		Enabled:       cfg.Auth.Enabled && cfg.Admin.Enabled,
-		Claim:         cfg.Admin.Claim,
-		AllowedValues: cfg.Admin.AllowedValues,
+		Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
+		Claim:         cfg.UI.Claim,
+		AllowedValues: cfg.UI.AllowedValues,
 	}),
 )
 gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
@@ -241,7 +241,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 	var adminHandler http.Handler
 
 	// Register admin endpoints if enabled
-	if cfg.Admin.Enabled {
+	if cfg.UI.Enabled {
 		buildInfo := admin.BuildInfo{
 			Version:   "dev",
 			BuildTime: time.Now().Format(time.RFC3339),
@@ -253,7 +253,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		adminServer.RegisterRoutes(adminMux)
 
 		// Parse IP allowlist CIDRs; fail fast if misconfigured.
-		allowlist, err := admin.ParseCIDRs(cfg.Admin.IPAllowlist)
+		allowlist, err := admin.ParseCIDRs(cfg.UI.IPAllowlist)
 		if err != nil {
 			logger.Error("invalid admin ip_allowlist", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -265,7 +265,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		wrapped = admin.SecurityHeadersMiddleware(wrapped)
 		adminHandler = wrapped
 
-		logger.Info("admin UI enabled", slog.String("path", "/admin/"))
+		logger.Info("admin UI enabled", slog.String("path", "/"))
 		if len(allowlist) > 0 {
 			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
 		}
@@ -605,7 +605,7 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler http.Handler, metrics
 	}
 
 	if adminHandler != nil {
-		root.Handle("/admin/", adminHandler)
+		root.Handle("/", adminHandler)
 	}
 
 	if metricsHandler != nil {

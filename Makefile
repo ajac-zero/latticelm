@@ -30,16 +30,16 @@ help: ## Show this help message
 # Frontend targets
 frontend-install: ## Install frontend dependencies
 	@echo "Installing frontend dependencies..."
-	cd frontend/admin && npm install
+	cd ui && npm install
 
 frontend-build: ## Build frontend
 	@echo "Building frontend..."
-	cd frontend/admin && npm run build
+	cd ui && npm run build
 	rm -rf internal/admin/dist
-	cp -r frontend/admin/dist internal/admin/
+	cp -r ui/dist internal/admin/
 
 frontend-dev: ## Run frontend dev server
-	cd frontend/admin && npm run dev
+	cd ui && npm run dev
 
 # Development targets
 build: ## Build the binary
@@ -78,7 +78,7 @@ clean: ## Clean build artifacts
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR)
 	rm -rf internal/admin/dist
-	rm -rf frontend/admin/dist
+	rm -rf ui/dist
 	rm -f coverage.out coverage.html
 
 # Docker targets

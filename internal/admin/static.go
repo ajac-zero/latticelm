@@ -24,7 +24,7 @@ func (s *AdminServer) serveSPA() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Path comes in without /admin prefix due to StripPrefix
+		// Get the URL path
 		urlPath := r.URL.Path
 		if urlPath == "" || urlPath == "/" {
 			urlPath = "index.html"

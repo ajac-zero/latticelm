@@ -6,11 +6,11 @@ FROM node:18-alpine AS frontend-builder
 WORKDIR /frontend
 
 # Copy package files for better caching
-COPY frontend/admin/package*.json ./
+COPY ui/package*.json ./
 RUN npm ci
 
 # Copy frontend source and build
-COPY frontend/admin/ ./
+COPY ui/ ./
 RUN npm run build
 
 # Stage 2: Build the Go binary
