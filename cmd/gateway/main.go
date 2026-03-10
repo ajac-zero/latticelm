@@ -287,6 +287,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		wrapped = admin.SecurityHeadersMiddleware(wrapped)
 		adminHandler = wrapped
 
+		adminServer.RegisterPublicRoutes(publicMux)
 		logger.Info("admin UI enabled", slog.String("path", "/"))
 		if len(allowlist) > 0 {
 			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
@@ -635,6 +636,7 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler, authHandler http.Han
 	if publicHandler != nil {
 		root.Handle("/health", publicHandler)
 		root.Handle("/ready", publicHandler)
+		root.Handle("/api/config", publicHandler)
 	}
 
 	if apiHandler != nil {

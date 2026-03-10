@@ -248,6 +248,24 @@ func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, response)
 }
 
+// UIConfigResponse contains the minimal config needed by the frontend before authentication.
+type UIConfigResponse struct {
+	AuthEnabled bool `json:"auth_enabled"`
+}
+
+// handleUIConfig returns the minimal configuration needed by the UI before authentication.
+// This endpoint is intentionally unprotected so the frontend can determine whether auth is required.
+func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
+		return
+	}
+
+	writeSuccess(w, UIConfigResponse{
+		AuthEnabled: s.cfg.Auth.Enabled,
+	})
+}
+
 // handleProviders returns the list of configured providers.
 func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
