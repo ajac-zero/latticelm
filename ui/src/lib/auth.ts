@@ -25,9 +25,12 @@ export async function getCurrentUser(): Promise<User | null> {
 
 export async function isAuthEnabled(): Promise<boolean> {
   try {
-    const response = await fetch('/api/v1/config')
+    const response = await fetch('/api/config')
+    if (!response.ok) {
+      return false
+    }
     const data = await response.json()
-    return data.data?.auth?.enabled || false
+    return data?.data?.auth_enabled === true
   } catch {
     return false
   }

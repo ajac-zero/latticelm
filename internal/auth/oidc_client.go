@@ -133,12 +133,12 @@ func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Build authorization URL
 	authURL := c.authorizationEndpoint + "?" + url.Values{
-		"client_id":     {c.cfg.ClientID},
-		"response_type": {"code"},
-		"scope":         {"openid email profile"},
-		"redirect_uri":  {c.cfg.RedirectURI},
-		"state":         {state},
-		"code_challenge": {codeVerifier}, // For PKCE, we're using plain (not S256) for simplicity
+		"client_id":             {c.cfg.ClientID},
+		"response_type":         {"code"},
+		"scope":                 {"openid email profile"},
+		"redirect_uri":          {c.cfg.RedirectURI},
+		"state":                 {state},
+		"code_challenge":        {codeVerifier}, // For PKCE, we're using plain (not S256) for simplicity
 		"code_challenge_method": {"plain"},
 	}.Encode()
 

@@ -187,14 +187,14 @@ func main() {
 		logger.Info("conversation store instrumented")
 	}
 
-gatewayServer := server.New(registry, convStore, logger,
-	server.WithAdminConfig(auth.AdminConfig{
-		Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
-		Claim:         cfg.UI.Claim,
-		AllowedValues: cfg.UI.AllowedValues,
-	}),
-)
-gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
+	gatewayServer := server.New(registry, convStore, logger,
+		server.WithAdminConfig(auth.AdminConfig{
+			Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
+			Claim:         cfg.UI.Claim,
+			AllowedValues: cfg.UI.AllowedValues,
+		}),
+	)
+	gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 
 	// Initialize distributed rate limiting
 	var rateLimitMiddleware *ratelimit.Middleware
@@ -287,6 +287,7 @@ gatewayServer.SetStoreByDefault(cfg.Conversations.StoreByDefault)
 		wrapped = admin.SecurityHeadersMiddleware(wrapped)
 		adminHandler = wrapped
 
+		adminServer.RegisterPublicRoutes(publicMux)
 		logger.Info("admin UI enabled", slog.String("path", "/"))
 		if len(allowlist) > 0 {
 			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
@@ -635,6 +636,7 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler, authHandler http.Han
 	if publicHandler != nil {
 		root.Handle("/health", publicHandler)
 		root.Handle("/ready", publicHandler)
+		root.Handle("/api/config", publicHandler)
 	}
 
 	if apiHandler != nil {

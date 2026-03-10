@@ -59,11 +59,11 @@ func TestParseTools(t *testing.T) {
 
 func TestParseToolChoice(t *testing.T) {
 	tests := []struct {
-		name        string
-		choiceJSON  string
-		expectAuto  bool
-		expectAny   bool
-		expectTool  bool
+		name         string
+		choiceJSON   string
+		expectAuto   bool
+		expectAny    bool
+		expectTool   bool
 		expectedName string
 	}{
 		{

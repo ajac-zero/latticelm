@@ -359,9 +359,9 @@ func TestTracerProvider_MultipleShutdowns(t *testing.T) {
 
 func TestSamplerDescription(t *testing.T) {
 	tests := []struct {
-		name             string
-		cfg              config.SamplerConfig
-		expectedInDesc   string
+		name           string
+		cfg            config.SamplerConfig
+		expectedInDesc string
 	}{
 		{
 			name: "always sampler description",

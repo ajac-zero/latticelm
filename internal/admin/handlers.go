@@ -23,8 +23,8 @@ type SystemInfoResponse struct {
 
 // HealthCheckResponse contains health check results.
 type HealthCheckResponse struct {
-	Status    string              `json:"status"`
-	Timestamp string              `json:"timestamp"`
+	Status    string                 `json:"status"`
+	Timestamp string                 `json:"timestamp"`
 	Checks    map[string]HealthCheck `json:"checks"`
 }
 
@@ -61,17 +61,17 @@ type SanitizedRateLimitConfig struct {
 
 // SanitizedObservabilityConfig is observability config with secrets masked.
 type SanitizedObservabilityConfig struct {
-	Enabled bool                       `json:"enabled"`
-	Metrics config.MetricsConfig       `json:"metrics"`
-	Tracing SanitizedTracingConfig     `json:"tracing"`
+	Enabled bool                   `json:"enabled"`
+	Metrics config.MetricsConfig   `json:"metrics"`
+	Tracing SanitizedTracingConfig `json:"tracing"`
 }
 
 // SanitizedTracingConfig is tracing config with secrets masked.
 type SanitizedTracingConfig struct {
-	Enabled     bool                     `json:"enabled"`
-	ServiceName string                   `json:"service_name"`
-	Sampler     config.SamplerConfig     `json:"sampler"`
-	Exporter    SanitizedExporterConfig  `json:"exporter"`
+	Enabled     bool                    `json:"enabled"`
+	ServiceName string                  `json:"service_name"`
+	Sampler     config.SamplerConfig    `json:"sampler"`
+	Exporter    SanitizedExporterConfig `json:"exporter"`
 }
 
 // SanitizedExporterConfig is exporter config with auth header values masked.
@@ -248,6 +248,24 @@ func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, response)
 }
 
+// UIConfigResponse contains the minimal config needed by the frontend before authentication.
+type UIConfigResponse struct {
+	AuthEnabled bool `json:"auth_enabled"`
+}
+
+// handleUIConfig returns the minimal configuration needed by the UI before authentication.
+// This endpoint is intentionally unprotected so the frontend can determine whether auth is required.
+func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
+		return
+	}
+
+	writeSuccess(w, UIConfigResponse{
+		AuthEnabled: s.cfg.Auth.Enabled,
+	})
+}
+
 // handleProviders returns the list of configured providers.
 func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -274,25 +292,6 @@ func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccess(w, providers)
-}
-
-// UIConfigResponse contains UI configuration for the frontend.
-type UIConfigResponse struct {
-	AuthEnabled bool `json:"auth_enabled"`
-}
-
-// handleUIConfig returns UI configuration for the frontend to adapt its behavior.
-func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
-		return
-	}
-
-	response := UIConfigResponse{
-		AuthEnabled: s.cfg.Auth.Enabled,
-	}
-
-	writeSuccess(w, response)
 }
 
 // maskSecret masks a secret string for display.

@@ -18,3 +18,10 @@ func (s *AdminServer) RegisterRoutes(mux *http.ServeMux) {
 	// Serve frontend SPA
 	mux.Handle("/", s.serveSPA())
 }
+
+// RegisterPublicRoutes wires unauthenticated admin handlers onto the provided mux.
+// These endpoints must remain accessible without a token so the frontend can
+// determine gateway configuration before the user has authenticated.
+func (s *AdminServer) RegisterPublicRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/config", s.handleUIConfig)
+}

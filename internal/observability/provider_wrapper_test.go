@@ -297,10 +297,10 @@ func TestInstrumentedProvider_Generate(t *testing.T) {
 
 func TestInstrumentedProvider_GenerateStream(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupMock    func(*mockBaseProvider)
-		expectError  bool
-		checkMetrics bool
+		name           string
+		setupMock      func(*mockBaseProvider)
+		expectError    bool
+		checkMetrics   bool
 		expectedChunks int
 	}{
 		{
