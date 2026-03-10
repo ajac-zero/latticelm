@@ -346,7 +346,7 @@ func main() {
 	// Register admin auth endpoints (login/logout) directly on the root mux with higher
 	// path specificity than /admin/ so they bypass the JWT middleware.
 	if adminServer != nil {
-		adminServer.RegisterPublicRoutes(mux)
+		adminServer.RegisterAuthRoutes(mux)
 	}
 
 	addr := cfg.Server.Address

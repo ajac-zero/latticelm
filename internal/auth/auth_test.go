@@ -656,7 +656,7 @@ func TestMiddleware_Handler_SessionCookie(t *testing.T) {
 				return httptest.NewRequest(http.MethodGet, "/test", nil)
 			},
 			expectStatus: http.StatusUnauthorized,
-			expectBody:   "missing authorization header",
+			expectBody:   "Unauthorized",
 		},
 		{
 			name: "bearer header takes precedence over cookie",

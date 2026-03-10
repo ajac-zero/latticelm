@@ -26,10 +26,10 @@ func (s *AdminServer) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/config", s.handleUIConfig)
 }
 
-// RegisterPublicRoutes wires the auth endpoints that do not require a session token.
+// RegisterAuthRoutes wires the auth endpoints that do not require a session token.
 // These must be registered on the root mux with higher specificity than /admin/ so
 // they bypass the JWT middleware that protects the rest of the admin surface.
-func (s *AdminServer) RegisterPublicRoutes(mux *http.ServeMux) {
+func (s *AdminServer) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("/admin/api/v1/auth/logout", s.handleLogout)
 }
