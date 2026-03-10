@@ -727,10 +727,10 @@ loop:
 		}
 	}
 
-		// Record token usage for distributed quota tracking
-		if completedResp.Usage != nil {
-			ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
-		}
+	// Record token usage for distributed quota tracking
+	if completedResp.Usage != nil {
+		ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
+	}
 
 	if fullText != "" || len(toolCalls) > 0 {
 		s.logger.InfoContext(r.Context(), "streaming response completed",

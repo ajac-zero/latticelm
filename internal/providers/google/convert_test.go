@@ -118,7 +118,7 @@ func TestParseTools(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "empty array",
+			name:      "empty array",
 			toolsJSON: `[]`,
 			validate: func(t *testing.T, tools []*genai.Tool) {
 				assert.Nil(t, tools, "should return nil for empty array")

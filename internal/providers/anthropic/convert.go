@@ -139,4 +139,3 @@ func extractToolCalls(content []anthropic.ContentBlockUnion) []api.ToolCall {
 
 	return toolCalls
 }
-

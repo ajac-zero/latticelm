@@ -25,13 +25,13 @@ import (
 
 // Test fixtures
 var (
-	testPrivateKey    *rsa.PrivateKey
-	testPublicKey     *rsa.PublicKey
-	testECPrivateKey  *ecdsa.PrivateKey
-	testECPublicKey   *ecdsa.PublicKey
-	testKID           = "test-key-id-1"
-	testECKID         = "test-ec-key-id-1"
-	testAudience      = "test-client-id"
+	testPrivateKey   *rsa.PrivateKey
+	testPublicKey    *rsa.PublicKey
+	testECPrivateKey *ecdsa.PrivateKey
+	testECPublicKey  *ecdsa.PublicKey
+	testKID          = "test-key-id-1"
+	testECKID        = "test-ec-key-id-1"
+	testAudience     = "test-client-id"
 )
 
 func init() {

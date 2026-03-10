@@ -32,8 +32,8 @@ import (
 //     cost of hard failures for active tokens if the IdP outage is prolonged.
 type Config struct {
 	Enabled   bool          `yaml:"enabled"`
-	Issuer    string        `yaml:"issuer"`    // e.g., "https://accounts.google.com"
-	Audience  string        `yaml:"audience"`  // e.g., your client ID
+	Issuer    string        `yaml:"issuer"`     // e.g., "https://accounts.google.com"
+	Audience  string        `yaml:"audience"`   // e.g., your client ID
 	ClockSkew time.Duration `yaml:"clock_skew"` // allowance for clock drift; default 0
 	StaleTTL  time.Duration `yaml:"stale_ttl"`  // stale-key acceptance window; 0 = unlimited
 }
@@ -47,12 +47,12 @@ type AdminConfig struct {
 
 // Middleware provides JWT validation middleware.
 type Middleware struct {
-	cfg          Config
-	keys         map[string]interface{} // kid → *rsa.PublicKey or *ecdsa.PublicKey
-	lastFetchedAt time.Time             // time of the last successful JWKS fetch
-	mu           sync.RWMutex
-	client       *http.Client
-	logger       *slog.Logger
+	cfg           Config
+	keys          map[string]interface{} // kid → *rsa.PublicKey or *ecdsa.PublicKey
+	lastFetchedAt time.Time              // time of the last successful JWKS fetch
+	mu            sync.RWMutex
+	client        *http.Client
+	logger        *slog.Logger
 
 	// refreshMu serialises on-demand JWKS refreshes triggered by unknown key IDs to
 	// prevent multiple concurrent requests from hammering the IdP simultaneously.

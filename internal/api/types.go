@@ -224,9 +224,9 @@ type OutputItem struct {
 	Status    string        `json:"status"`
 	Role      string        `json:"role,omitempty"`
 	Content   []ContentPart `json:"content,omitempty"`
-	CallID    string        `json:"call_id,omitempty"`    // for function_call
-	Name      string        `json:"name,omitempty"`       // for function_call
-	Arguments string        `json:"arguments,omitempty"`  // for function_call
+	CallID    string        `json:"call_id,omitempty"`   // for function_call
+	Name      string        `json:"name,omitempty"`      // for function_call
+	Arguments string        `json:"arguments,omitempty"` // for function_call
 }
 
 // ContentPart is a content block within an output item.
