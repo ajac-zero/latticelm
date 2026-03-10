@@ -4,10 +4,14 @@ import { useNavigate } from '@tanstack/react-router'
 import { login } from '../lib/auth'
 
 export const Route = createFileRoute('/auth/login')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    session_expired: search.session_expired === 'true' || search.session_expired === true,
+  }),
   component: LoginPage,
 })
 
 function LoginPage() {
+  const { session_expired } = Route.useSearch()
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,6 +41,12 @@ function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
       <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-lg dark:bg-gray-800">
+        {session_expired && (
+          <div className="mb-4 rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400">
+            Your session has expired. Please sign in again.
+          </div>
+        )}
+
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             LLM Gateway Admin

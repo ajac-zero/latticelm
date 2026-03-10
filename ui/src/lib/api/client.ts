@@ -13,6 +13,12 @@ class APIClient {
       },
     })
 
+    if (response.status === 401) {
+      localStorage.removeItem('auth_token')
+      window.location.href = '/auth/login?session_expired=true'
+      throw new Error('Session expired')
+    }
+
     if (!response.ok) {
       if (response.status === 401) {
         window.location.href = '/auth/login'

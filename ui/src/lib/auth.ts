@@ -74,7 +74,7 @@ export async function requireAuth() {
     if (authEnabled) {
       const authed = await isAuthenticated()
       if (!authed) {
-        throw redirect({ to: '/auth/login' })
+        throw redirect({ to: '/auth/login', search: { session_expired: false } })
       }
     }
   } catch (error) {
