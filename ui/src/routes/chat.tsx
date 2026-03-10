@@ -2,8 +2,10 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect } from 'react'
 import OpenAI from 'openai'
 import { useModels } from '../lib/api/hooks'
+import { requireAuth } from '../lib/auth'
 
 export const Route = createFileRoute('/chat')({
+  beforeLoad: requireAuth,
   component: ChatPage,
 })
 
