@@ -1,8 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect } from 'react'
 import OpenAI from 'openai'
+import { Settings } from 'lucide-react'
 import { useModels } from '../lib/api/hooks'
 import { requireAuth } from '../lib/auth'
+import { Button } from '../components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
+import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Slider } from '../components/ui/slider'
+import { Switch } from '../components/ui/switch'
+import { Textarea } from '../components/ui/textarea'
 
 export const Route = createFileRoute('/chat')({
   beforeLoad: requireAuth,
@@ -20,6 +28,7 @@ function ChatPage() {
   const [instructions, setInstructions] = useState('')
   const [temperature, setTemperature] = useState(1.0)
   const [stream, setStream] = useState(true)
+  const [store, setStore] = useState(true)
   const [userInput, setUserInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -43,6 +52,13 @@ function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, streamingText])
+
+  // Clear lastResponseId when store is disabled
+  useEffect(() => {
+    if (!store) {
+      setLastResponseId(null)
+    }
+  }, [store])
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -74,7 +90,8 @@ function ChatPage() {
     const text = userInput.trim()
     if (!text || isLoading) return
 
-    setMessages(prev => [...prev, { role: 'user', content: text }])
+    const newUserMessage: ChatMessage = { role: 'user', content: text }
+    setMessages(prev => [...prev, newUserMessage])
     setUserInput('')
     if (chatInputRef.current) {
       chatInputRef.current.style.height = 'auto'
@@ -86,17 +103,31 @@ function ChatPage() {
     try {
       const params: Record<string, any> = {
         model: selectedModel,
-        input: text,
         temperature: temperature,
         stream: stream,
+        store: store,
+      }
+
+      // When store is false, send full conversation history in input
+      // When store is true, use previous_response_id to fetch history from backend
+      if (store && lastResponseId) {
+        params.input = text
+        params.previous_response_id = lastResponseId
+      } else if (!store && messages.length > 0) {
+        // Build input array with full conversation history
+        const inputItems = [...messages, newUserMessage].map(msg => ({
+          type: 'message',
+          role: msg.role,
+          content: msg.content,
+        }))
+        params.input = inputItems
+      } else {
+        // First message or store=true without history
+        params.input = text
       }
 
       if (instructions.trim()) {
         params.instructions = instructions.trim()
-      }
-
-      if (lastResponseId) {
-        params.previous_response_id = lastResponseId
       }
 
       if (stream) {
@@ -108,14 +139,18 @@ function ChatPage() {
             fullText += event.delta
             setStreamingText(fullText)
           } else if (event.type === 'response.completed') {
-            setLastResponseId(event.response.id)
+            if (store) {
+              setLastResponseId(event.response.id)
+            }
           }
         }
 
         setMessages(prev => [...prev, { role: 'assistant', content: fullText }])
       } else {
         const response = await client.responses.create(params as any) as any
-        setLastResponseId(response.id)
+        if (store) {
+          setLastResponseId(response.id)
+        }
 
         const text = response.output
           ?.filter((item: any) => item.type === 'message')
@@ -148,163 +183,170 @@ function ChatPage() {
   }
 
   return (
-    <div className="absolute inset-0 flex">
-      {/* Sidebar */}
-      <aside className="flex w-72 flex-col gap-6 overflow-y-auto border-r border-border bg-card p-6">
-        {/* Model Selection */}
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Model
-          </label>
-          <select
-            value={selectedModel}
-            onChange={e => setSelectedModel(e.target.value)}
-            disabled={modelsLoading}
-            className="w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm transition-colors hover:bg-background/80 focus:bg-background/80 focus:outline-none"
-          >
-            {modelsLoading && <option value="">Loading...</option>}
-            {models.map((m: any) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* System Instructions */}
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            System Instructions
-          </label>
-          <textarea
-            value={instructions}
-            onChange={e => setInstructions(e.target.value)}
-            rows={4}
-            placeholder="You are a helpful assistant..."
-            className="min-h-24 w-full resize-y rounded-md border border-input bg-background/50 px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground/40 hover:bg-background/80 focus:bg-background/80 focus:outline-none"
-          />
-        </div>
-
-        {/* Temperature */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Temperature
-            </label>
-            <span className="min-w-8 text-right text-sm font-medium">{temperature}</span>
+    <div className="absolute inset-0 flex flex-col">
+      {/* Messages */}
+      <div ref={messagesContainerRef} className="flex-1 space-y-4 overflow-y-auto p-6">
+        {messages.length === 0 && (
+          <div className="flex h-full items-center justify-center text-muted-foreground">
+            Send a message to start chatting.
           </div>
-          <input
-            type="range"
-            value={temperature}
-            onChange={e => setTemperature(Number(e.target.value))}
-            min="0"
-            max="2"
-            step="0.1"
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
-          />
-        </div>
-
-        {/* Stream Toggle */}
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Stream
-          </label>
-          <label className="relative inline-block h-6 w-11 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={stream}
-              onChange={e => setStream(e.target.checked)}
-              className="peer h-0 w-0 opacity-0"
-            />
-            <span className="absolute inset-0 rounded-full bg-white/20 transition-colors before:absolute before:bottom-0.5 before:left-0.5 before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform before:content-[''] peer-checked:bg-primary peer-checked:before:translate-x-5"></span>
-          </label>
-        </div>
-
-        {/* Clear Chat Button */}
-        <button
-          onClick={clearChat}
-          className="mt-auto rounded-md border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/20"
-        >
-          Clear Chat
-        </button>
-      </aside>
-
-      {/* Main Chat Area */}
-      <main className="flex flex-1 flex-col">
-        {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 space-y-4 overflow-y-auto p-6">
-          {messages.length === 0 && (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              Send a message to start chatting.
-            </div>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-3xl rounded-lg px-4 py-3 ${
-                  msg.role === 'user'
-                    ? 'bg-indigo-600 text-white'
-                    : 'border border-border bg-white/5'
-                }`}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Assistant
-                  </div>
-                )}
-                <div
-                  className="text-[15px] leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }}
-                />
-              </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="max-w-3xl rounded-lg border border-border bg-white/5 px-4 py-3">
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-3xl rounded-lg px-4 py-3 ${
+                msg.role === 'user'
+                  ? 'bg-indigo-600 text-white'
+                  : 'border border-border bg-white/5'
+              }`}
+            >
+              {msg.role === 'assistant' && (
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Assistant
                 </div>
-                <div className="text-[15px] leading-relaxed">
-                  <span className="mr-1.5 inline-flex gap-0.5">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:0ms]"></span>
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:200ms]"></span>
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:400ms]"></span>
-                  </span>
-                  {streamingText && (
-                    <span dangerouslySetInnerHTML={{ __html: renderContent(streamingText) }} />
-                  )}
-                </div>
+              )}
+              <div
+                className="text-[15px] leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }}
+              />
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="max-w-3xl rounded-lg border border-border bg-white/5 px-4 py-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Assistant
+              </div>
+              <div className="text-[15px] leading-relaxed">
+                <span className="mr-1.5 inline-flex gap-0.5">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:0ms]"></span>
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:200ms]"></span>
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:400ms]"></span>
+                </span>
+                {streamingText && (
+                  <span dangerouslySetInnerHTML={{ __html: renderContent(streamingText) }} />
+                )}
               </div>
             </div>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* Input Area */}
+      <div className="flex gap-3 border-t border-border bg-card p-6">
+        <div className="flex flex-1 items-end gap-2 rounded-lg border border-input bg-background/50 px-3 py-3">
+          <textarea
+            ref={chatInputRef}
+            value={userInput}
+            onChange={e => {
+              setUserInput(e.target.value)
+              autoResize(e)
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message..."
+            rows={1}
+            className="max-h-[150px] flex-1 resize-none bg-transparent text-[15px] leading-normal outline-none placeholder:text-muted-foreground/40"
+          />
+
+          {/* Settings Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="end">
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Settings</h3>
+
+                {/* Model Selection */}
+                <div className="space-y-2">
+                  <Label htmlFor="model">Model</Label>
+                  <Select value={selectedModel} onValueChange={setSelectedModel} disabled={modelsLoading}>
+                    <SelectTrigger id="model">
+                      <SelectValue placeholder={modelsLoading ? "Loading..." : "Select a model"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {models.map((m: any) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* System Instructions */}
+                <div className="space-y-2">
+                  <Label htmlFor="instructions">System Instructions</Label>
+                  <Textarea
+                    id="instructions"
+                    value={instructions}
+                    onChange={e => setInstructions(e.target.value)}
+                    placeholder="You are a helpful assistant..."
+                    rows={4}
+                    className="resize-none"
+                  />
+                </div>
+
+                {/* Temperature */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="temperature">Temperature</Label>
+                    <span className="text-sm font-medium">{temperature}</span>
+                  </div>
+                  <Slider
+                    id="temperature"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={[temperature]}
+                    onValueChange={([value]) => setTemperature(value)}
+                  />
+                </div>
+
+                {/* Stream Toggle */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="stream">Stream</Label>
+                  <Switch
+                    id="stream"
+                    checked={stream}
+                    onCheckedChange={setStream}
+                  />
+                </div>
+
+                {/* Store Toggle */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="store">Store Conversation</Label>
+                  <Switch
+                    id="store"
+                    checked={store}
+                    onCheckedChange={setStore}
+                  />
+                </div>
+
+                {/* Clear Chat Button */}
+                <Button
+                  onClick={clearChat}
+                  variant="destructive"
+                  className="w-full"
+                >
+                  Clear Chat
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
-        {/* Input Area */}
-        <div className="flex gap-3 border-t border-border bg-card p-6">
-          <div className="flex flex-1 rounded-lg border border-input bg-background/50 px-3 py-3">
-            <textarea
-              ref={chatInputRef}
-              value={userInput}
-              onChange={e => {
-                setUserInput(e.target.value)
-                autoResize(e)
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              rows={1}
-              className="max-h-[150px] w-full resize-none bg-transparent text-[15px] leading-normal outline-none placeholder:text-muted-foreground/40"
-            />
-          </div>
-          <button
-            onClick={sendMessage}
-            disabled={isLoading || !userInput.trim()}
-            className="whitespace-nowrap rounded-lg bg-indigo-600 px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Send
-          </button>
-        </div>
-      </main>
+        <Button
+          onClick={sendMessage}
+          disabled={isLoading || !userInput.trim()}
+          className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-500"
+        >
+          Send
+        </Button>
+      </div>
     </div>
   )
 }
