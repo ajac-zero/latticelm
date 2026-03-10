@@ -100,6 +100,9 @@ func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 	return m, nil
 }
 
+// SessionCookieName is the name of the HttpOnly session cookie used for admin UI authentication.
+const SessionCookieName = "lattice_session"
+
 // Handler wraps an HTTP handler with authentication.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,33 +111,41 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
+		// Extract token: prefer Authorization header, fall back to session cookie.
+		var tokenString string
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			m.logger.WarnContext(r.Context(), "auth failed: missing authorization header",
-				logger.LogAttrsWithTrace(r.Context(),
-					slog.String("request_id", logger.FromContext(r.Context())),
-					slog.String("method", r.Method),
-					slog.String("path", r.URL.Path),
-				)...,
-			)
-			writeUnauthorized(w)
-			return
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+				m.logger.WarnContext(r.Context(), "auth failed: invalid authorization header format",
+					logger.LogAttrsWithTrace(r.Context(),
+						slog.String("request_id", logger.FromContext(r.Context())),
+						slog.String("method", r.Method),
+						slog.String("path", r.URL.Path),
+					)...,
+				)
+				writeUnauthorized(w)
+				return
+			}
+			tokenString = parts[1]
+		} else {
+			cookie, err := r.Cookie(SessionCookieName)
+			if err != nil || cookie.Value == "" {
+				m.logger.WarnContext(r.Context(), "auth failed: missing authorization header and session cookie",
+					logger.LogAttrsWithTrace(r.Context(),
+						slog.String("request_id", logger.FromContext(r.Context())),
+						slog.String("method", r.Method),
+						slog.String("path", r.URL.Path),
+					)...,
+				)
+				writeUnauthorized(w)
+				return
+			}
+			tokenString = cookie.Value
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			m.logger.WarnContext(r.Context(), "auth failed: invalid authorization header format",
-				logger.LogAttrsWithTrace(r.Context(),
-					slog.String("request_id", logger.FromContext(r.Context())),
-					slog.String("method", r.Method),
-					slog.String("path", r.URL.Path),
-				)...,
-			)
-			writeUnauthorized(w)
-			return
-		}
-
-		claims, err := m.validateToken(parts[1])
+		// Validate token
+		claims, err := m.validateToken(tokenString)
 		if err != nil {
 			m.logger.WarnContext(r.Context(), "auth failed: token validation failed",
 				logger.LogAttrsWithTrace(r.Context(),
@@ -160,6 +171,15 @@ func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = fmt.Fprintf(w, `{"error":{"message":"Unauthorized"}}`)
+}
+
+// Validate validates a JWT token string and returns claims.
+// Returns an error if auth is not enabled or the token is invalid.
+func (m *Middleware) Validate(tokenString string) (jwt.MapClaims, error) {
+	if !m.cfg.Enabled {
+		return nil, fmt.Errorf("auth not enabled")
+	}
+	return m.validateToken(tokenString)
 }
 
 type contextKey string

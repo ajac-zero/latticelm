@@ -32,6 +32,7 @@ func newTestAdminServer(cfg *config.Config) *AdminServer {
 		cfg,
 		slog.Default(),
 		DefaultBuildInfo(),
+		nil, // auth middleware not needed for these tests
 	)
 }
 
