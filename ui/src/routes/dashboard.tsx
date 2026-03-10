@@ -2,8 +2,10 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Activity, Server, Database, Lock, Settings, BarChart3 } from 'lucide-react'
 import { useSystemInfo, useHealth, useConfig, useProviders } from '../lib/api/hooks'
+import { requireAuth } from '../lib/auth'
 
 export const Route = createFileRoute('/dashboard')({
+  beforeLoad: requireAuth,
   component: DashboardPage,
 })
 
