@@ -1,19 +1,35 @@
 import type { User } from './api/types'
 import { redirect } from '@tanstack/react-router'
 
+export async function login(token: string): Promise<void> {
+  const response = await fetch('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ token }),
+  })
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data?.error?.message || 'Login failed')
+  }
+}
+
+export async function logout(): Promise<void> {
+  await fetch('/auth/logout', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  window.location.href = '/auth/login'
+}
+
 export async function getCurrentUser(): Promise<User | null> {
   try {
-    const token = localStorage.getItem('auth_token')
-    if (!token) return null
-
-    const response = await fetch('/api/v1/auth/me', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+    const response = await fetch('/auth/user', {
+      credentials: 'include',
     })
 
     if (!response.ok) {
-      localStorage.removeItem('auth_token')
       return null
     }
 
@@ -37,9 +53,14 @@ export async function isAuthEnabled(): Promise<boolean> {
   }
 }
 
-export function logout() {
-  localStorage.removeItem('auth_token')
-  window.location.href = '/auth/login'
+// Probe a protected endpoint to determine if we have a valid session.
+async function isAuthenticated(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/v1/system/health', { credentials: 'include' })
+    return response.status !== 401
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -51,8 +72,8 @@ export async function requireAuth() {
     const authEnabled = await isAuthEnabled()
 
     if (authEnabled) {
-      const user = await getCurrentUser()
-      if (!user) {
+      const authed = await isAuthenticated()
+      if (!authed) {
         throw redirect({ to: '/auth/login' })
       }
     }

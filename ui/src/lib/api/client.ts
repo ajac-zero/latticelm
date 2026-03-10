@@ -4,18 +4,19 @@ class APIClient {
   private baseURL = '/api/v1'
 
   private async request<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('auth_token')
-
     const response = await fetch(`${this.baseURL}${url}`, {
       ...options,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
         ...options?.headers,
       },
     })
 
     if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = '/auth/login'
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 

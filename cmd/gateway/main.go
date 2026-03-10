@@ -261,6 +261,7 @@ func main() {
 	gatewayServer.RegisterAPIRoutes(apiMux)
 
 	var adminHandler http.Handler
+	var adminServer *admin.AdminServer
 
 	// Register admin endpoints if enabled
 	if cfg.UI.Enabled {
@@ -270,7 +271,7 @@ func main() {
 			GitCommit: "unknown",
 			GoVersion: runtime.Version(),
 		}
-		adminServer := admin.New(registry, convStore, cfg, logger, buildInfo)
+		adminServer = admin.New(registry, convStore, cfg, logger, buildInfo, authMiddleware)
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
@@ -341,6 +342,12 @@ func main() {
 	}
 
 	mux := buildRouteMux(publicMux, apiHandler, adminHandler, authRoutes, metricsPath, metricsHandler)
+
+	// Register admin auth endpoints (login/logout) directly on the root mux with higher
+	// path specificity than /admin/ so they bypass the JWT middleware.
+	if adminServer != nil {
+		adminServer.RegisterPublicRoutes(mux)
+	}
 
 	addr := cfg.Server.Address
 	if addr == "" {

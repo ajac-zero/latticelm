@@ -599,6 +599,101 @@ func TestMiddleware_Handler_DisabledAuth(t *testing.T) {
 	assert.Equal(t, "success", rec.Body.String())
 }
 
+func TestMiddleware_Handler_SessionCookie(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:  true,
+		Issuer:   server.server.URL,
+		Audience: testAudience,
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := GetClaims(r.Context())
+		if ok {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", claims["sub"])))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("no-claims"))
+		}
+	})
+
+	handler := m.Handler(testHandler)
+
+	validClaims := jwt.MapClaims{
+		"sub": "cookie-user",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	validToken, err := generateTestJWT(testPrivateKey, validClaims, testKID)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		setupRequest func() *http.Request
+		expectStatus int
+		expectBody   string
+	}{
+		{
+			name: "valid session cookie authenticates",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: validToken})
+				return req
+			},
+			expectStatus: http.StatusOK,
+			expectBody:   "sub:cookie-user",
+		},
+		{
+			name: "missing cookie and header returns unauthorized",
+			setupRequest: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/test", nil)
+			},
+			expectStatus: http.StatusUnauthorized,
+			expectBody:   "missing authorization header",
+		},
+		{
+			name: "bearer header takes precedence over cookie",
+			setupRequest: func() *http.Request {
+				bearerClaims := jwt.MapClaims{
+					"sub": "bearer-user",
+					"iss": server.server.URL,
+					"aud": testAudience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+					"iat": time.Now().Unix(),
+				}
+				bearerToken, err := generateTestJWT(testPrivateKey, bearerClaims, testKID)
+				require.NoError(t, err)
+
+				req := httptest.NewRequest(http.MethodGet, "/test", nil)
+				req.Header.Set("Authorization", "Bearer "+bearerToken)
+				req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: validToken})
+				return req
+			},
+			expectStatus: http.StatusOK,
+			expectBody:   "sub:bearer-user",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := tt.setupRequest()
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, tt.expectStatus, rec.Code)
+			if tt.expectBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.expectBody)
+			}
+		})
+	}
+}
+
 func TestAdminMiddleware_Handler(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

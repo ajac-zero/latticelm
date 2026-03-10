@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { login } from '../lib/auth'
 
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
@@ -9,6 +10,7 @@ export const Route = createFileRoute('/auth/login')({
 function LoginPage() {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,24 +23,14 @@ function LoginPage() {
       return
     }
 
-    // Validate the token by making a test request
+    setLoading(true)
     try {
-      const response = await fetch('/api/v1/auth/me', {
-        headers: {
-          Authorization: `Bearer ${trimmedToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        setError('Invalid or expired token. Please provide a valid JWT.')
-        return
-      }
-
-      // Token is valid, store it and redirect
-      localStorage.setItem('auth_token', trimmedToken)
+      await login(trimmedToken)
       navigate({ to: '/dashboard' })
-    } catch (err) {
-      setError('Failed to validate token. Please try again.')
+    } catch (err: any) {
+      setError(err.message || 'Login failed')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -81,10 +73,10 @@ function LoginPage() {
 
           <button
             type="submit"
-            disabled={!token.trim()}
+            disabled={!token.trim() || loading}
             className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
           >
-            Sign In
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
       </div>
