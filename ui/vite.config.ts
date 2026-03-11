@@ -24,7 +24,7 @@ const config = defineConfig({
     }
   },
   build: {
-    outDir: 'dist',
+    outDir: '../internal/ui/dist',
     emptyOutDir: true,
   },
   plugins: [

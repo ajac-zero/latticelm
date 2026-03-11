@@ -93,7 +93,7 @@ The frontend dev server runs on `http://localhost:5173` and automatically proxie
 
 **Package:** `internal/admin/`
 
-- `server.go` - AdminServer struct and initialization
+- `server.go` - Server struct and initialization
 - `handlers.go` - API endpoint handlers
 - `routes.go` - Route registration
 - `response.go` - JSON response helpers

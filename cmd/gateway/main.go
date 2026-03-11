@@ -20,7 +20,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ajac-zero/latticelm/internal/admin"
+	"github.com/ajac-zero/latticelm/internal/ui"
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
@@ -261,22 +261,22 @@ func main() {
 	gatewayServer.RegisterAPIRoutes(apiMux)
 
 	var adminHandler http.Handler
-	var adminServer *admin.AdminServer
+	var adminServer *ui.Server
 
 	// Register admin endpoints if enabled
 	if cfg.UI.Enabled {
-		buildInfo := admin.BuildInfo{
+		buildInfo := ui.BuildInfo{
 			Version:   "dev",
 			BuildTime: time.Now().Format(time.RFC3339),
 			GitCommit: "unknown",
 			GoVersion: runtime.Version(),
 		}
-		adminServer = admin.New(registry, convStore, cfg, logger, buildInfo, authMiddleware)
+		adminServer = ui.New(registry, convStore, cfg, logger, buildInfo, authMiddleware)
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
 		// Parse IP allowlist CIDRs; fail fast if misconfigured.
-		allowlist, err := admin.ParseCIDRs(cfg.UI.IPAllowlist)
+		allowlist, err := ui.ParseCIDRs(cfg.UI.IPAllowlist)
 		if err != nil {
 			logger.Error("invalid admin ip_allowlist", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -284,8 +284,8 @@ func main() {
 
 		// Wrap: security headers (outermost) then IP allowlist check.
 		var wrapped http.Handler = adminMux
-		wrapped = admin.IPAllowlistMiddleware(allowlist)(wrapped)
-		wrapped = admin.SecurityHeadersMiddleware(wrapped)
+		wrapped = ui.IPAllowlistMiddleware(allowlist)(wrapped)
+		wrapped = ui.SecurityHeadersMiddleware(wrapped)
 		adminHandler = wrapped
 
 		adminServer.RegisterPublicRoutes(publicMux)

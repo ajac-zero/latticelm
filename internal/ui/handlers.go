@@ -1,4 +1,4 @@
-package admin
+package ui
 
 import (
 	"encoding/json"
@@ -110,7 +110,7 @@ type ProviderInfo struct {
 }
 
 // handleSystemInfo returns system information.
-func (s *AdminServer) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -131,7 +131,7 @@ func (s *AdminServer) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSystemHealth returns health check results.
-func (s *AdminServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -177,7 +177,7 @@ func (s *AdminServer) handleSystemHealth(w http.ResponseWriter, r *http.Request)
 }
 
 // handleConfig returns the sanitized configuration.
-func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -258,7 +258,7 @@ type UIConfigResponse struct {
 
 // handleUIConfig returns the minimal configuration needed by the UI before authentication.
 // This endpoint is intentionally unprotected so the frontend can determine whether auth is required.
-func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -274,7 +274,7 @@ func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleProviders returns the list of configured providers.
-func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -306,7 +306,7 @@ type loginRequest struct {
 }
 
 // handleLogin accepts a JWT token, validates it, and sets an HttpOnly session cookie.
-func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
 		return
@@ -340,7 +340,7 @@ func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLogout clears the session cookie.
-func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
 		return

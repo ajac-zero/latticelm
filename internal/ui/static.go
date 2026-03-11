@@ -1,4 +1,4 @@
-package admin
+package ui
 
 import (
 	"embed"
@@ -13,7 +13,7 @@ import (
 var frontendAssets embed.FS
 
 // serveSPA serves the frontend SPA with fallback to index.html for client-side routing.
-func (s *AdminServer) serveSPA() http.Handler {
+func (s *Server) serveSPA() http.Handler {
 	// Get the dist subdirectory from embedded files
 	distFS, err := fs.Sub(frontendAssets, "dist")
 	if err != nil {

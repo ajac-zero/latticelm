@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -279,11 +280,12 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Redirect to home page
-	// In dev mode with Vite, redirect to the Vite dev server port
-	redirectURL := "/"
-	if strings.Contains(r.Host, "localhost:8080") {
-		// If we're on the backend port, redirect to frontend port
-		redirectURL = "http://localhost:5173/"
+	// Check for FRONTEND_URL environment variable for dev mode
+	// In dev: set FRONTEND_URL=http://localhost:5173
+	// In production: leave unset to use relative redirect
+	redirectURL := os.Getenv("FRONTEND_URL")
+	if redirectURL == "" {
+		redirectURL = "/" // Relative redirect for production (embedded UI)
 	}
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
@@ -314,7 +316,14 @@ func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect to login
-	http.Redirect(w, r, "/auth/login", http.StatusFound)
+	// Use FRONTEND_URL if set (dev mode), otherwise relative path (production)
+	redirectURL := os.Getenv("FRONTEND_URL")
+	if redirectURL == "" {
+		redirectURL = "/auth/login"
+	} else {
+		redirectURL = redirectURL + "/auth/login"
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // HandleUser returns current user information.

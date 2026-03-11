@@ -1,4 +1,4 @@
-package admin
+package ui
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ func (s *stubRegistry) Models() []struct{ Provider, Model string }       { retur
 func (s *stubRegistry) ResolveModelID(model string) string               { return model }
 func (s *stubRegistry) Default(model string) (providers.Provider, error) { return nil, nil }
 
-func newTestAdminServer(cfg *config.Config) *AdminServer {
+func newTestServer(cfg *config.Config) *Server {
 	return New(
 		&stubRegistry{},
 		conversation.NewNopStore(),
@@ -44,7 +44,7 @@ func TestHandleConfig_MasksProviderAPIKeys(t *testing.T) {
 			"openai": {Type: "openai", APIKey: rawKey},
 		},
 	}
-	s := newTestAdminServer(cfg)
+	s := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/v1/config", nil)
 	rec := httptest.NewRecorder()
@@ -78,7 +78,7 @@ func TestHandleConfig_MasksConversationDSN(t *testing.T) {
 			DSN:     dsn,
 		},
 	}
-	s := newTestAdminServer(cfg)
+	s := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/v1/config", nil)
 	rec := httptest.NewRecorder()
@@ -98,7 +98,7 @@ func TestHandleConfig_MasksRedisURL(t *testing.T) {
 			RedisURL: redisURL,
 		},
 	}
-	s := newTestAdminServer(cfg)
+	s := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/v1/config", nil)
 	rec := httptest.NewRecorder()
@@ -122,7 +122,7 @@ func TestHandleConfig_MasksObservabilityHeaders(t *testing.T) {
 			},
 		},
 	}
-	s := newTestAdminServer(cfg)
+	s := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/v1/config", nil)
 	rec := httptest.NewRecorder()

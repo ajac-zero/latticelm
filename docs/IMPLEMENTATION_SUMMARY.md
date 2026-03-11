@@ -10,7 +10,7 @@ Successfully implemented a minimal viable product (MVP) of the Admin Web UI for 
 
 **Package:** `internal/admin/`
 
-1. **server.go** - AdminServer struct with dependencies
+1. **server.go** - Server struct with dependencies
    - Holds references to provider registry, conversation store, config, logger
    - Stores build info and start time for system metrics
 
@@ -34,7 +34,7 @@ Successfully implemented a minimal viable product (MVP) of the Admin Web UI for 
    - Proper content-type detection and serving
 
 **Integration:** `cmd/gateway/main.go`
-- Creates AdminServer when `admin.enabled: true`
+- Creates Server when `admin.enabled: true`
 - Registers admin routes with main mux
 - Uses existing auth middleware (no separate RBAC in MVP)
 
@@ -135,7 +135,7 @@ build-all          # Build both frontend and backend
 - `frontend/admin/public/vite.svg`
 
 ### Modified Files
-- `cmd/gateway/main.go` - Added AdminServer integration
+- `cmd/gateway/main.go` - Added Server integration
 - `internal/config/config.go` - Added AdminConfig struct
 - `config.example.yaml` - Added admin section
 - `config.yaml` - Added admin.enabled: true
@@ -209,9 +209,9 @@ Frontend dev server on `http://localhost:5173` proxies API to backend.
 
 ## Architecture Decisions
 
-### Why Separate AdminServer?
+### Why Separate Server?
 
-Created a new `AdminServer` struct instead of extending `GatewayServer` to:
+Created a new `Server` struct instead of extending `GatewayServer` to:
 - Maintain clean separation of concerns
 - Allow independent evolution of admin vs gateway features
 - Support different RBAC requirements (future)
