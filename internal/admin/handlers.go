@@ -253,6 +253,7 @@ func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 // UIConfigResponse contains the minimal config needed by the frontend before authentication.
 type UIConfigResponse struct {
 	AuthEnabled bool `json:"auth_enabled"`
+	OIDCEnabled bool `json:"oidc_enabled"`
 }
 
 // handleUIConfig returns the minimal configuration needed by the UI before authentication.
@@ -263,8 +264,12 @@ func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// OIDC is enabled when auth is enabled and client_id is configured
+	oidcEnabled := s.cfg.Auth.Enabled && s.cfg.Auth.ClientID != ""
+
 	writeSuccess(w, UIConfigResponse{
 		AuthEnabled: s.cfg.Auth.Enabled,
+		OIDCEnabled: oidcEnabled,
 	})
 }
 

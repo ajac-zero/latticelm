@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -110,25 +111,37 @@ func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create S256 code challenge from verifier (required by Clerk)
+	codeChallenge := createCodeChallenge(codeVerifier)
+
 	// Store state and code_verifier in a temporary session cookie
+	// In dev mode, set Domain=localhost so cookies work across ports (:5173 and :8080)
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oidc_state",
 		Value:    state,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode, // Lax allows top-level navigation (Clerk redirect)
 	})
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oidc_verifier",
 		Value:    codeVerifier,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode, // Lax allows top-level navigation (Clerk redirect)
 	})
 
 	// Build authorization URL
@@ -138,26 +151,53 @@ func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		"scope":                 {"openid email profile"},
 		"redirect_uri":          {c.cfg.RedirectURI},
 		"state":                 {state},
-		"code_challenge":        {codeVerifier}, // For PKCE, we're using plain (not S256) for simplicity
-		"code_challenge_method": {"plain"},
+		"code_challenge":        {codeChallenge},
+		"code_challenge_method": {"S256"},
 	}.Encode()
 
+	// Redirect to Clerk's authorization endpoint
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// wantsJSON checks if the client prefers JSON response
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
 }
 
 // HandleCallback handles the OIDC callback after user authentication.
 func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Get authorization code first - log it for debugging
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+
+	c.logger.Info("OIDC callback received",
+		slog.Bool("has_code", code != ""),
+		slog.Bool("has_state", state != ""),
+		slog.String("url", r.URL.String()),
+	)
+
+	if code == "" {
+		c.logger.Warn("missing authorization code",
+			slog.String("query_string", r.URL.RawQuery),
+		)
+		http.Error(w, "Missing code", http.StatusBadRequest)
+		return
+	}
+
 	// Verify state parameter
 	stateCookie, err := r.Cookie("oidc_state")
 	if err != nil {
-		c.logger.Warn("missing state cookie", slog.String("error", err.Error()))
+		c.logger.Warn("missing state cookie",
+			slog.String("error", err.Error()),
+			slog.String("cookies", fmt.Sprintf("%v", r.Cookies())),
+		)
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
-	state := r.URL.Query().Get("state")
 	if state != stateCookie.Value {
 		c.logger.Warn("state mismatch", slog.String("expected", stateCookie.Value), slog.String("got", state))
 		http.Error(w, "Invalid state", http.StatusBadRequest)
@@ -173,16 +213,12 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear temporary cookies
-	http.SetCookie(w, &http.Cookie{Name: "oidc_state", MaxAge: -1, Path: "/"})
-	http.SetCookie(w, &http.Cookie{Name: "oidc_verifier", MaxAge: -1, Path: "/"})
-
-	// Get authorization code
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		c.logger.Warn("missing authorization code")
-		http.Error(w, "Missing code", http.StatusBadRequest)
-		return
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
 	}
+	http.SetCookie(w, &http.Cookie{Name: "oidc_state", Domain: cookieDomain, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{Name: "oidc_verifier", Domain: cookieDomain, MaxAge: -1, Path: "/"})
 
 	// Exchange code for tokens
 	tokens, err := c.exchangeCode(ctx, code, verifierCookie.Value)
@@ -222,13 +258,18 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie
+	// In dev mode, set Domain=localhost so the cookie works across ports
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	// cookieDomain already declared above when clearing temporary cookies
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    sessionID,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   86400, // 24 hours
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -238,7 +279,13 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Redirect to home page
-	http.Redirect(w, r, "/", http.StatusFound)
+	// In dev mode with Vite, redirect to the Vite dev server port
+	redirectURL := "/"
+	if strings.Contains(r.Host, "localhost:8080") {
+		// If we're on the backend port, redirect to frontend port
+		redirectURL = "http://localhost:5173/"
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // HandleLogout clears the user session.
@@ -249,10 +296,16 @@ func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		c.sessionStore.Delete(cookie.Value)
 	}
 
-	// Clear session cookie
+	// Clear session cookie with same domain strategy as login
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    "",
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
@@ -269,26 +322,40 @@ func (c *OIDCClient) HandleUser(w http.ResponseWriter, r *http.Request) {
 	// Get session cookie
 	cookie, err := r.Cookie("session")
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	// Get session data
 	session, exists := c.sessionStore.Get(cookie.Value)
 	if !exists {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Return user info
+	// Return user info in standard API response format
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"email":    session.Email,
-		"name":     session.Name,
-		"is_admin": session.IsAdmin,
+		"success": true,
+		"data": map[string]interface{}{
+			"email":    session.Email,
+			"name":     session.Name,
+			"is_admin": session.IsAdmin,
+		},
 	}); err != nil {
 		c.logger.Error("failed to encode user info", "error", err)
 	}
+}
+
+func writeJSONError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error": map[string]string{
+			"message": message,
+		},
+	})
 }
 
 // SessionMiddleware checks for a valid session cookie.
@@ -303,6 +370,12 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		// Get session cookie
 		cookie, err := r.Cookie("session")
 		if err != nil {
+			// For API requests, return 401 instead of redirecting (prevents CORS issues with fetch)
+			if isAPIRequest(r) {
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// For page requests, redirect to login
 			http.Redirect(w, r, "/auth/login", http.StatusFound)
 			return
 		}
@@ -310,6 +383,12 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		// Validate session
 		session, exists := c.sessionStore.Get(cookie.Value)
 		if !exists {
+			// For API requests, return 401 instead of redirecting
+			if isAPIRequest(r) {
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// For page requests, redirect to login
 			http.Redirect(w, r, "/auth/login", http.StatusFound)
 			return
 		}
@@ -325,6 +404,24 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isAPIRequest determines if a request is for an API endpoint (should return JSON)
+// versus a page request (should redirect on auth failure).
+func isAPIRequest(r *http.Request) bool {
+	// Check if path starts with /api/ or /v1/
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") {
+		return true
+	}
+
+	// Check Accept header - if client prefers JSON, treat as API request
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
+		return true
+	}
+
+	return false
 }
 
 // exchangeCode exchanges authorization code for tokens.
@@ -397,6 +494,14 @@ func generateRandomString(length int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b)[:length], nil
+}
+
+// createCodeChallenge creates a PKCE code challenge using S256 method.
+// Per RFC 7636: code_challenge = BASE64URL(SHA256(ASCII(code_verifier)))
+func createCodeChallenge(verifier string) string {
+	h := sha256.New()
+	h.Write([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 func getClaimString(claims jwt.MapClaims, key string) string {

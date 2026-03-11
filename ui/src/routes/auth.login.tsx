@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { login } from '../lib/auth'
+import { login, isOIDCEnabled } from '../lib/auth'
 
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -15,7 +15,30 @@ function LoginPage() {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checkingOIDC, setCheckingOIDC] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    async function checkOIDC() {
+      const oidcEnabled = await isOIDCEnabled()
+      if (oidcEnabled) {
+        // For OIDC, navigate directly to the backend's /auth/login endpoint
+        // This sets cookies properly and redirects to Clerk
+        // In dev mode, we need to navigate to the backend port directly
+        const isDev = import.meta.env.DEV
+        if (isDev) {
+          // In dev, navigate to backend port (8080) to set cookies properly
+          window.location.href = 'http://localhost:8080/auth/login'
+        } else {
+          // In production, use relative path
+          window.location.href = '/auth/login'
+        }
+      } else {
+        setCheckingOIDC(false)
+      }
+    }
+    checkOIDC()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,6 +59,14 @@ function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checkingOIDC) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-lg">Redirecting to login...</div>
+      </div>
+    )
   }
 
   return (

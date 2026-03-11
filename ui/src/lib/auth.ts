@@ -53,6 +53,19 @@ export async function isAuthEnabled(): Promise<boolean> {
   }
 }
 
+export async function isOIDCEnabled(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/config')
+    if (!response.ok) {
+      return false
+    }
+    const data = await response.json()
+    return data?.data?.oidc_enabled === true
+  } catch {
+    return false
+  }
+}
+
 // Probe a protected endpoint to determine if we have a valid session.
 async function isAuthenticated(): Promise<boolean> {
   try {
