@@ -32,7 +32,6 @@ func newTestServer(cfg *config.Config) *Server {
 		cfg,
 		slog.Default(),
 		DefaultBuildInfo(),
-		nil, // auth middleware not needed for these tests
 	)
 }
 

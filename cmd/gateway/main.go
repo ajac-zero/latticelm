@@ -271,7 +271,7 @@ func main() {
 			GitCommit: "unknown",
 			GoVersion: runtime.Version(),
 		}
-		adminServer = ui.New(registry, convStore, cfg, logger, buildInfo, authMiddleware)
+		adminServer = ui.New(registry, convStore, cfg, logger, buildInfo)
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
@@ -288,7 +288,6 @@ func main() {
 		wrapped = ui.SecurityHeadersMiddleware(wrapped)
 		adminHandler = wrapped
 
-		adminServer.RegisterPublicRoutes(publicMux)
 		logger.Info("admin UI enabled", slog.String("path", "/"))
 		if len(allowlist) > 0 {
 			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
@@ -331,12 +330,6 @@ func main() {
 	}
 
 	mux := buildRouteMux(publicMux, apiHandler, adminHandler, nil, metricsPath, metricsHandler)
-
-	// Register admin auth endpoints (login/logout) directly on the root mux with higher
-	// path specificity than /admin/ so they bypass the JWT middleware.
-	if adminServer != nil {
-		adminServer.RegisterAuthRoutes(mux)
-	}
 
 	authAPI := auth.NewAPI(cfg.Auth.Enabled, oidcClient != nil, authMiddleware, oidcClient, adminAuthConfig)
 	authAPI.RegisterRoutes(mux)
@@ -635,7 +628,6 @@ func buildRouteMux(publicHandler, apiHandler, adminHandler, authHandler http.Han
 	if publicHandler != nil {
 		root.Handle("/health", publicHandler)
 		root.Handle("/ready", publicHandler)
-		root.Handle("/api/config", publicHandler)
 	}
 
 	if apiHandler != nil {

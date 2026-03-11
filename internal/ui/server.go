@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/providers"
@@ -29,25 +28,23 @@ type BuildInfo struct {
 
 // Server hosts the admin API and UI.
 type Server struct {
-	registry       ProviderRegistry
-	convStore      conversation.Store
-	cfg            *config.Config
-	logger         *slog.Logger
-	startTime      time.Time
-	buildInfo      BuildInfo
-	authMiddleware *auth.Middleware
+	registry  ProviderRegistry
+	convStore conversation.Store
+	cfg       *config.Config
+	logger    *slog.Logger
+	startTime time.Time
+	buildInfo BuildInfo
 }
 
 // New creates a Server instance.
-func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, logger *slog.Logger, buildInfo BuildInfo, authMiddleware *auth.Middleware) *Server {
+func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, logger *slog.Logger, buildInfo BuildInfo) *Server {
 	return &Server{
-		registry:       registry,
-		convStore:      convStore,
-		cfg:            cfg,
-		logger:         logger,
-		startTime:      time.Now(),
-		buildInfo:      buildInfo,
-		authMiddleware: authMiddleware,
+		registry:  registry,
+		convStore: convStore,
+		cfg:       cfg,
+		logger:    logger,
+		startTime: time.Now(),
+		buildInfo: buildInfo,
 	}
 }
 
