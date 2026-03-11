@@ -4,7 +4,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { Link } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { getCurrentUser, isAuthEnabled, logout } from '../lib/auth'
+import { getAuthSession, logout } from '../lib/auth'
 import type { User } from '../lib/api/types'
 import { Separator } from '#/components/ui/separator'
 import {
@@ -46,13 +46,9 @@ function RootComponent() {
 
   useEffect(() => {
     async function loadAuth() {
-      const enabled = await isAuthEnabled()
-      setAuthEnabled(enabled)
-
-      if (enabled) {
-        const currentUser = await getCurrentUser()
-        setUser(currentUser)
-      }
+      const session = await getAuthSession()
+      setAuthEnabled(session.auth_enabled)
+      setUser(session.authenticated && session.user ? session.user : null)
 
       setLoading(false)
     }

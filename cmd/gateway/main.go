@@ -20,7 +20,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ajac-zero/latticelm/internal/ui"
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
@@ -29,6 +28,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/ajac-zero/latticelm/internal/ratelimit"
 	"github.com/ajac-zero/latticelm/internal/server"
+	"github.com/ajac-zero/latticelm/internal/ui"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -316,17 +316,6 @@ func main() {
 		apiHandler = authMiddleware.Handler(apiHandler)
 	}
 
-	// Register OIDC auth routes if enabled
-	var authRoutes http.Handler
-	if oidcClient != nil {
-		authMux := http.NewServeMux()
-		authMux.HandleFunc("/auth/login", oidcClient.HandleLogin)
-		authMux.HandleFunc("/auth/callback", oidcClient.HandleCallback)
-		authMux.HandleFunc("/auth/logout", oidcClient.HandleLogout)
-		authMux.HandleFunc("/auth/user", oidcClient.HandleUser)
-		authRoutes = authMux
-	}
-
 	// Compose middleware on admin handler
 	if adminHandler != nil {
 		if oidcClient != nil {
@@ -341,13 +330,16 @@ func main() {
 		}
 	}
 
-	mux := buildRouteMux(publicMux, apiHandler, adminHandler, authRoutes, metricsPath, metricsHandler)
+	mux := buildRouteMux(publicMux, apiHandler, adminHandler, nil, metricsPath, metricsHandler)
 
 	// Register admin auth endpoints (login/logout) directly on the root mux with higher
 	// path specificity than /admin/ so they bypass the JWT middleware.
 	if adminServer != nil {
 		adminServer.RegisterAuthRoutes(mux)
 	}
+
+	authAPI := auth.NewAPI(cfg.Auth.Enabled, oidcClient != nil, authMiddleware, oidcClient, adminAuthConfig)
+	authAPI.RegisterRoutes(mux)
 
 	addr := cfg.Server.Address
 	if addr == "" {

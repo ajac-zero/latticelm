@@ -18,6 +18,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	oidcStateCookieName    = "oidc_state"
+	oidcVerifierCookieName = "oidc_verifier"
+)
+
 // OIDCClientConfig holds OIDC client configuration.
 type OIDCClientConfig struct {
 	Issuer       string
@@ -96,27 +101,53 @@ func (c *OIDCClient) discover() error {
 
 // HandleLogin initiates the OIDC authorization code flow.
 func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	// Generate state parameter for CSRF protection
+	authURL, err := c.prepareAuthorizationURL(w, r)
+	if err != nil {
+		c.logger.Error("failed to initiate OIDC login", slog.String("error", err.Error()))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// HandleOIDCLogin starts OIDC login for API clients.
+// POST returns a JSON payload with the authorization URL while also setting
+// state/verifier cookies. GET is kept as a convenience for direct browser use.
+func (c *OIDCClient) HandleOIDCLogin(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		c.HandleLogin(w, r)
+		return
+	case http.MethodPost:
+		authURL, err := c.prepareAuthorizationURL(w, r)
+		if err != nil {
+			c.logger.Error("failed to initiate OIDC login", slog.String("error", err.Error()))
+			writeJSONError(w, "Authentication failed", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSONSuccess(w, map[string]string{"authorization_url": authURL})
+		return
+	default:
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+func (c *OIDCClient) prepareAuthorizationURL(w http.ResponseWriter, r *http.Request) (string, error) {
 	state, err := generateRandomString(32)
 	if err != nil {
-		c.logger.Error("failed to generate state", slog.String("error", err.Error()))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("generate state: %w", err)
 	}
 
-	// Generate PKCE code verifier and challenge
 	codeVerifier, err := generateRandomString(43)
 	if err != nil {
-		c.logger.Error("failed to generate code verifier", slog.String("error", err.Error()))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("generate code verifier: %w", err)
 	}
 
-	// Create S256 code challenge from verifier (required by Clerk)
 	codeChallenge := createCodeChallenge(codeVerifier)
 
-	// Store state and code_verifier in a temporary session cookie
-	// In dev mode, set Domain=localhost so cookies work across ports (:5173 and :8080)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	cookieDomain := ""
 	if strings.Contains(r.Host, "localhost") {
@@ -124,28 +155,27 @@ func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oidc_state",
+		Name:     oidcStateCookieName,
 		Value:    state,
 		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode, // Lax allows top-level navigation (Clerk redirect)
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oidc_verifier",
+		Name:     oidcVerifierCookieName,
 		Value:    codeVerifier,
 		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode, // Lax allows top-level navigation (Clerk redirect)
+		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Build authorization URL
 	authURL := c.authorizationEndpoint + "?" + url.Values{
 		"client_id":             {c.cfg.ClientID},
 		"response_type":         {"code"},
@@ -156,8 +186,7 @@ func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		"code_challenge_method": {"S256"},
 	}.Encode()
 
-	// Redirect to Clerk's authorization endpoint
-	http.Redirect(w, r, authURL, http.StatusFound)
+	return authURL, nil
 }
 
 // wantsJSON checks if the client prefers JSON response
@@ -189,7 +218,7 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify state parameter
-	stateCookie, err := r.Cookie("oidc_state")
+	stateCookie, err := r.Cookie(oidcStateCookieName)
 	if err != nil {
 		c.logger.Warn("missing state cookie",
 			slog.String("error", err.Error()),
@@ -206,7 +235,7 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get code verifier
-	verifierCookie, err := r.Cookie("oidc_verifier")
+	verifierCookie, err := r.Cookie(oidcVerifierCookieName)
 	if err != nil {
 		c.logger.Warn("missing verifier cookie", slog.String("error", err.Error()))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -218,8 +247,8 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Host, "localhost") {
 		cookieDomain = "localhost"
 	}
-	http.SetCookie(w, &http.Cookie{Name: "oidc_state", Domain: cookieDomain, MaxAge: -1, Path: "/"})
-	http.SetCookie(w, &http.Cookie{Name: "oidc_verifier", Domain: cookieDomain, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{Name: oidcStateCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{Name: oidcVerifierCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
 
 	// Exchange code for tokens
 	tokens, err := c.exchangeCode(ctx, code, verifierCookie.Value)
@@ -264,7 +293,7 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// cookieDomain already declared above when clearing temporary cookies
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     OIDCSessionCookieName,
 		Value:    sessionID,
 		Domain:   cookieDomain,
 		Path:     "/",
@@ -292,8 +321,31 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogout clears the user session.
 func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	c.clearSession(w, r)
+
+	if r.Method == http.MethodPost || wantsJSON(r) {
+		writeJSONSuccess(w, map[string]string{"message": "logged out"})
+		return
+	}
+
+	// Redirect to login for browser GET callers.
+	redirectURL := os.Getenv("FRONTEND_URL")
+	if redirectURL == "" {
+		redirectURL = "/auth/login"
+	} else {
+		redirectURL = redirectURL + "/auth/login"
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) {
 	// Get session cookie
-	cookie, err := r.Cookie("session")
+	cookie, err := r.Cookie(OIDCSessionCookieName)
 	if err == nil {
 		c.sessionStore.Delete(cookie.Value)
 	}
@@ -305,38 +357,29 @@ func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     OIDCSessionCookieName,
 		Value:    "",
 		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
 
-	// Redirect to login
-	// Use FRONTEND_URL if set (dev mode), otherwise relative path (production)
-	redirectURL := os.Getenv("FRONTEND_URL")
-	if redirectURL == "" {
-		redirectURL = "/auth/login"
-	} else {
-		redirectURL = redirectURL + "/auth/login"
+func (c *OIDCClient) getSession(r *http.Request) (*SessionData, bool) {
+	cookie, err := r.Cookie(OIDCSessionCookieName)
+	if err != nil {
+		return nil, false
 	}
-	http.Redirect(w, r, redirectURL, http.StatusFound)
+
+	return c.sessionStore.Get(cookie.Value)
 }
 
 // HandleUser returns current user information.
 func (c *OIDCClient) HandleUser(w http.ResponseWriter, r *http.Request) {
-	// Get session cookie
-	cookie, err := r.Cookie("session")
-	if err != nil {
-		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Get session data
-	session, exists := c.sessionStore.Get(cookie.Value)
+	session, exists := c.getSession(r)
 	if !exists {
 		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -367,6 +410,15 @@ func writeJSONError(w http.ResponseWriter, message string, statusCode int) {
 	})
 }
 
+func writeJSONSuccess(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    data,
+	})
+}
+
 // SessionMiddleware checks for a valid session cookie.
 func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -376,21 +428,8 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Get session cookie
-		cookie, err := r.Cookie("session")
-		if err != nil {
-			// For API requests, return 401 instead of redirecting (prevents CORS issues with fetch)
-			if isAPIRequest(r) {
-				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			// For page requests, redirect to login
-			http.Redirect(w, r, "/auth/login", http.StatusFound)
-			return
-		}
-
 		// Validate session
-		session, exists := c.sessionStore.Get(cookie.Value)
+		session, exists := c.getSession(r)
 		if !exists {
 			// For API requests, return 401 instead of redirecting
 			if isAPIRequest(r) {

@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { login, isOIDCEnabled } from '../lib/auth'
+import { getAuthSession, login, startOIDCLogin } from '../lib/auth'
 
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -19,25 +19,42 @@ function LoginPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    let cancelled = false
+
     async function checkOIDC() {
-      const oidcEnabled = await isOIDCEnabled()
-      if (oidcEnabled) {
-        // For OIDC, navigate directly to the backend's /auth/login endpoint
-        // This sets cookies properly and redirects to Clerk
-        // In dev mode, we need to navigate to the backend port directly
-        const isDev = import.meta.env.DEV
-        if (isDev) {
-          // In dev, navigate to backend port (8080) to set cookies properly
-          window.location.href = 'http://localhost:8080/auth/login'
-        } else {
-          // In production, use relative path
-          window.location.href = '/auth/login'
+      const session = await getAuthSession()
+
+      if (!session.auth_enabled) {
+        await navigate({ to: '/dashboard' })
+        return
+      }
+
+      if (session.authenticated) {
+        await navigate({ to: '/dashboard' })
+        return
+      }
+
+      if (session.oidc_enabled) {
+        try {
+          await startOIDCLogin()
+          return
+        } catch (err: unknown) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Unable to start OIDC login')
+          }
         }
-      } else {
+      }
+
+      if (!cancelled) {
         setCheckingOIDC(false)
       }
     }
+
     checkOIDC()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,8 +71,8 @@ function LoginPage() {
     try {
       await login(trimmedToken)
       navigate({ to: '/dashboard' })
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
       setLoading(false)
     }
