@@ -34,6 +34,11 @@ type HealthCheck struct {
 	Message string `json:"message,omitempty"`
 }
 
+// SanitizedUsageConfig exposes only the enabled flag for the usage subsystem.
+type SanitizedUsageConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 // ConfigResponse contains the sanitized configuration.
 type ConfigResponse struct {
 	Server        config.ServerConfig          `json:"server"`
@@ -44,6 +49,7 @@ type ConfigResponse struct {
 	Logging       config.LoggingConfig         `json:"logging"`
 	RateLimit     SanitizedRateLimitConfig     `json:"rate_limit"`
 	Observability SanitizedObservabilityConfig `json:"observability"`
+	Usage         SanitizedUsageConfig         `json:"usage"`
 }
 
 // SanitizedRateLimitConfig is rate limit config with connection secrets masked.
@@ -243,6 +249,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Logging:       s.cfg.Logging,
 		RateLimit:     sanitizedRL,
 		Observability: sanitizedObs,
+		Usage:         SanitizedUsageConfig{Enabled: s.cfg.Usage.Enabled},
 	}
 
 	writeSuccess(w, response)

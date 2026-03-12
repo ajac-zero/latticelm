@@ -6,6 +6,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { getAuthSession, logout } from '../lib/auth'
 import type { User } from '../lib/api/types'
+import { useConfig } from '../lib/api/hooks'
 import { Separator } from '#/components/ui/separator'
 import {
   Breadcrumb,
@@ -45,6 +46,7 @@ function RootComponent() {
   const matches = useMatches()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const { data: config } = useConfig(!loading && !!user)
 
   useEffect(() => {
     async function loadAuth() {
@@ -76,7 +78,7 @@ function RootComponent() {
   return (
     <TooltipProvider>
       <SidebarProvider>
-        <AppSidebar user={user} authEnabled={authEnabled} onLogout={logout} theme={theme} onToggleTheme={toggleTheme} />
+        <AppSidebar user={user} authEnabled={authEnabled} usageEnabled={config?.usage?.enabled ?? false} onLogout={logout} theme={theme} onToggleTheme={toggleTheme} />
         <SidebarInset>
           <header className="flex h-16 shrink-0 items-center gap-2 border-b border-white/5 bg-background/80 backdrop-blur-sm px-4">
             <SidebarTrigger className="-ml-1" />

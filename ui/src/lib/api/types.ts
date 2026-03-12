@@ -116,6 +116,9 @@ export interface ConfigResponse {
       }
     }
   }
+  usage?: {
+    enabled: boolean
+  }
 }
 
 export interface ProviderInfo {

@@ -18,11 +18,12 @@ export const useHealth = () => {
   })
 }
 
-export const useConfig = () => {
+export const useConfig = (enabled = true) => {
   return useQuery({
     queryKey: ['config'],
     queryFn: () => apiClient.get<ConfigResponse>('/config'),
     refetchInterval: 30000,
+    enabled,
   })
 }
 
