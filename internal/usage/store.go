@@ -3,7 +3,9 @@ package usage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -168,4 +170,282 @@ func (s *Store) insertBatch(batch []UsageEvent) {
 	if err := tx.Commit(); err != nil {
 		s.logger.Error("usage batch insert: commit", slog.String("error", err.Error()))
 	}
+}
+
+// --- Read query types and methods ---
+
+// SummaryRow holds an aggregated usage summary.
+type SummaryRow struct {
+	TenantID     string `json:"tenant_id,omitempty"`
+	UserSub      string `json:"user_sub,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	TotalTokens  int64  `json:"total_tokens"`
+	RequestCount int64  `json:"request_count"`
+}
+
+// QueryFilter holds common filter parameters for usage queries.
+type QueryFilter struct {
+	TenantID string
+	UserSub  string
+	Model    string
+	Provider string
+	Start    time.Time
+	End      time.Time
+}
+
+// TopRow holds a single entry in the top-consumers result.
+type TopRow struct {
+	Key          string `json:"key"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	TotalTokens  int64  `json:"total_tokens"`
+	RequestCount int64  `json:"request_count"`
+}
+
+// TrendRow holds a single time-bucket in the trends result.
+type TrendRow struct {
+	Bucket       time.Time `json:"bucket"`
+	InputTokens  int64     `json:"input_tokens"`
+	OutputTokens int64     `json:"output_tokens"`
+	TotalTokens  int64     `json:"total_tokens"`
+	RequestCount int64     `json:"request_count"`
+}
+
+// hasTimescaleDB checks whether the TimescaleDB extension is available.
+func (s *Store) hasTimescaleDB(ctx context.Context) bool {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`,
+	).Scan(&exists)
+	return err == nil && exists
+}
+
+// appendFilters builds WHERE clauses and parameter list from a QueryFilter.
+func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
+	var clauses []string
+	var args []interface{}
+
+	if f.TenantID != "" {
+		clauses = append(clauses, fmt.Sprintf("tenant_id = $%d", paramIdx))
+		args = append(args, f.TenantID)
+		paramIdx++
+	}
+	if f.UserSub != "" {
+		clauses = append(clauses, fmt.Sprintf("user_sub = $%d", paramIdx))
+		args = append(args, f.UserSub)
+		paramIdx++
+	}
+	if f.Model != "" {
+		clauses = append(clauses, fmt.Sprintf("model = $%d", paramIdx))
+		args = append(args, f.Model)
+		paramIdx++
+	}
+	if f.Provider != "" {
+		clauses = append(clauses, fmt.Sprintf("provider = $%d", paramIdx))
+		args = append(args, f.Provider)
+		paramIdx++
+	}
+	if !f.Start.IsZero() {
+		clauses = append(clauses, fmt.Sprintf("time >= $%d", paramIdx))
+		args = append(args, f.Start)
+		paramIdx++
+	}
+	if !f.End.IsZero() {
+		clauses = append(clauses, fmt.Sprintf("time < $%d", paramIdx))
+		args = append(args, f.End)
+		paramIdx++
+	}
+
+	return clauses, args
+}
+
+// QuerySummary returns aggregated token usage grouped by the available dimensions.
+func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, error) {
+	table := "token_usage"
+	timeCol := "time"
+	if s.hasTimescaleDB(ctx) {
+		// Use hourly aggregate for ranges ≤ 7 days, daily for longer.
+		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
+			table = "token_usage_hourly"
+		} else {
+			table = "token_usage_daily"
+		}
+		timeCol = "bucket"
+	}
+
+	clauses, args := appendFilters(f, 1)
+	// Rename "time" references to the actual column when querying aggregates.
+	for i, c := range clauses {
+		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
+	}
+
+	where := ""
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	q := fmt.Sprintf(`SELECT tenant_id, user_sub, provider, model,
+		SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), COUNT(*)
+		FROM %s %s
+		GROUP BY tenant_id, user_sub, provider, model
+		ORDER BY SUM(total_tokens) DESC`, table, where)
+
+	if table != "token_usage" {
+		q = fmt.Sprintf(`SELECT tenant_id, user_sub, provider, model,
+			SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), SUM(request_count)
+			FROM %s %s
+			GROUP BY tenant_id, user_sub, provider, model
+			ORDER BY SUM(total_tokens) DESC`, table, where)
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query summary: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SummaryRow
+	for rows.Next() {
+		var r SummaryRow
+		if err := rows.Scan(&r.TenantID, &r.UserSub, &r.Provider, &r.Model,
+			&r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount); err != nil {
+			return nil, fmt.Errorf("scan summary row: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// QueryTop returns the top consumers by total tokens, grouped by the given dimension.
+// dimension must be one of "user_sub", "model", "provider", "tenant_id".
+func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, limit int) ([]TopRow, error) {
+	switch dimension {
+	case "user_sub", "model", "provider", "tenant_id":
+	default:
+		return nil, fmt.Errorf("invalid dimension %q", dimension)
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	table := "token_usage"
+	timeCol := "time"
+	countExpr := "COUNT(*)"
+	if s.hasTimescaleDB(ctx) {
+		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
+			table = "token_usage_hourly"
+		} else {
+			table = "token_usage_daily"
+		}
+		timeCol = "bucket"
+		countExpr = "SUM(request_count)"
+	}
+
+	clauses, args := appendFilters(f, 1)
+	for i, c := range clauses {
+		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
+	}
+
+	where := ""
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	args = append(args, limit)
+	limitParam := fmt.Sprintf("$%d", len(args))
+
+	q := fmt.Sprintf(`SELECT %s, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
+		FROM %s %s
+		GROUP BY %s
+		ORDER BY SUM(total_tokens) DESC
+		LIMIT %s`, dimension, countExpr, table, where, dimension, limitParam)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query top: %w", err)
+	}
+	defer rows.Close()
+
+	var results []TopRow
+	for rows.Next() {
+		var r TopRow
+		if err := rows.Scan(&r.Key, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount); err != nil {
+			return nil, fmt.Errorf("scan top row: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// QueryTrends returns time-bucketed token usage for charting.
+// granularity must be "hourly" or "daily".
+func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity string) ([]TrendRow, error) {
+	if f.Start.IsZero() || f.End.IsZero() {
+		return nil, fmt.Errorf("start and end times are required for trends")
+	}
+
+	table := "token_usage"
+	timeCol := "time"
+	countExpr := "COUNT(*)"
+	useTSDB := s.hasTimescaleDB(ctx)
+
+	if useTSDB {
+		switch granularity {
+		case "hourly":
+			table = "token_usage_hourly"
+		default:
+			table = "token_usage_daily"
+			granularity = "daily"
+		}
+		timeCol = "bucket"
+		countExpr = "SUM(request_count)"
+	}
+
+	clauses, args := appendFilters(f, 1)
+	for i, c := range clauses {
+		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
+	}
+
+	where := ""
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	var bucketExpr string
+	if useTSDB {
+		// Querying the continuous aggregate — bucket column is already the bucket.
+		bucketExpr = timeCol
+	} else {
+		// Fallback: use date_trunc on raw table.
+		trunc := "day"
+		if granularity == "hourly" {
+			trunc = "hour"
+		}
+		bucketExpr = fmt.Sprintf("date_trunc('%s', %s)", trunc, timeCol)
+	}
+
+	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
+		FROM %s %s
+		GROUP BY bucket
+		ORDER BY bucket ASC`, bucketExpr, countExpr, table, where)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query trends: %w", err)
+	}
+	defer rows.Close()
+
+	var results []TrendRow
+	for rows.Next() {
+		var r TrendRow
+		if err := rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount); err != nil {
+			return nil, fmt.Errorf("scan trend row: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
 }

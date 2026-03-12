@@ -27,6 +27,7 @@ import { useTheme } from '#/hooks/use-theme'
 const routeLabels: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/chat': 'Playground',
+  '/usage': 'Usage',
 }
 
 interface MyRouterContext {

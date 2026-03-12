@@ -154,3 +154,51 @@ export interface UpdateUserRequest {
   role?: 'admin' | 'user'
   status?: 'active' | 'suspended' | 'deleted'
 }
+
+// Usage Analytics Types
+export interface UsageSummaryRow {
+  tenant_id: string
+  user_sub: string
+  provider: string
+  model: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface UsageSummaryResponse {
+  data: UsageSummaryRow[]
+  start: string
+  end: string
+}
+
+export interface UsageTopRow {
+  key: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface UsageTopResponse {
+  dimension: string
+  data: UsageTopRow[]
+  start: string
+  end: string
+}
+
+export interface UsageTrendRow {
+  bucket: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface UsageTrendsResponse {
+  granularity: string
+  data: UsageTrendRow[]
+  start: string
+  end: string
+}

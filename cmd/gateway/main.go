@@ -357,6 +357,13 @@ func main() {
 	apiMux := http.NewServeMux()
 	gatewayServer.RegisterAPIRoutes(apiMux)
 
+	// Register usage read API on the API mux (auth-protected via middleware below)
+	if usageStore != nil {
+		usageAPI := usage.NewAPI(usageStore)
+		usageAPI.RegisterRoutes(apiMux)
+		logger.Info("usage read API enabled")
+	}
+
 	var adminHandler http.Handler
 	var adminServer *ui.Server
 

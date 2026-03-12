@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ajac-zero/latticelm/internal/authctx"
 	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -23,9 +24,6 @@ const (
 	oidcStateCookieName    = "oidc_state"
 	oidcVerifierCookieName = "oidc_verifier"
 
-	// Context keys for storing user information
-	userIDKey  contextKey = "user_id"
-	isAdminKey contextKey = "is_admin"
 )
 
 // OIDCClientConfig holds OIDC client configuration.
@@ -495,9 +493,9 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
 		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
 		// Add user_id for convenience (used by /api/users/me)
-		ctx = context.WithValue(ctx, userIDKey, session.UserID)
+		ctx = context.WithValue(ctx, authctx.UserIDKey, session.UserID)
 		// Add is_admin for authorization checks
-		ctx = context.WithValue(ctx, isAdminKey, session.IsAdmin)
+		ctx = context.WithValue(ctx, authctx.IsAdminKey, session.IsAdmin)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
