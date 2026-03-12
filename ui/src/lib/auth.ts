@@ -113,17 +113,33 @@ export async function isOIDCEnabled(): Promise<boolean> {
  * Checks if auth is enabled, and if so, redirects to login if user is not authenticated.
  */
 export async function requireAuth() {
-  try {
-    const session = await getAuthSession()
+  const session = await getAuthSession()
 
-    if (session.auth_enabled && !session.authenticated) {
-      throw redirect({ to: '/auth/login', search: { session_expired: false } })
-    }
-  } catch (error) {
-    // If it's already a redirect, re-throw it
-    if (error && typeof error === 'object' && 'isRedirect' in error) {
-      throw error
-    }
-    // Otherwise, allow navigation (fail open if config fetch fails)
+  // When auth is enabled, require authentication
+  if (session.auth_enabled && !session.authenticated) {
+    throw redirect({ to: '/auth/login', search: { session_expired: false } })
   }
+
+  return { session }
+}
+
+/**
+ * Admin guard for admin-only routes.
+ * Requires authentication AND admin role.
+ */
+export async function requireAdmin() {
+  const session = await getAuthSession()
+
+  // When auth is enabled, require authentication
+  if (session.auth_enabled && !session.authenticated) {
+    throw redirect({ to: '/auth/login', search: { session_expired: false } })
+  }
+
+  // If authenticated, check for admin role
+  if (session.auth_enabled && session.authenticated && !session.user?.is_admin) {
+    // Redirect non-admin users to chat page
+    throw redirect({ to: '/chat' })
+  }
+
+  return { session }
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -13,6 +14,7 @@ type API struct {
 	oidcEnabled bool
 	tokenAuth   *Middleware
 	oidcClient  *OIDCClient
+	userStore   *users.Store
 	adminCfg    AdminConfig
 }
 
@@ -34,12 +36,13 @@ type SessionUser struct {
 }
 
 // NewAPI creates auth API handlers used by the admin UI.
-func NewAPI(authEnabled, oidcEnabled bool, tokenAuth *Middleware, oidcClient *OIDCClient, adminCfg AdminConfig) *API {
+func NewAPI(authEnabled, oidcEnabled bool, tokenAuth *Middleware, oidcClient *OIDCClient, userStore *users.Store, adminCfg AdminConfig) *API {
 	return &API{
 		authEnabled: authEnabled,
 		oidcEnabled: oidcEnabled,
 		tokenAuth:   tokenAuth,
 		oidcClient:  oidcClient,
+		userStore:   userStore,
 		adminCfg:    adminCfg,
 	}
 }
@@ -49,6 +52,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/auth/session", a.HandleSession)
 	mux.HandleFunc("/api/auth/token-login", a.HandleTokenLogin)
 	mux.HandleFunc("/api/auth/logout", a.HandleLogout)
+	mux.HandleFunc("/api/auth/debug/claims", a.HandleDebugClaims)
 
 	if a.oidcClient != nil {
 		mux.HandleFunc("/api/auth/oidc/login", a.oidcClient.HandleOIDCLogin)
@@ -185,6 +189,75 @@ func (a *API) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONSuccess(w, map[string]string{"message": "logged out"})
+}
+
+// HandleDebugClaims returns all JWT claims for debugging purposes.
+// This is an admin-only endpoint for troubleshooting authentication issues.
+func (a *API) HandleDebugClaims(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !a.authEnabled {
+		writeJSONError(w, "Auth is not enabled", http.StatusBadRequest)
+		return
+	}
+
+	// Try OIDC session first
+	if a.oidcClient != nil {
+		if session, ok := a.oidcClient.getSession(r); ok {
+			// Require admin access for this debug endpoint
+			if !session.IsAdmin {
+				writeJSONError(w, "Admin access required", http.StatusForbidden)
+				return
+			}
+			// Parse ID token to get all claims
+			claims, err := a.oidcClient.parseIDToken(session.IDToken)
+			if err != nil {
+				writeJSONError(w, "Failed to parse ID token", http.StatusInternalServerError)
+				return
+			}
+
+			response := map[string]interface{}{
+				"mode":     "oidc",
+				"claims":   claims,
+				"is_admin": session.IsAdmin,
+			}
+
+			// Add database user info if available
+			if a.userStore != nil && session.UserID != "" {
+				dbUser, err := a.userStore.GetByID(r.Context(), session.UserID)
+				if err == nil {
+					response["database_user"] = map[string]interface{}{
+						"id":         dbUser.ID,
+						"email":      dbUser.Email,
+						"name":       dbUser.Name,
+						"role":       dbUser.Role,
+						"status":     dbUser.Status,
+						"created_at": dbUser.CreatedAt,
+						"updated_at": dbUser.UpdatedAt,
+					}
+				}
+			}
+
+			writeJSONSuccess(w, response)
+			return
+		}
+	}
+
+	// Try token from cookie
+	claims, ok := a.tokenClaimsFromCookie(r)
+	if ok {
+		writeJSONSuccess(w, map[string]interface{}{
+			"mode":     "token",
+			"claims":   claims,
+			"is_admin": hasAdminAccess(claims, a.adminCfg),
+		})
+		return
+	}
+
+	writeJSONError(w, "Not authenticated", http.StatusUnauthorized)
 }
 
 func (a *API) tokenClaimsFromCookie(r *http.Request) (jwt.MapClaims, bool) {

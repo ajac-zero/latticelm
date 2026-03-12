@@ -29,6 +29,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/ratelimit"
 	"github.com/ajac-zero/latticelm/internal/server"
 	"github.com/ajac-zero/latticelm/internal/ui"
+	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -145,17 +146,55 @@ func main() {
 	}
 	adminAuthMiddleware := auth.NewAdmin(adminAuthConfig)
 
+	// Initialize user store (requires same database as conversations)
+	var userStore *users.Store
+	if cfg.Conversations.IsEnabled() && cfg.Conversations.Store == "sql" {
+		// Reuse the conversation database for user management
+		driver := cfg.Conversations.Driver
+		if driver == "" {
+			driver = "sqlite3"
+		}
+		db, err := sql.Open(driver, cfg.Conversations.DSN)
+		if err != nil {
+			logger.Error("failed to open database for user store", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		// Run user migrations
+		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer migrateCancel()
+		userSchemaVersion, err := users.Migrate(migrateCtx, db, driver)
+		if err != nil {
+			logger.Error("user migration failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		logger.Info("user schema ready", slog.Int("version", userSchemaVersion))
+
+		userStore = users.NewStore(db, driver)
+		logger.Info("user store initialized")
+	} else if cfg.Auth.Enabled && cfg.UI.Enabled {
+		// Auth is enabled but no SQL database configured
+		logger.Warn("auth enabled but no SQL database configured for user management")
+		logger.Warn("user roles will not be persisted; all authenticated users will have basic access")
+	}
+
 	// Initialize OIDC client for UI authentication
 	var oidcClient *auth.OIDCClient
 	if cfg.Auth.Enabled && cfg.UI.Enabled && cfg.Auth.ClientID != "" {
+		if userStore == nil {
+			logger.Error("OIDC authentication requires a SQL database for user management")
+			logger.Error("please configure conversations.store=sql with a valid DSN")
+			os.Exit(1)
+		}
 		sessionStore := auth.NewSessionStore(24 * time.Hour)
 		oidcClientConfig := auth.OIDCClientConfig{
 			Issuer:       cfg.Auth.Issuer,
 			ClientID:     cfg.Auth.ClientID,
 			ClientSecret: cfg.Auth.ClientSecret,
 			RedirectURI:  cfg.Auth.RedirectURI,
+			AdminEmail:   cfg.Auth.AdminEmail,
 		}
-		oidcClient, err = auth.NewOIDCClient(oidcClientConfig, sessionStore, adminAuthConfig, logger)
+		oidcClient, err = auth.NewOIDCClient(oidcClientConfig, sessionStore, userStore, logger)
 		if err != nil {
 			logger.Error("failed to initialize OIDC client", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -167,6 +206,11 @@ func main() {
 			slog.String("client_id", cfg.Auth.ClientID),
 			slog.String("redirect_uri", cfg.Auth.RedirectURI),
 		)
+		if cfg.Auth.AdminEmail != "" {
+			logger.Info("auto-promotion configured for admin email",
+				slog.String("email", cfg.Auth.AdminEmail),
+			)
+		}
 	}
 
 	// Initialize conversation store
@@ -278,6 +322,12 @@ func main() {
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
+		// Register users API on admin mux (protected by session middleware)
+		if userStore != nil {
+			usersAPI := users.NewAPI(userStore)
+			usersAPI.RegisterRoutes(adminMux)
+		}
+
 		// Parse IP allowlist CIDRs; fail fast if misconfigured.
 		allowlist, err := ui.ParseCIDRs(cfg.UI.IPAllowlist)
 		if err != nil {
@@ -334,7 +384,7 @@ func main() {
 
 	mux := buildRouteMux(publicMux, apiHandler, adminHandler, nil, metricsPath, metricsHandler)
 
-	authAPI := auth.NewAPI(cfg.Auth.Enabled, oidcClient != nil, authMiddleware, oidcClient, adminAuthConfig)
+	authAPI := auth.NewAPI(cfg.Auth.Enabled, oidcClient != nil, authMiddleware, oidcClient, userStore, adminAuthConfig)
 	authAPI.RegisterRoutes(mux)
 
 	addr := cfg.Server.Address

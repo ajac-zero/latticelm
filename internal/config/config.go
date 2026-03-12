@@ -133,6 +133,10 @@ type AuthConfig struct {
 	ClientID     string `yaml:"client_id"`
 	ClientSecret string `yaml:"client_secret"`
 	RedirectURI  string `yaml:"redirect_uri"`
+	// AdminEmail optionally specifies an email address to auto-promote to admin on first login.
+	// When a user with this email authenticates for the first time, they are automatically
+	// granted admin role. Leave empty to require manual promotion via database or script.
+	AdminEmail string `yaml:"admin_email"`
 }
 
 // UIConfig controls the web UI.

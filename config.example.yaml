@@ -48,6 +48,7 @@ auth:
   # client_id: "your-client-id.apps.googleusercontent.com"
   # client_secret: "your-client-secret"  # Optional for public clients
   # redirect_uri: "http://localhost:8080/auth/callback"
+  # admin_email: "admin@example.com"  # Optional: auto-promote this email to admin on first login
 
 ui:
   enabled: true  # Enable web UI and API (default: false)

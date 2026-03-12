@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -29,6 +30,7 @@ type OIDCClientConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURI  string
+	AdminEmail   string // Optional: auto-promote this email to admin on first login
 }
 
 // OIDCClient handles OIDC authorization code flow.
@@ -37,7 +39,7 @@ type OIDCClient struct {
 	client       *http.Client
 	logger       *slog.Logger
 	sessionStore *SessionStore
-	adminCfg     AdminConfig
+	userStore    *users.Store
 
 	// OIDC discovery endpoints
 	authorizationEndpoint string
@@ -46,13 +48,13 @@ type OIDCClient struct {
 }
 
 // NewOIDCClient creates a new OIDC client.
-func NewOIDCClient(cfg OIDCClientConfig, sessionStore *SessionStore, adminCfg AdminConfig, logger *slog.Logger) (*OIDCClient, error) {
+func NewOIDCClient(cfg OIDCClientConfig, sessionStore *SessionStore, userStore *users.Store, logger *slog.Logger) (*OIDCClient, error) {
 	client := &OIDCClient{
 		cfg:          cfg,
 		client:       &http.Client{Timeout: 10 * time.Second},
 		logger:       logger,
 		sessionStore: sessionStore,
-		adminCfg:     adminCfg,
+		userStore:    userStore,
 	}
 
 	// Discover OIDC endpoints
@@ -266,18 +268,56 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is admin
-	isAdmin := hasAdminAccess(claims, c.adminCfg)
+	// Auto-provision or get existing user from database
+	user, err := c.userStore.GetOrCreate(ctx,
+		getClaimString(claims, "iss"),    // OIDC issuer
+		getClaimString(claims, "sub"),    // OIDC subject
+		getClaimString(claims, "email"),  // Email from OIDC
+		getClaimString(claims, "name"),   // Name from OIDC
+	)
+	if err != nil {
+		c.logger.Error("failed to provision user", slog.String("error", err.Error()))
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
+		return
+	}
 
-	// Create session
+	// Auto-promote to admin if email matches configured admin_email
+	if c.cfg.AdminEmail != "" && user.Email == c.cfg.AdminEmail && user.Role == users.RoleUser {
+		c.logger.Info("auto-promoting user to admin",
+			slog.String("user_id", user.ID),
+			slog.String("email", user.Email),
+		)
+		if err := c.userStore.UpdateRole(ctx, user.ID, users.RoleAdmin); err != nil {
+			c.logger.Error("failed to promote user to admin", slog.String("error", err.Error()))
+			// Don't fail the login, just log the error
+		} else {
+			user.Role = users.RoleAdmin // Update in-memory object
+			c.logger.Info("user promoted to admin",
+				slog.String("user_id", user.ID),
+				slog.String("email", user.Email),
+			)
+		}
+	}
+
+	// Check if user account is active
+	if !user.IsActive() {
+		c.logger.Warn("inactive user attempted login",
+			slog.String("user_id", user.ID),
+			slog.String("status", string(user.Status)),
+		)
+		http.Error(w, "Account is not active", http.StatusForbidden)
+		return
+	}
+
+	// Create session with application user data
 	sessionData := &SessionData{
-		UserID:       getClaimString(claims, "sub"),
-		Email:        getClaimString(claims, "email"),
-		Name:         getClaimString(claims, "name"),
+		UserID:       user.ID,           // Our database ID (not OIDC sub)
+		Email:        user.Email,
+		Name:         user.Name,
 		IDToken:      tokens.IDToken,
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
-		IsAdmin:      isAdmin,
+		IsAdmin:      user.IsAdmin(),    // From database users.role column
 	}
 
 	sessionID, err := c.sessionStore.Create(sessionData)
@@ -304,8 +344,9 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	c.logger.Info("user authenticated",
+		slog.String("user_id", sessionData.UserID),
 		slog.String("email", sessionData.Email),
-		slog.Bool("is_admin", isAdmin),
+		slog.Bool("is_admin", sessionData.IsAdmin),
 	)
 
 	// Redirect to home page
@@ -449,6 +490,10 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
 		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
+		// Add user_id for convenience (used by /api/users/me)
+		ctx = context.WithValue(ctx, "user_id", session.UserID)
+		// Add is_admin for authorization checks
+		ctx = context.WithValue(ctx, "is_admin", session.IsAdmin)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
