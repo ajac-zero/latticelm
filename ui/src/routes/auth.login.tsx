@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { login } from '../lib/auth'
+import { getAuthSession, login, startOIDCLogin } from '../lib/auth'
 
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -15,7 +15,47 @@ function LoginPage() {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checkingOIDC, setCheckingOIDC] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function checkOIDC() {
+      const session = await getAuthSession()
+
+      if (!session.auth_enabled) {
+        await navigate({ to: '/dashboard' })
+        return
+      }
+
+      if (session.authenticated) {
+        await navigate({ to: '/dashboard' })
+        return
+      }
+
+      if (session.oidc_enabled) {
+        try {
+          await startOIDCLogin()
+          return
+        } catch (err: unknown) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Unable to start OIDC login')
+          }
+        }
+      }
+
+      if (!cancelled) {
+        setCheckingOIDC(false)
+      }
+    }
+
+    checkOIDC()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,11 +71,19 @@ function LoginPage() {
     try {
       await login(trimmedToken)
       navigate({ to: '/dashboard' })
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checkingOIDC) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-lg">Redirecting to login...</div>
+      </div>
+    )
   }
 
   return (

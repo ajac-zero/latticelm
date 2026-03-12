@@ -29,7 +29,7 @@ RUN go mod download
 COPY . .
 
 # Copy pre-built frontend assets from stage 1
-COPY --from=frontend-builder /frontend/dist ./internal/admin/dist
+COPY --from=frontend-builder /internal/ui/dist ./internal/ui/dist
 
 # Build the binary with optimizations
 # CGO is required for SQLite support

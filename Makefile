@@ -35,8 +35,8 @@ frontend-install: ## Install frontend dependencies
 frontend-build: ## Build frontend
 	@echo "Building frontend..."
 	cd ui && npm run build
-	rm -rf internal/admin/dist
-	cp -r ui/dist internal/admin/
+	rm -rf internal/ui/dist
+	cp -r ui/dist internal/ui/
 
 frontend-dev: ## Run frontend dev server
 	cd ui && npm run dev
@@ -77,7 +77,7 @@ tidy: ## Tidy go modules
 clean: ## Clean build artifacts
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR)
-	rm -rf internal/admin/dist
+	rm -rf internal/ui/dist
 	rm -rf ui/dist
 	rm -f coverage.out coverage.html
 

@@ -9,11 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UsersRouteImport } from './routes/users'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DebugClaimsRouteImport } from './routes/debug.claims'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 
+const UsersRoute = UsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -29,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DebugClaimsRoute = DebugClaimsRouteImport.update({
+  id: '/debug/claims',
+  path: '/debug/claims',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
@@ -39,38 +51,66 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
+  '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
+  '/debug/claims': typeof DebugClaimsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
+  '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
+  '/debug/claims': typeof DebugClaimsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
+  '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
+  '/debug/claims': typeof DebugClaimsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/chat' | '/dashboard' | '/auth/login'
+  fullPaths:
+    | '/'
+    | '/chat'
+    | '/dashboard'
+    | '/users'
+    | '/auth/login'
+    | '/debug/claims'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/chat' | '/dashboard' | '/auth/login'
-  id: '__root__' | '/' | '/chat' | '/dashboard' | '/auth/login'
+  to: '/' | '/chat' | '/dashboard' | '/users' | '/auth/login' | '/debug/claims'
+  id:
+    | '__root__'
+    | '/'
+    | '/chat'
+    | '/dashboard'
+    | '/users'
+    | '/auth/login'
+    | '/debug/claims'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRoute
   DashboardRoute: typeof DashboardRoute
+  UsersRoute: typeof UsersRoute
   AuthLoginRoute: typeof AuthLoginRoute
+  DebugClaimsRoute: typeof DebugClaimsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/users': {
+      id: '/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof UsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
@@ -92,6 +132,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/debug/claims': {
+      id: '/debug/claims'
+      path: '/debug/claims'
+      fullPath: '/debug/claims'
+      preLoaderRoute: typeof DebugClaimsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/login': {
       id: '/auth/login'
       path: '/auth/login'
@@ -106,7 +153,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRoute,
   DashboardRoute: DashboardRoute,
+  UsersRoute: UsersRoute,
   AuthLoginRoute: AuthLoginRoute,
+  DebugClaimsRoute: DebugClaimsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

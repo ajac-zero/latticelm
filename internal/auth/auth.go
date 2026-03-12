@@ -53,6 +53,7 @@ type Middleware struct {
 	mu            sync.RWMutex
 	client        *http.Client
 	logger        *slog.Logger
+	oidcClient    *OIDCClient // optional OIDC client for session-based auth (enterprise-grade)
 
 	// refreshMu serialises on-demand JWKS refreshes triggered by unknown key IDs to
 	// prevent multiple concurrent requests from hammering the IdP simultaneously.
@@ -100,6 +101,12 @@ func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 	return m, nil
 }
 
+// SetOIDCClient allows the middleware to accept OIDC session cookies as an alternative
+// to JWT Bearer tokens. The ID token is never exposed to the frontend (enterprise-grade).
+func (m *Middleware) SetOIDCClient(oidcClient *OIDCClient) {
+	m.oidcClient = oidcClient
+}
+
 // SessionCookieName is the name of the HttpOnly session cookie used for admin UI authentication.
 const SessionCookieName = "lattice_session"
 
@@ -131,6 +138,27 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		} else {
 			cookie, err := r.Cookie(SessionCookieName)
 			if err != nil || cookie.Value == "" {
+				// Enterprise-grade: Check for OIDC session cookie (HttpOnly, never exposed to frontend)
+				if m.oidcClient != nil {
+					if session, ok := m.oidcClient.getSession(r); ok {
+						// Validate the ID token stored server-side
+						claims, err := m.validateToken(session.IDToken)
+						if err != nil {
+							m.logger.WarnContext(r.Context(), "OIDC session has invalid ID token",
+								logger.LogAttrsWithTrace(r.Context(),
+									slog.String("error", err.Error()),
+								)...,
+							)
+							writeUnauthorized(w)
+							return
+						}
+						ctx := context.WithValue(r.Context(), claimsKey, claims)
+						ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
+						next.ServeHTTP(w, r.WithContext(ctx))
+						return
+					}
+				}
+
 				m.logger.WarnContext(r.Context(), "auth failed: missing authorization header and session cookie",
 					logger.LogAttrsWithTrace(r.Context(),
 						slog.String("request_id", logger.FromContext(r.Context())),

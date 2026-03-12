@@ -1,4 +1,4 @@
-package admin
+package ui
 
 import (
 	"encoding/json"

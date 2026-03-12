@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// OIDCSessionCookieName is the browser cookie that stores the OIDC-backed
+// server-side session ID.
+const OIDCSessionCookieName = "session"
+
 // SessionData holds information about an authenticated user session.
 type SessionData struct {
 	UserID       string

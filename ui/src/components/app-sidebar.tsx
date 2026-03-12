@@ -1,4 +1,4 @@
-import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown } from 'lucide-react'
+import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown, Users } from 'lucide-react'
 import { Link, useMatches } from '@tanstack/react-router'
 import {
   Sidebar,
@@ -25,8 +25,9 @@ import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import type { User } from '#/lib/api/types'
 
 const navItems = [
-  { title: 'Dashboard', to: '/dashboard' as const, icon: LayoutDashboard },
-  { title: 'Playground', to: '/chat' as const, icon: MessageSquare },
+  { title: 'Dashboard', to: '/dashboard' as const, icon: LayoutDashboard, adminOnly: true },
+  { title: 'Users', to: '/users' as const, icon: Users, adminOnly: true },
+  { title: 'Playground', to: '/chat' as const, icon: MessageSquare, adminOnly: false },
 ]
 
 function getInitials(email: string) {
@@ -56,7 +57,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to="/dashboard">
+              <Link to={user?.is_admin ? '/dashboard' : '/chat'}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-primary/20 bg-gradient-to-br from-primary/20 to-primary/5">
                   <Zap className="size-4 text-primary" />
                 </div>
@@ -71,20 +72,26 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarMenu>
-            {navItems.map((item) => (
-              <SidebarMenuItem key={item.to}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={currentPath === item.to}
-                  tooltip={item.title}
-                >
-                  <Link to={item.to}>
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {navItems.map((item) => {
+              // Only show admin pages to admin users
+              if (item.adminOnly && (!user || !user.is_admin)) {
+                return null
+              }
+              return (
+                <SidebarMenuItem key={item.to}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={currentPath === item.to}
+                    tooltip={item.title}
+                  >
+                    <Link to={item.to}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
@@ -123,7 +130,12 @@ export function AppSidebar({
                           {getInitials(user.email)}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="truncate font-medium">{user.email}</span>
+                      <div className="flex flex-col">
+                        <span className="truncate font-medium">{user.email}</span>
+                        {user.is_admin && (
+                          <span className="text-xs text-muted-foreground">Admin</span>
+                        )}
+                      </div>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />

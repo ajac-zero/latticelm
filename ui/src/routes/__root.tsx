@@ -1,10 +1,10 @@
-import { Outlet, createRootRouteWithContext, useMatches } from '@tanstack/react-router'
+import { Outlet, createRootRouteWithContext, useMatches, useNavigate } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { Link } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { getCurrentUser, isAuthEnabled, logout } from '../lib/auth'
+import { getAuthSession, logout } from '../lib/auth'
 import type { User } from '../lib/api/types'
 import { Separator } from '#/components/ui/separator'
 import {
@@ -43,22 +43,27 @@ function RootComponent() {
   const [loading, setLoading] = useState(true)
   const matches = useMatches()
   const { theme, toggleTheme } = useTheme()
+  const navigate = useNavigate()
 
   useEffect(() => {
     async function loadAuth() {
-      const enabled = await isAuthEnabled()
-      setAuthEnabled(enabled)
+      const session = await getAuthSession()
+      setAuthEnabled(session.auth_enabled)
+      setUser(session.authenticated && session.user ? session.user : null)
 
-      if (enabled) {
-        const currentUser = await getCurrentUser()
-        setUser(currentUser)
+      // If auth is enabled but user is not authenticated, redirect to login
+      // unless already on the login page
+      const currentPath = window.location.pathname
+      if (session.auth_enabled && !session.authenticated && !currentPath.startsWith('/auth/')) {
+        navigate({ to: '/auth/login' })
+        return
       }
 
       setLoading(false)
     }
 
     loadAuth()
-  }, [])
+  }, [navigate])
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center">Loading...</div>
@@ -81,7 +86,7 @@ function RootComponent() {
                   <BreadcrumbList>
                     <BreadcrumbItem className="hidden md:block">
                       <BreadcrumbLink asChild>
-                        <Link to="/dashboard">Home</Link>
+                        <Link to={user?.is_admin ? '/dashboard' : '/chat'}>Home</Link>
                       </BreadcrumbLink>
                     </BreadcrumbItem>
                     <BreadcrumbSeparator className="hidden md:block" />

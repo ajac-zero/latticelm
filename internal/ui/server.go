@@ -1,11 +1,10 @@
-package admin
+package ui
 
 import (
 	"log/slog"
 	"runtime"
 	"time"
 
-	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 	"github.com/ajac-zero/latticelm/internal/providers"
@@ -27,27 +26,25 @@ type BuildInfo struct {
 	GoVersion string
 }
 
-// AdminServer hosts the admin API and UI.
-type AdminServer struct {
-	registry       ProviderRegistry
-	convStore      conversation.Store
-	cfg            *config.Config
-	logger         *slog.Logger
-	startTime      time.Time
-	buildInfo      BuildInfo
-	authMiddleware *auth.Middleware
+// Server hosts the admin API and UI.
+type Server struct {
+	registry  ProviderRegistry
+	convStore conversation.Store
+	cfg       *config.Config
+	logger    *slog.Logger
+	startTime time.Time
+	buildInfo BuildInfo
 }
 
-// New creates an AdminServer instance.
-func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, logger *slog.Logger, buildInfo BuildInfo, authMiddleware *auth.Middleware) *AdminServer {
-	return &AdminServer{
-		registry:       registry,
-		convStore:      convStore,
-		cfg:            cfg,
-		logger:         logger,
-		startTime:      time.Now(),
-		buildInfo:      buildInfo,
-		authMiddleware: authMiddleware,
+// New creates a Server instance.
+func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, logger *slog.Logger, buildInfo BuildInfo) *Server {
+	return &Server{
+		registry:  registry,
+		convStore: convStore,
+		cfg:       cfg,
+		logger:    logger,
+		startTime: time.Now(),
+		buildInfo: buildInfo,
 	}
 }
 

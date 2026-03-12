@@ -34,7 +34,7 @@ jobs:
       run: go mod verify
 
     - name: Create frontend dist placeholder
-      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+      run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.out ./...
@@ -70,7 +70,7 @@ jobs:
         cache: true
 
     - name: Create frontend dist placeholder
-      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+      run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
@@ -101,7 +101,7 @@ jobs:
         cache: true
 
     - name: Create frontend dist placeholder
-      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+      run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Install Gosec
       run: go install github.com/securego/gosec/v2/cmd/gosec@latest

@@ -55,7 +55,7 @@ make build-all
 
 This command:
 - Builds the Vue 3 frontend
-- Copies frontend assets to `internal/admin/dist`
+- Copies frontend assets to `internal/ui/dist`
 - Embeds assets into the Go binary using `embed.FS`
 - Compiles the gateway with embedded admin UI
 
@@ -82,7 +82,7 @@ go run ./cmd/gateway --config config.yaml
 ```bash
 make dev-frontend
 # or
-cd frontend/admin && npm run dev
+cd ui && npm run dev
 ```
 
 The frontend dev server runs on `http://localhost:5173` and automatically proxies API requests to the backend on `http://localhost:8080`.
@@ -91,9 +91,9 @@ The frontend dev server runs on `http://localhost:5173` and automatically proxie
 
 ### Backend Components
 
-**Package:** `internal/admin/`
+**Package:** `internal/ui/`
 
-- `server.go` - AdminServer struct and initialization
+- `server.go` - Server struct and initialization
 - `handlers.go` - API endpoint handlers
 - `routes.go` - Route registration
 - `response.go` - JSON response helpers
@@ -112,10 +112,10 @@ All admin API endpoints are under `/admin/api/v1/`:
 
 **Framework:** Vue 3 + TypeScript + Vite
 
-**Directory:** `frontend/admin/`
+**Directory:** `ui/`
 
 ```
-frontend/admin/
+ui/
 ├── src/
 │   ├── main.ts              # App entry point
 │   ├── App.vue              # Root component
@@ -178,16 +178,16 @@ The admin UI works in all modern browsers:
 ### Frontend Build
 
 ```bash
-cd frontend/admin
+cd ui
 npm install
 npm run build
 ```
 
-Output: `frontend/admin/dist/`
+Output: `ui/dist/`
 
 ### Embedding in Go Binary
 
-The `internal/admin/static.go` file uses Go's `embed` directive:
+The `internal/ui/static.go` file uses Go's `embed` directive:
 
 ```go
 //go:embed all:dist
@@ -206,7 +206,7 @@ The admin UI is a Single Page Application (SPA). The static file server implemen
 
 - Ensure `admin.enabled: true` in config
 - Rebuild with `make build-all` to embed frontend assets
-- Check that `internal/admin/dist/` exists and contains built assets
+- Check that `internal/ui/dist/` exists and contains built assets
 
 ### API calls fail
 
@@ -217,7 +217,7 @@ The admin UI is a Single Page Application (SPA). The static file server implemen
 ### Frontend won't build
 
 - Ensure Node.js 18+ is installed: `node --version`
-- Install dependencies: `cd frontend/admin && npm install`
+- Install dependencies: `cd ui && npm install`
 - Check for npm errors in build output
 
 ### Assets not loading

@@ -8,9 +8,9 @@ Successfully implemented a minimal viable product (MVP) of the Admin Web UI for 
 
 ### Backend (Go)
 
-**Package:** `internal/admin/`
+**Package:** `internal/ui/`
 
-1. **server.go** - AdminServer struct with dependencies
+1. **server.go** - Server struct with dependencies
    - Holds references to provider registry, conversation store, config, logger
    - Stores build info and start time for system metrics
 
@@ -34,7 +34,7 @@ Successfully implemented a minimal viable product (MVP) of the Admin Web UI for 
    - Proper content-type detection and serving
 
 **Integration:** `cmd/gateway/main.go`
-- Creates AdminServer when `admin.enabled: true`
+- Creates Server when `admin.enabled: true`
 - Registers admin routes with main mux
 - Uses existing auth middleware (no separate RBAC in MVP)
 
@@ -45,31 +45,39 @@ type AdminConfig struct {
 }
 ```
 
-### Frontend (Vue 3 + TypeScript)
+### Frontend (React + TypeScript)
 
-**Directory:** `frontend/admin/`
+**Directory:** `ui/`
 
 **Setup Files:**
 - `package.json` - Dependencies and build scripts
 - `vite.config.ts` - Vite build config with `/admin/` base path
 - `tsconfig.json` - TypeScript configuration
 - `index.html` - HTML entry point
+- `components.json` - UI component config
 
 **Source Structure:**
 ```
 src/
-├── main.ts              # App initialization
-├── App.vue              # Root component
-├── router.ts            # Vue Router config
-├── api/
-│   ├── client.ts        # Axios HTTP client with auth interceptor
-│   ├── system.ts        # System API wrapper
-│   ├── config.ts        # Config API wrapper
-│   └── providers.ts     # Providers API wrapper
-├── views/
-│   └── Dashboard.vue    # Main dashboard view
-└── types/
-    └── api.ts           # TypeScript type definitions
+├── main.tsx            # App initialization
+├── routeTree.gen.ts    # TanStack Router generated tree
+├── styles.css          # Global styles
+├── components/
+│   └── app-sidebar.tsx # Sidebar component
+├── hooks/
+│   ├── use-mobile.ts   # Mobile detection hook
+│   └── use-theme.ts    # Theme hook
+├── lib/
+│   ├── auth.ts         # Auth helpers
+│   └── utils.ts        # UI utilities
+└── routes/
+    ├── __root.tsx      # Router root layout
+    ├── auth.login.tsx  # Login route
+    ├── chat.tsx        # Chat route
+    ├── dashboard.tsx   # Dashboard route
+    ├── debug.claims.tsx# Debug claims route
+    ├── index.tsx       # Index route
+    └── users.tsx       # Users route
 ```
 
 **Dashboard Features:**
@@ -86,14 +94,14 @@ src/
 **Makefile targets added:**
 ```makefile
 frontend-install    # Install npm dependencies
-frontend-build      # Build frontend and copy to internal/admin/dist
+frontend-build      # Build frontend and copy to internal/ui/dist
 frontend-dev        # Run Vite dev server
 build-all          # Build both frontend and backend
 ```
 
 **Build Process:**
-1. `npm run build` creates optimized production bundle in `frontend/admin/dist/`
-2. `cp -r frontend/admin/dist internal/admin/` copies assets to embed location
+1. `npm run build` creates optimized production bundle in `ui/dist/`
+2. `cp -r ui/dist internal/ui/` copies assets to embed location
 3. Go's `//go:embed all:dist` directive embeds files into binary
 4. Single binary deployment with built-in admin UI
 
@@ -110,32 +118,36 @@ build-all          # Build both frontend and backend
 ## Files Created/Modified
 
 ### New Files (Backend)
-- `internal/admin/server.go`
-- `internal/admin/handlers.go`
-- `internal/admin/routes.go`
-- `internal/admin/response.go`
-- `internal/admin/static.go`
+- `internal/ui/server.go`
+- `internal/ui/handlers.go`
+- `internal/ui/routes.go`
+- `internal/ui/response.go`
+- `internal/ui/static.go`
 
 ### New Files (Frontend)
-- `frontend/admin/package.json`
-- `frontend/admin/vite.config.ts`
-- `frontend/admin/tsconfig.json`
-- `frontend/admin/tsconfig.node.json`
-- `frontend/admin/index.html`
-- `frontend/admin/.gitignore`
-- `frontend/admin/src/main.ts`
-- `frontend/admin/src/App.vue`
-- `frontend/admin/src/router.ts`
-- `frontend/admin/src/api/client.ts`
-- `frontend/admin/src/api/system.ts`
-- `frontend/admin/src/api/config.ts`
-- `frontend/admin/src/api/providers.ts`
-- `frontend/admin/src/views/Dashboard.vue`
-- `frontend/admin/src/types/api.ts`
-- `frontend/admin/public/vite.svg`
+- `ui/package.json`
+- `ui/vite.config.ts`
+- `ui/tsconfig.json`
+- `ui/index.html`
+- `ui/components.json`
+- `ui/src/main.tsx`
+- `ui/src/routeTree.gen.ts`
+- `ui/src/styles.css`
+- `ui/src/components/app-sidebar.tsx`
+- `ui/src/hooks/use-mobile.ts`
+- `ui/src/hooks/use-theme.ts`
+- `ui/src/lib/auth.ts`
+- `ui/src/lib/utils.ts`
+- `ui/src/routes/__root.tsx`
+- `ui/src/routes/auth.login.tsx`
+- `ui/src/routes/chat.tsx`
+- `ui/src/routes/dashboard.tsx`
+- `ui/src/routes/debug.claims.tsx`
+- `ui/src/routes/index.tsx`
+- `ui/src/routes/users.tsx`
 
 ### Modified Files
-- `cmd/gateway/main.go` - Added AdminServer integration
+- `cmd/gateway/main.go` - Added Server integration
 - `internal/config/config.go` - Added AdminConfig struct
 - `config.example.yaml` - Added admin section
 - `config.yaml` - Added admin.enabled: true
@@ -209,9 +221,9 @@ Frontend dev server on `http://localhost:5173` proxies API to backend.
 
 ## Architecture Decisions
 
-### Why Separate AdminServer?
+### Why Separate Server?
 
-Created a new `AdminServer` struct instead of extending `GatewayServer` to:
+Created a new `Server` struct instead of extending `GatewayServer` to:
 - Maintain clean separation of concerns
 - Allow independent evolution of admin vs gateway features
 - Support different RBAC requirements (future)

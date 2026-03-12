@@ -60,4 +60,4 @@ tests/node_modules/
 # Frontend
 ui/node_modules/
 ui/dist/
-internal/admin/dist/
+internal/ui/dist/

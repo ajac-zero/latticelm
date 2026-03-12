@@ -45,6 +45,19 @@ class APIClient {
       body: JSON.stringify(body),
     })
   }
+
+  async patch<T>(url: string, body: any): Promise<T> {
+    return this.request<T>(url, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    })
+  }
+
+  async delete<T>(url: string): Promise<T> {
+    return this.request<T>(url, {
+      method: 'DELETE',
+    })
+  }
 }
 
 export const apiClient = new APIClient()

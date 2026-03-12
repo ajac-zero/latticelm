@@ -1,7 +1,6 @@
-package admin
+package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 )
 
@@ -110,7 +108,7 @@ type ProviderInfo struct {
 }
 
 // handleSystemInfo returns system information.
-func (s *AdminServer) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -131,7 +129,7 @@ func (s *AdminServer) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSystemHealth returns health check results.
-func (s *AdminServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -177,7 +175,7 @@ func (s *AdminServer) handleSystemHealth(w http.ResponseWriter, r *http.Request)
 }
 
 // handleConfig returns the sanitized configuration.
-func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -250,26 +248,8 @@ func (s *AdminServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, response)
 }
 
-// UIConfigResponse contains the minimal config needed by the frontend before authentication.
-type UIConfigResponse struct {
-	AuthEnabled bool `json:"auth_enabled"`
-}
-
-// handleUIConfig returns the minimal configuration needed by the UI before authentication.
-// This endpoint is intentionally unprotected so the frontend can determine whether auth is required.
-func (s *AdminServer) handleUIConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
-		return
-	}
-
-	writeSuccess(w, UIConfigResponse{
-		AuthEnabled: s.cfg.Auth.Enabled,
-	})
-}
-
 // handleProviders returns the list of configured providers.
-func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
 		return
@@ -294,63 +274,6 @@ func (s *AdminServer) handleProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccess(w, providers)
-}
-
-type loginRequest struct {
-	Token string `json:"token"`
-}
-
-// handleLogin accepts a JWT token, validates it, and sets an HttpOnly session cookie.
-func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
-		return
-	}
-
-	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "Token is required")
-		return
-	}
-
-	// Validate token when auth is enabled.
-	if s.authMiddleware != nil {
-		if _, err := s.authMiddleware.Validate(req.Token); err != nil {
-			writeError(w, http.StatusUnauthorized, "invalid_token", "Invalid or expired token")
-			return
-		}
-	}
-
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookieName,
-		Value:    req.Token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
-	})
-
-	writeSuccess(w, map[string]string{"message": "logged in"})
-}
-
-// handleLogout clears the session cookie.
-func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   -1,
-	})
-
-	writeSuccess(w, map[string]string{"message": "logged out"})
 }
 
 // maskSecret masks a secret string for display.

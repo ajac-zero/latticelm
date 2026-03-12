@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,10 +11,21 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/golang-jwt/jwt/v5"
+)
+
+const (
+	oidcStateCookieName    = "oidc_state"
+	oidcVerifierCookieName = "oidc_verifier"
+
+	// Context keys for storing user information
+	userIDKey  contextKey = "user_id"
+	isAdminKey contextKey = "is_admin"
 )
 
 // OIDCClientConfig holds OIDC client configuration.
@@ -22,6 +34,7 @@ type OIDCClientConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURI  string
+	AdminEmail   string // Optional: auto-promote this email to admin on first login
 }
 
 // OIDCClient handles OIDC authorization code flow.
@@ -30,7 +43,7 @@ type OIDCClient struct {
 	client       *http.Client
 	logger       *slog.Logger
 	sessionStore *SessionStore
-	adminCfg     AdminConfig
+	userStore    *users.Store
 
 	// OIDC discovery endpoints
 	authorizationEndpoint string
@@ -39,13 +52,13 @@ type OIDCClient struct {
 }
 
 // NewOIDCClient creates a new OIDC client.
-func NewOIDCClient(cfg OIDCClientConfig, sessionStore *SessionStore, adminCfg AdminConfig, logger *slog.Logger) (*OIDCClient, error) {
+func NewOIDCClient(cfg OIDCClientConfig, sessionStore *SessionStore, userStore *users.Store, logger *slog.Logger) (*OIDCClient, error) {
 	client := &OIDCClient{
 		cfg:          cfg,
 		client:       &http.Client{Timeout: 10 * time.Second},
 		logger:       logger,
 		sessionStore: sessionStore,
-		adminCfg:     adminCfg,
+		userStore:    userStore,
 	}
 
 	// Discover OIDC endpoints
@@ -94,70 +107,133 @@ func (c *OIDCClient) discover() error {
 
 // HandleLogin initiates the OIDC authorization code flow.
 func (c *OIDCClient) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	// Generate state parameter for CSRF protection
+	authURL, err := c.prepareAuthorizationURL(w, r)
+	if err != nil {
+		c.logger.Error("failed to initiate OIDC login", slog.String("error", err.Error()))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// HandleOIDCLogin starts OIDC login for API clients.
+// POST returns a JSON payload with the authorization URL while also setting
+// state/verifier cookies. GET is kept as a convenience for direct browser use.
+func (c *OIDCClient) HandleOIDCLogin(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		c.HandleLogin(w, r)
+		return
+	case http.MethodPost:
+		authURL, err := c.prepareAuthorizationURL(w, r)
+		if err != nil {
+			c.logger.Error("failed to initiate OIDC login", slog.String("error", err.Error()))
+			writeJSONError(w, "Authentication failed", http.StatusInternalServerError)
+			return
+		}
+
+		writeJSONSuccess(w, map[string]string{"authorization_url": authURL})
+		return
+	default:
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+func (c *OIDCClient) prepareAuthorizationURL(w http.ResponseWriter, r *http.Request) (string, error) {
 	state, err := generateRandomString(32)
 	if err != nil {
-		c.logger.Error("failed to generate state", slog.String("error", err.Error()))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("generate state: %w", err)
 	}
 
-	// Generate PKCE code verifier and challenge
 	codeVerifier, err := generateRandomString(43)
 	if err != nil {
-		c.logger.Error("failed to generate code verifier", slog.String("error", err.Error()))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("generate code verifier: %w", err)
 	}
 
-	// Store state and code_verifier in a temporary session cookie
+	codeChallenge := createCodeChallenge(codeVerifier)
+
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
+	}
+
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oidc_state",
+		Name:     oidcStateCookieName,
 		Value:    state,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oidc_verifier",
+		Name:     oidcVerifierCookieName,
 		Value:    codeVerifier,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   600, // 10 minutes
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Build authorization URL
 	authURL := c.authorizationEndpoint + "?" + url.Values{
 		"client_id":             {c.cfg.ClientID},
 		"response_type":         {"code"},
 		"scope":                 {"openid email profile"},
 		"redirect_uri":          {c.cfg.RedirectURI},
 		"state":                 {state},
-		"code_challenge":        {codeVerifier}, // For PKCE, we're using plain (not S256) for simplicity
-		"code_challenge_method": {"plain"},
+		"code_challenge":        {codeChallenge},
+		"code_challenge_method": {"S256"},
 	}.Encode()
 
-	http.Redirect(w, r, authURL, http.StatusFound)
+	return authURL, nil
+}
+
+// wantsJSON checks if the client prefers JSON response
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
 }
 
 // HandleCallback handles the OIDC callback after user authentication.
 func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Get authorization code first - log it for debugging
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+
+	c.logger.Info("OIDC callback received",
+		slog.Bool("has_code", code != ""),
+		slog.Bool("has_state", state != ""),
+		slog.String("url", r.URL.String()),
+	)
+
+	if code == "" {
+		c.logger.Warn("missing authorization code",
+			slog.String("query_string", r.URL.RawQuery),
+		)
+		http.Error(w, "Missing code", http.StatusBadRequest)
+		return
+	}
+
 	// Verify state parameter
-	stateCookie, err := r.Cookie("oidc_state")
+	stateCookie, err := r.Cookie(oidcStateCookieName)
 	if err != nil {
-		c.logger.Warn("missing state cookie", slog.String("error", err.Error()))
+		c.logger.Warn("missing state cookie",
+			slog.String("error", err.Error()),
+			slog.String("cookies", fmt.Sprintf("%v", r.Cookies())),
+		)
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
-	state := r.URL.Query().Get("state")
 	if state != stateCookie.Value {
 		c.logger.Warn("state mismatch", slog.String("expected", stateCookie.Value), slog.String("got", state))
 		http.Error(w, "Invalid state", http.StatusBadRequest)
@@ -165,7 +241,7 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get code verifier
-	verifierCookie, err := r.Cookie("oidc_verifier")
+	verifierCookie, err := r.Cookie(oidcVerifierCookieName)
 	if err != nil {
 		c.logger.Warn("missing verifier cookie", slog.String("error", err.Error()))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -173,16 +249,12 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear temporary cookies
-	http.SetCookie(w, &http.Cookie{Name: "oidc_state", MaxAge: -1, Path: "/"})
-	http.SetCookie(w, &http.Cookie{Name: "oidc_verifier", MaxAge: -1, Path: "/"})
-
-	// Get authorization code
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		c.logger.Warn("missing authorization code")
-		http.Error(w, "Missing code", http.StatusBadRequest)
-		return
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
 	}
+	http.SetCookie(w, &http.Cookie{Name: oidcStateCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{Name: oidcVerifierCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
 
 	// Exchange code for tokens
 	tokens, err := c.exchangeCode(ctx, code, verifierCookie.Value)
@@ -200,18 +272,56 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is admin
-	isAdmin := hasAdminAccess(claims, c.adminCfg)
+	// Auto-provision or get existing user from database
+	user, err := c.userStore.GetOrCreate(ctx,
+		getClaimString(claims, "iss"),    // OIDC issuer
+		getClaimString(claims, "sub"),    // OIDC subject
+		getClaimString(claims, "email"),  // Email from OIDC
+		getClaimString(claims, "name"),   // Name from OIDC
+	)
+	if err != nil {
+		c.logger.Error("failed to provision user", slog.String("error", err.Error()))
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
+		return
+	}
 
-	// Create session
+	// Auto-promote to admin if email matches configured admin_email
+	if c.cfg.AdminEmail != "" && user.Email == c.cfg.AdminEmail && user.Role == users.RoleUser {
+		c.logger.Info("auto-promoting user to admin",
+			slog.String("user_id", user.ID),
+			slog.String("email", user.Email),
+		)
+		if err := c.userStore.UpdateRole(ctx, user.ID, users.RoleAdmin); err != nil {
+			c.logger.Error("failed to promote user to admin", slog.String("error", err.Error()))
+			// Don't fail the login, just log the error
+		} else {
+			user.Role = users.RoleAdmin // Update in-memory object
+			c.logger.Info("user promoted to admin",
+				slog.String("user_id", user.ID),
+				slog.String("email", user.Email),
+			)
+		}
+	}
+
+	// Check if user account is active
+	if !user.IsActive() {
+		c.logger.Warn("inactive user attempted login",
+			slog.String("user_id", user.ID),
+			slog.String("status", string(user.Status)),
+		)
+		http.Error(w, "Account is not active", http.StatusForbidden)
+		return
+	}
+
+	// Create session with application user data
 	sessionData := &SessionData{
-		UserID:       getClaimString(claims, "sub"),
-		Email:        getClaimString(claims, "email"),
-		Name:         getClaimString(claims, "name"),
+		UserID:       user.ID,           // Our database ID (not OIDC sub)
+		Email:        user.Email,
+		Name:         user.Name,
 		IDToken:      tokens.IDToken,
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
-		IsAdmin:      isAdmin,
+		IsAdmin:      user.IsAdmin(),    // From database users.role column
 	}
 
 	sessionID, err := c.sessionStore.Create(sessionData)
@@ -222,73 +332,136 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie
+	// In dev mode, set Domain=localhost so the cookie works across ports
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	// cookieDomain already declared above when clearing temporary cookies
+
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     OIDCSessionCookieName,
 		Value:    sessionID,
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   86400, // 24 hours
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	c.logger.Info("user authenticated",
+		slog.String("user_id", sessionData.UserID),
 		slog.String("email", sessionData.Email),
-		slog.Bool("is_admin", isAdmin),
+		slog.Bool("is_admin", sessionData.IsAdmin),
 	)
 
 	// Redirect to home page
-	http.Redirect(w, r, "/", http.StatusFound)
+	// Check for FRONTEND_URL environment variable for dev mode
+	// In dev: set FRONTEND_URL=http://localhost:5173
+	// In production: leave unset to use relative redirect
+	redirectURL := os.Getenv("FRONTEND_URL")
+	if redirectURL == "" {
+		redirectURL = "/" // Relative redirect for production (embedded UI)
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // HandleLogout clears the user session.
 func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	c.clearSession(w, r)
+
+	if r.Method == http.MethodPost || wantsJSON(r) {
+		writeJSONSuccess(w, map[string]string{"message": "logged out"})
+		return
+	}
+
+	// Redirect to login for browser GET callers.
+	redirectURL := os.Getenv("FRONTEND_URL")
+	if redirectURL == "" {
+		redirectURL = "/auth/login"
+	} else {
+		redirectURL = redirectURL + "/auth/login"
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) {
 	// Get session cookie
-	cookie, err := r.Cookie("session")
+	cookie, err := r.Cookie(OIDCSessionCookieName)
 	if err == nil {
 		c.sessionStore.Delete(cookie.Value)
 	}
 
-	// Clear session cookie
+	// Clear session cookie with same domain strategy as login
+	cookieDomain := ""
+	if strings.Contains(r.Host, "localhost") {
+		cookieDomain = "localhost"
+	}
+
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     OIDCSessionCookieName,
 		Value:    "",
+		Domain:   cookieDomain,
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
 
-	// Redirect to login
-	http.Redirect(w, r, "/auth/login", http.StatusFound)
+func (c *OIDCClient) getSession(r *http.Request) (*SessionData, bool) {
+	cookie, err := r.Cookie(OIDCSessionCookieName)
+	if err != nil {
+		return nil, false
+	}
+
+	return c.sessionStore.Get(cookie.Value)
 }
 
 // HandleUser returns current user information.
 func (c *OIDCClient) HandleUser(w http.ResponseWriter, r *http.Request) {
-	// Get session cookie
-	cookie, err := r.Cookie("session")
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Get session data
-	session, exists := c.sessionStore.Get(cookie.Value)
+	session, exists := c.getSession(r)
 	if !exists {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Return user info
+	// Return user info in standard API response format
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"email":    session.Email,
-		"name":     session.Name,
-		"is_admin": session.IsAdmin,
+		"success": true,
+		"data": map[string]interface{}{
+			"email":    session.Email,
+			"name":     session.Name,
+			"is_admin": session.IsAdmin,
+		},
 	}); err != nil {
 		c.logger.Error("failed to encode user info", "error", err)
 	}
+}
+
+func writeJSONError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error": map[string]string{
+			"message": message,
+		},
+	})
+}
+
+func writeJSONSuccess(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    data,
+	})
 }
 
 // SessionMiddleware checks for a valid session cookie.
@@ -300,16 +473,15 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Get session cookie
-		cookie, err := r.Cookie("session")
-		if err != nil {
-			http.Redirect(w, r, "/auth/login", http.StatusFound)
-			return
-		}
-
 		// Validate session
-		session, exists := c.sessionStore.Get(cookie.Value)
+		session, exists := c.getSession(r)
 		if !exists {
+			// For API requests, return 401 instead of redirecting
+			if isAPIRequest(r) {
+				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// For page requests, redirect to login
 			http.Redirect(w, r, "/auth/login", http.StatusFound)
 			return
 		}
@@ -322,9 +494,27 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
 		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
+		// Add user_id for convenience (used by /api/users/me)
+		ctx = context.WithValue(ctx, userIDKey, session.UserID)
+		// Add is_admin for authorization checks
+		ctx = context.WithValue(ctx, isAdminKey, session.IsAdmin)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isAPIRequest determines if a request is for an API endpoint (should return JSON)
+// versus a page request (should redirect on auth failure).
+func isAPIRequest(r *http.Request) bool {
+	// Check if path starts with /api/ or /v1/
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") {
+		return true
+	}
+
+	// Check Accept header - if client prefers JSON, treat as API request
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
 }
 
 // exchangeCode exchanges authorization code for tokens.
@@ -397,6 +587,14 @@ func generateRandomString(length int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b)[:length], nil
+}
+
+// createCodeChallenge creates a PKCE code challenge using S256 method.
+// Per RFC 7636: code_challenge = BASE64URL(SHA256(ASCII(code_verifier)))
+func createCodeChallenge(verifier string) string {
+	h := sha256.New()
+	h.Write([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 func getClaimString(claims jwt.MapClaims, key string) string {

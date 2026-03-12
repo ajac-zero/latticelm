@@ -16,11 +16,11 @@ const config = defineConfig({
       '/v1': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-      }
+      },
     }
   },
   build: {
-    outDir: 'dist',
+    outDir: '../internal/ui/dist',
     emptyOutDir: true,
   },
   plugins: [

@@ -129,3 +129,28 @@ export interface User {
   email: string
   is_admin: boolean
 }
+
+// User Management Types
+export interface UserDetail {
+  id: string
+  email: string
+  name: string
+  role: 'admin' | 'user'
+  status: 'active' | 'suspended' | 'deleted'
+  created_at: string
+  updated_at?: string
+  oidc_iss?: string
+  oidc_sub?: string
+}
+
+export interface ListUsersResponse {
+  users: UserDetail[]
+  total: number
+  page: number
+  limit: number
+}
+
+export interface UpdateUserRequest {
+  role?: 'admin' | 'user'
+  status?: 'active' | 'suspended' | 'deleted'
+}
