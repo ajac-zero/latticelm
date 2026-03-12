@@ -32,7 +32,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: Create frontend dist placeholder
-      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+      run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run govulncheck
       run: |
@@ -67,7 +67,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: Create frontend dist placeholder
-      run: mkdir -p internal/admin/dist && echo '<html></html>' > internal/admin/dist/index.html
+      run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run tests
       run: go test -v -race ./...

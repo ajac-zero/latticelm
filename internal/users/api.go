@@ -9,6 +9,14 @@ import (
 	"strings"
 )
 
+// Context keys - must match those defined in internal/auth/oidc_client.go
+type contextKey string
+
+const (
+	userIDKey  contextKey = "user_id"
+	isAdminKey contextKey = "is_admin"
+)
+
 // API provides HTTP handlers for user management.
 type API struct {
 	store *Store
@@ -63,7 +71,7 @@ func (a *API) HandleMe(w http.ResponseWriter, r *http.Request) {
 
 	// Get user ID from request context
 	// This is set by the SessionMiddleware or auth middleware
-	userID := r.Context().Value("user_id")
+	userID := r.Context().Value(userIDKey)
 	if userID == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"error": "Not authenticated",
@@ -352,7 +360,7 @@ func (a *API) HandleDeleteUser(w http.ResponseWriter, r *http.Request, userID st
 func (a *API) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	// Check if user is admin via session
 	// The session middleware should have set is_admin in the context
-	isAdmin := r.Context().Value("is_admin")
+	isAdmin := r.Context().Value(isAdminKey)
 	if isAdmin != nil {
 		if admin, ok := isAdmin.(bool); ok && admin {
 			return true
@@ -381,7 +389,7 @@ func (a *API) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 
 // getUserID extracts the user ID from the request context.
 func (a *API) getUserID(r *http.Request) string {
-	userID := r.Context().Value("user_id")
+	userID := r.Context().Value(userIDKey)
 	if userID == nil {
 		return ""
 	}
@@ -416,5 +424,5 @@ func (a *API) checkLastAdmin(ctx context.Context, excludeUserID string) error {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }

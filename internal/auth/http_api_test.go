@@ -15,7 +15,7 @@ import (
 )
 
 func TestAuthAPIHandleSessionAuthDisabled(t *testing.T) {
-	api := NewAPI(false, false, nil, nil, AdminConfig{})
+	api := NewAPI(false, false, nil, nil, nil, AdminConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
 	rec := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestAuthAPITokenLoginAndSession(t *testing.T) {
 	middleware, err := New(Config{Enabled: true, Issuer: mockServer.server.URL}, slog.Default())
 	require.NoError(t, err)
 
-	api := NewAPI(true, false, middleware, nil, AdminConfig{
+	api := NewAPI(true, false, middleware, nil, nil, AdminConfig{
 		Enabled:       true,
 		Claim:         "role",
 		AllowedValues: []string{"admin"},
@@ -107,7 +107,7 @@ func TestAuthAPIHandleSessionPrefersOIDCSession(t *testing.T) {
 	require.NoError(t, err)
 
 	oidcClient := &OIDCClient{sessionStore: store}
-	api := NewAPI(true, true, nil, oidcClient, AdminConfig{})
+	api := NewAPI(true, true, nil, oidcClient, nil, AdminConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/session", nil)
 	req.AddCookie(&http.Cookie{Name: OIDCSessionCookieName, Value: sessionID})
