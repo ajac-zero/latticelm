@@ -18,7 +18,7 @@ const defaultAuthSession: AuthSession = {
 
 export async function getAuthSession(): Promise<AuthSession> {
   try {
-    const response = await fetch('/auth/session', {
+    const response = await fetch('/api/auth/session', {
       credentials: 'include',
     })
 
@@ -49,7 +49,7 @@ export async function getAuthSession(): Promise<AuthSession> {
 }
 
 export async function login(token: string): Promise<void> {
-  const response = await fetch('/auth/token-login', {
+  const response = await fetch('/api/auth/token-login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -63,7 +63,7 @@ export async function login(token: string): Promise<void> {
 }
 
 export async function startOIDCLogin(): Promise<void> {
-  const response = await fetch('/auth/oidc/login', {
+  const response = await fetch('/api/auth/oidc/login', {
     method: 'POST',
     credentials: 'include',
   })
@@ -83,7 +83,7 @@ export async function startOIDCLogin(): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  await fetch('/auth/logout', {
+  await fetch('/api/auth/logout', {
     method: 'POST',
     credentials: 'include',
   })

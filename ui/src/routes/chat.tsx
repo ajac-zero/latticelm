@@ -37,10 +37,21 @@ function ChatPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
+  // OpenAI client configured to send session cookies for authentication
   const client = new OpenAI({
     baseURL: `${window.location.origin}/v1`,
-    apiKey: 'unused',
+    apiKey: 'unused', // Required by SDK but not used
     dangerouslyAllowBrowser: true,
+    fetch: (url, init) => {
+      // Remove Authorization header and use session cookies instead
+      const headers = new Headers(init?.headers)
+      headers.delete('Authorization')
+      return fetch(url, {
+        ...init,
+        headers,
+        credentials: 'include',
+      })
+    },
   })
 
   useEffect(() => {

@@ -38,7 +38,9 @@ export const useModels = () => {
   return useQuery({
     queryKey: ['models'],
     queryFn: async () => {
-      const response = await fetch('/v1/models')
+      const response = await fetch('/v1/models', {
+        credentials: 'include',
+      })
       const data = await response.json()
       return data.data || []
     },

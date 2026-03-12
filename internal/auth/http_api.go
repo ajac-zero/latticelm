@@ -46,13 +46,13 @@ func NewAPI(authEnabled, oidcEnabled bool, tokenAuth *Middleware, oidcClient *OI
 
 // RegisterRoutes wires the auth API endpoints.
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/auth/session", a.HandleSession)
-	mux.HandleFunc("/auth/token-login", a.HandleTokenLogin)
-	mux.HandleFunc("/auth/logout", a.HandleLogout)
+	mux.HandleFunc("/api/auth/session", a.HandleSession)
+	mux.HandleFunc("/api/auth/token-login", a.HandleTokenLogin)
+	mux.HandleFunc("/api/auth/logout", a.HandleLogout)
 
 	if a.oidcClient != nil {
-		mux.HandleFunc("/auth/oidc/login", a.oidcClient.HandleOIDCLogin)
-		mux.HandleFunc("/auth/callback", a.oidcClient.HandleCallback)
+		mux.HandleFunc("/api/auth/oidc/login", a.oidcClient.HandleOIDCLogin)
+		mux.HandleFunc("/api/auth/callback", a.oidcClient.HandleCallback)
 	}
 }
 

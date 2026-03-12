@@ -160,6 +160,9 @@ func main() {
 			logger.Error("failed to initialize OIDC client", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
+		// Link OIDC client to JWT middleware for enterprise-grade session validation
+		// ID tokens are validated server-side, never exposed to frontend
+		authMiddleware.SetOIDCClient(oidcClient)
 		logger.Info("OIDC client enabled for UI authentication",
 			slog.String("client_id", cfg.Auth.ClientID),
 			slog.String("redirect_uri", cfg.Auth.RedirectURI),
