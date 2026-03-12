@@ -101,6 +101,12 @@ providers:
   #   api_key: "YOUR_AZURE_ANTHROPIC_API_KEY"
   #   endpoint: "https://your-resource.services.ai.azure.com/anthropic"
 
+usage:
+  enabled: false  # Enable persistent token usage tracking (requires PostgreSQL/TimescaleDB)
+  # dsn: "postgres://user:pass@localhost:5432/latticelm"  # PostgreSQL connection string (required when enabled)
+  # buffer_size: 1000     # Channel buffer capacity for async writes (default: 1000)
+  # flush_interval: "5s"  # How often buffered events are flushed (default: 5s)
+
 conversations:
   enabled: false          # Enable conversation persistence (default: false = no-store)
   store_by_default: false # Store conversations when client omits "store" field (default: false)

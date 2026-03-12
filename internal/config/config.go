@@ -17,6 +17,7 @@ type Config struct {
 	Logging       LoggingConfig            `yaml:"logging"`
 	RateLimit     RateLimitConfig          `yaml:"rate_limit"`
 	Observability ObservabilityConfig      `yaml:"observability"`
+	Usage         UsageConfig              `yaml:"usage"`
 	UI            UIConfig                 `yaml:"ui"`
 }
 
@@ -122,6 +123,18 @@ type ExporterConfig struct {
 	Endpoint string            `yaml:"endpoint"`
 	Insecure bool              `yaml:"insecure"`
 	Headers  map[string]string `yaml:"headers"`
+}
+
+// UsageConfig controls persistent token usage tracking via TimescaleDB/PostgreSQL.
+type UsageConfig struct {
+	// Enabled controls whether token usage tracking is active.
+	Enabled bool `yaml:"enabled"`
+	// DSN is the PostgreSQL connection string (required when enabled).
+	DSN string `yaml:"dsn"`
+	// BufferSize is the channel buffer capacity for async writes. Defaults to 1000.
+	BufferSize int `yaml:"buffer_size"`
+	// FlushInterval is how often buffered events are flushed (e.g. "5s"). Defaults to "5s".
+	FlushInterval string `yaml:"flush_interval"`
 }
 
 // AuthConfig holds OIDC authentication settings.

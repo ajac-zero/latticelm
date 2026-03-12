@@ -29,6 +29,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/ratelimit"
 	"github.com/ajac-zero/latticelm/internal/server"
 	"github.com/ajac-zero/latticelm/internal/ui"
+	"github.com/ajac-zero/latticelm/internal/usage"
 	"github.com/ajac-zero/latticelm/internal/users"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -301,6 +302,55 @@ func main() {
 		)
 	}
 
+	// Initialize token usage tracking
+	var usageStore *usage.Store
+	if cfg.Usage.Enabled {
+		if cfg.Usage.DSN == "" {
+			logger.Error("usage tracking requires a dsn configuration")
+			os.Exit(1)
+		}
+
+		usageDB, err := sql.Open("pgx", cfg.Usage.DSN)
+		if err != nil {
+			logger.Error("failed to open usage database", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer pingCancel()
+		if err := usageDB.PingContext(pingCtx); err != nil {
+			_ = usageDB.Close()
+			logger.Error("failed to ping usage database", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		usageDB.SetMaxOpenConns(10)
+		usageDB.SetMaxIdleConns(5)
+		usageDB.SetConnMaxLifetime(5 * time.Minute)
+
+		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer migrateCancel()
+		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx")
+		if err != nil {
+			logger.Error("usage migration failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
+
+		var flushInterval time.Duration
+		if cfg.Usage.FlushInterval != "" {
+			if d, parseErr := time.ParseDuration(cfg.Usage.FlushInterval); parseErr == nil {
+				flushInterval = d
+			}
+		}
+
+		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
+		logger.Info("token usage tracking enabled",
+			slog.Int("buffer_size", cfg.Usage.BufferSize),
+			slog.String("flush_interval", cfg.Usage.FlushInterval),
+		)
+	}
+
 	publicMux := http.NewServeMux()
 	gatewayServer.RegisterPublicRoutes(publicMux)
 
@@ -359,8 +409,14 @@ func main() {
 	}
 
 	// Compose middleware on API handler before registering routes.
-	// Order: auth (outermost) → rate limiting → handler
+	// Order: auth (outermost) → rate limiting → usage recorder → handler
 	var apiHandler http.Handler = apiMux
+	if usageStore != nil {
+		inner := apiHandler
+		apiHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			inner.ServeHTTP(w, r.WithContext(usage.WithRecorder(r.Context(), usageStore)))
+		})
+	}
 	if rateLimitMiddleware != nil {
 		apiHandler = rateLimitMiddleware.Handler(apiHandler)
 	}
@@ -468,6 +524,14 @@ func main() {
 			defer shutdownTracerCancel()
 			if err := observability.Shutdown(shutdownTracerCtx, tracerProvider); err != nil {
 				logger.Error("error shutting down tracer", slog.String("error", err.Error()))
+			}
+		}
+
+		// Flush and close usage store
+		if usageStore != nil {
+			logger.Info("flushing usage store")
+			if err := usageStore.Close(); err != nil {
+				logger.Error("error closing usage store", slog.String("error", err.Error()))
 			}
 		}
 
