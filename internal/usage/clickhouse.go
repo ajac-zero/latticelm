@@ -280,8 +280,6 @@ func (s *ClickHouseStore) QueryTrends(ctx context.Context, f QueryFilter, granul
 	table := "token_usage_daily"
 	if granularity == "hourly" {
 		table = "token_usage_hourly"
-	} else {
-		granularity = "daily"
 	}
 
 	clauses, args := appendFiltersCH(f, "bucket")
