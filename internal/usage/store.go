@@ -236,7 +236,7 @@ func (s *Store) hasUsageRollups(ctx context.Context) bool {
 
 // useRollups determines whether to use continuous aggregates for analytics.
 func (s *Store) useRollups(ctx context.Context) bool {
-	if s.analyticsMode != AnalyticsModeLicensed {
+	if s.analyticsMode != AnalyticsModeTimescaleDB {
 		return false
 	}
 	return s.hasUsageRollups(ctx)

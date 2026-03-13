@@ -9,20 +9,21 @@ import (
 type AnalyticsMode string
 
 const (
-	AnalyticsModeOSS      AnalyticsMode = "oss"
-	AnalyticsModeLicensed AnalyticsMode = "licensed"
+	AnalyticsModePGX        AnalyticsMode = "pgx"
+	AnalyticsModeTimescaleDB AnalyticsMode = "timescaledb"
+	AnalyticsModeClickHouse AnalyticsMode = "clickhouse"
 )
 
 // ParseAnalyticsMode normalizes and validates analytics mode values.
-// Empty mode defaults to "oss".
+// Empty mode defaults to "pgx".
 func ParseAnalyticsMode(raw string) (AnalyticsMode, error) {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
 	switch AnalyticsMode(normalized) {
 	case "":
-		return AnalyticsModeOSS, nil
-	case AnalyticsModeOSS, AnalyticsModeLicensed:
+		return AnalyticsModePGX, nil
+	case AnalyticsModePGX, AnalyticsModeTimescaleDB, AnalyticsModeClickHouse:
 		return AnalyticsMode(normalized), nil
 	default:
-		return "", fmt.Errorf("invalid analytics mode %q (expected \"oss\" or \"licensed\")", raw)
+		return "", fmt.Errorf("invalid analytics mode %q (expected \"pgx\", \"timescaledb\", or \"clickhouse\")", raw)
 	}
 }
