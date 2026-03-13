@@ -15,7 +15,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+			"default-src 'self'; script-src 'self' 'sha256-mMDtW9GUgMgE1NL5vlEbR63WyAudC6ggI6157Mz6VwI='; style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data:; font-src 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})

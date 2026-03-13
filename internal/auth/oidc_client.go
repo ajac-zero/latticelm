@@ -465,8 +465,13 @@ func writeJSONSuccess(w http.ResponseWriter, data interface{}) {
 // SessionMiddleware checks for a valid session cookie.
 func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth endpoints
-		if strings.HasPrefix(r.URL.Path, "/auth/") {
+		// Skip auth endpoints and static assets
+		p := r.URL.Path
+		if strings.HasPrefix(p, "/auth/") ||
+			strings.HasPrefix(p, "/assets/") ||
+			p == "/favicon.ico" ||
+			p == "/manifest.json" ||
+			p == "/robots.txt" {
 			next.ServeHTTP(w, r)
 			return
 		}
