@@ -73,7 +73,18 @@ function RootComponent() {
   }
 
   const currentPath = matches[matches.length - 1]?.pathname ?? '/'
+  const isAuthRoute = currentPath.startsWith('/auth/')
   const currentLabel = routeLabels[currentPath]
+
+  if (isAuthRoute) {
+    return (
+      <TooltipProvider>
+        <Outlet />
+        <TanStackRouterDevtools position="bottom-right" />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </TooltipProvider>
+    )
+  }
 
   return (
     <TooltipProvider>
