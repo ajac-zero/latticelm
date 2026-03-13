@@ -357,12 +357,14 @@ func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, l
 	args = append(args, limit)
 	limitParam := fmt.Sprintf("$%d", len(args))
 
+	// #nosec G201 -- table/column names are fixed allowlist values; filters remain parameterized.
 	q := fmt.Sprintf(`SELECT %s, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
 		FROM %s %s
 		GROUP BY %s
 		ORDER BY SUM(total_tokens) DESC
 		LIMIT %s`, dimension, countExpr, table, where, dimension, limitParam)
 
+	// #nosec G701 -- query string is built from allowlisted identifiers and parameterized filters.
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query top: %w", err)
@@ -427,6 +429,7 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 		bucketExpr = fmt.Sprintf("date_trunc('%s', %s)", trunc, timeCol)
 	}
 
+	// #nosec G201 -- bucket/table selection is limited to allowlisted values; filters remain parameterized.
 	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
 		FROM %s %s
 		GROUP BY bucket
