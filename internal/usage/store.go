@@ -256,7 +256,6 @@ func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
 	if !f.End.IsZero() {
 		clauses = append(clauses, fmt.Sprintf("time < $%d", paramIdx))
 		args = append(args, f.End)
-		paramIdx++
 	}
 
 	return clauses, args

@@ -293,12 +293,28 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			params.ParallelToolCalls = openai.Bool(*req.ParallelToolCalls)
 		}
 
+		// Request usage in the final stream chunk
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		}
+
 		// Create streaming request
 		stream := p.client.Chat.Completions.NewStreaming(ctx, params)
+
+		var streamUsage *api.Usage
 
 		// Process stream
 		for stream.Next() {
 			chunk := stream.Current()
+
+			// Capture usage from the final chunk
+			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+				streamUsage = &api.Usage{
+					InputTokens:  int(chunk.Usage.PromptTokens),
+					OutputTokens: int(chunk.Usage.CompletionTokens),
+					TotalTokens:  int(chunk.Usage.TotalTokens),
+				}
+			}
 
 			for _, choice := range chunk.Choices {
 				// Handle text content
@@ -339,9 +355,9 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			return
 		}
 
-		// Send final delta
+		// Send final delta with usage
 		select {
-		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{Done: true, Usage: streamUsage}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}

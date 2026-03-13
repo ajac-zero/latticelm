@@ -179,10 +179,21 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 
 		stream := p.client.Models.GenerateContentStream(ctx, model, contents, config)
 
+		var streamUsage *api.Usage
+
 		for resp, err := range stream {
 			if err != nil {
 				errChan <- fmt.Errorf("google stream error: %w", err)
 				return
+			}
+
+			// Track usage from each response (last one has the final totals)
+			if resp.UsageMetadata != nil {
+				streamUsage = &api.Usage{
+					InputTokens:  int(resp.UsageMetadata.PromptTokenCount),
+					OutputTokens: int(resp.UsageMetadata.CandidatesTokenCount),
+					TotalTokens:  int(resp.UsageMetadata.TotalTokenCount),
+				}
 			}
 
 			if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
@@ -216,7 +227,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 		}
 
 		select {
-		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{Done: true, Usage: streamUsage}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}

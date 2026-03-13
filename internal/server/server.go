@@ -473,6 +473,7 @@ func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.R
 	var fullText string
 	var streamErr error
 	var providerModel string
+	var streamUsage *api.Usage
 
 	// Track tool calls being built
 	type toolCallBuilder struct {
@@ -562,6 +563,10 @@ loop:
 						Delta:       tc.Arguments,
 					})
 				}
+			}
+
+			if delta.Usage != nil {
+				streamUsage = delta.Usage
 			}
 
 			if delta.Done {
@@ -700,6 +705,9 @@ loop:
 		Model:     model,
 		Text:      fullText,
 		ToolCalls: toolCalls,
+	}
+	if streamUsage != nil {
+		finalResult.Usage = *streamUsage
 	}
 	completedResp := s.buildResponse(origReq, finalResult, provider.Name(), responseID)
 
@@ -883,10 +891,7 @@ func (s *GatewayServer) buildResponse(req *api.ResponseRequest, result *api.Prov
 		metadata = map[string]string{}
 	}
 
-	var usage *api.Usage
-	if result.Text != "" {
-		usage = &result.Usage
-	}
+	usage := &result.Usage
 
 	return &api.Response{
 		ID:                 responseID,
