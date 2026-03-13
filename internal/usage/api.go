@@ -26,6 +26,14 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/usage/trends", a.handleTrends)
 }
 
+// RegisterAdminRoutes registers usage API routes under /api/v1/usage/ for the
+// admin mux, which is protected by session-based auth rather than JWT.
+func (a *API) RegisterAdminRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/v1/usage/summary", a.handleSummary)
+	mux.HandleFunc("/api/v1/usage/top", a.handleTop)
+	mux.HandleFunc("/api/v1/usage/trends", a.handleTrends)
+}
+
 // parseFilter extracts common query filter parameters from the request.
 // Non-admin callers are automatically scoped to their own identity.
 func parseFilter(r *http.Request) QueryFilter {

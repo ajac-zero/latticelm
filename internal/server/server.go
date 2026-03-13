@@ -108,6 +108,14 @@ func (s *GatewayServer) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/models", s.handleModels)
 }
 
+// RegisterAdminAPIRoutes registers the core API handlers under /api/v1/ so that
+// the embedded admin UI (session-based auth) can reach them without a JWT token.
+func (s *GatewayServer) RegisterAdminAPIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/v1/responses", s.handleResponses)
+	mux.HandleFunc("/api/v1/responses/", s.handleResponseByID)
+	mux.HandleFunc("/api/v1/models", s.handleModels)
+}
+
 // RegisterPublicRoutes wires the unauthenticated probe handlers onto the provided mux.
 func (s *GatewayServer) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
