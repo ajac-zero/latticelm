@@ -85,7 +85,7 @@ models:
 				assert.Equal(t, "sk-from-env", cfg.Providers["openai"].APIKey)
 			},
 		},
-		{
+	{
 			name: "minimal config",
 			configYAML: `
 server:
@@ -103,6 +103,28 @@ models:
 				assert.Len(t, cfg.Providers, 1)
 				assert.Len(t, cfg.Models, 1)
 				assert.False(t, cfg.Auth.Enabled)
+			},
+		},
+		{
+			name: "auth audience defaults to client id",
+			configYAML: `
+server:
+  address: ":8080"
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+models:
+  - name: gpt-4
+    provider: openai
+auth:
+  enabled: true
+  issuer: https://accounts.google.com
+  client_id: my-client-id
+`,
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, "my-client-id", cfg.Auth.Audience)
+				assert.Equal(t, "my-client-id", cfg.Auth.ClientID)
 			},
 		},
 		{

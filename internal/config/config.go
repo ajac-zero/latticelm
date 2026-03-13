@@ -242,6 +242,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	if cfg.Auth.Audience == "" && cfg.Auth.ClientID != "" {
+		cfg.Auth.Audience = cfg.Auth.ClientID
+	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, err

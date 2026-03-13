@@ -61,3 +61,5 @@ tests/node_modules/
 ui/node_modules/
 ui/dist/
 internal/ui/dist/
+
+config.production.yaml
