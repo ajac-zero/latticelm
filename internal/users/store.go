@@ -378,10 +378,46 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 	}, nil
 }
 
+// GetByEmail retrieves a user by their email address.
+// Returns sql.ErrNoRows if the user does not exist.
+func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	var role, status string
+
+	query := `
+		SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
+		FROM users
+		WHERE email = ?
+		LIMIT 1
+	`
+	if s.driver == "pgx" || s.driver == "postgres" {
+		query = `
+			SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
+			FROM users
+			WHERE email = $1
+			LIMIT 1
+		`
+	}
+
+	err := s.db.QueryRowContext(ctx, query, email).Scan(
+		&u.ID, &u.OIDCIss, &u.OIDCSub, &u.Email, &u.Name,
+		&role, &status, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	u.Role = Role(role)
+	u.Status = Status(status)
+	return &u, nil
+}
+
 // GetOrCreate retrieves a user by OIDC identity, creating them if they don't exist.
+// If no user exists for the given OIDC identity but one exists with the same email,
+// the existing user is returned to prevent duplicate accounts across providers.
 // This is used for auto-provisioning on first login.
 func (s *Store) GetOrCreate(ctx context.Context, issuer, subject, email, name string) (*User, error) {
-	// Try to get existing user
+	// Try to get existing user by OIDC identity (fast path)
 	user, err := s.GetByOIDC(ctx, issuer, subject)
 	if err == nil {
 		// User exists, update their email/name in case it changed
@@ -399,13 +435,23 @@ func (s *Store) GetOrCreate(ctx context.Context, issuer, subject, email, name st
 		return nil, fmt.Errorf("get user by OIDC: %w", err)
 	}
 
-	// User doesn't exist, create them
+	// No OIDC match — check if a user with this email already exists (different provider)
+	user, err = s.GetByEmail(ctx, email)
+	if err == nil {
+		return user, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+
+	// No existing user at all, create them
 	user = &User{
 		OIDCIss: issuer,
 		OIDCSub: subject,
 		Email:   email,
 		Name:    name,
-		Role:    RoleUser, // New users default to regular user role
+		Role:    RoleUser,
 		Status:  StatusActive,
 	}
 

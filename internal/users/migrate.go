@@ -17,7 +17,7 @@ var migrationsFS embed.FS
 
 // expectedSchemaVersion is the version that the user store requires at startup.
 // Bump this whenever a new migration file is added.
-const expectedSchemaVersion = 1
+const expectedSchemaVersion = 2
 
 // migration represents a single schema migration.
 type migration struct {

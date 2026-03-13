@@ -35,18 +35,14 @@ frontend-install: ## Install frontend dependencies
 frontend-build: ## Build frontend
 	@echo "Building frontend..."
 	cd ui && npm run build
-	rm -rf internal/ui/dist
-	cp -r ui/dist internal/ui/
 
 frontend-dev: ## Run frontend dev server
 	cd ui && npm run dev
 
 # Development targets
-build: ## Build the binary
+build: frontend-build ## Build the binary (includes frontend)
 	@echo "Building $(APP_NAME)..."
 	CGO_ENABLED=1 $(GOBUILD) -o $(BUILD_DIR)/$(APP_NAME) ./cmd/gateway
-
-build-all: frontend-build build ## Build frontend and backend
 
 build-static: ## Build static binary
 	@echo "Building static binary..."
