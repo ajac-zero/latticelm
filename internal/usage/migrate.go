@@ -15,9 +15,12 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// expectedSchemaVersion is the version that the usage store requires at startup.
-// Bump this whenever a new migration file is added.
-const expectedSchemaVersion = 2
+const (
+	// expectedSchemaVersionOSS is the schema version for OSS analytics (no continuous aggregates).
+	expectedSchemaVersionOSS = 1
+	// expectedSchemaVersionLicensed is the schema version for licensed analytics.
+	expectedSchemaVersionLicensed = 2
+)
 
 // migration represents a single schema migration.
 type migration struct {
@@ -29,7 +32,7 @@ type migration struct {
 // loadMigrations reads and parses all *.sql files from the embedded migrations
 // directory. Files must be named {version}_{description}.sql where version is
 // a positive integer (e.g. 001_create_token_usage.sql).
-func loadMigrations() ([]migration, error) {
+func loadMigrations(mode AnalyticsMode) ([]migration, error) {
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
 		return nil, fmt.Errorf("read migrations dir: %w", err)
@@ -50,6 +53,10 @@ func loadMigrations() ([]migration, error) {
 		version, err := strconv.Atoi(parts[0])
 		if err != nil {
 			return nil, fmt.Errorf("migration filename %q: version %q is not an integer", entry.Name(), parts[0])
+		}
+		if mode == AnalyticsModeOSS && version == expectedSchemaVersionLicensed {
+			// Skip licensed-only migrations when running in OSS mode.
+			continue
 		}
 
 		data, err := migrationsFS.ReadFile("migrations/" + entry.Name())
@@ -118,12 +125,12 @@ func recordMigration(ctx context.Context, tx *sql.Tx, driver string, m migration
 
 // Migrate applies all pending migrations in order and returns the current
 // schema version. It is safe to call on an already-migrated database.
-func Migrate(ctx context.Context, db *sql.DB, driver string) (int, error) {
+func Migrate(ctx context.Context, db *sql.DB, driver string, mode AnalyticsMode) (int, error) {
 	if err := createSchemaMigrationsTable(db); err != nil {
 		return 0, fmt.Errorf("create usage_schema_migrations table: %w", err)
 	}
 
-	migrations, err := loadMigrations()
+	migrations, err := loadMigrations(mode)
 	if err != nil {
 		return 0, fmt.Errorf("load migrations: %w", err)
 	}
@@ -134,11 +141,13 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) (int, error) {
 	}
 
 	currentVersion := 0
+	for v := range applied {
+		if v > currentVersion {
+			currentVersion = v
+		}
+	}
 	for _, m := range migrations {
 		if _, ok := applied[m.Version]; ok {
-			if m.Version > currentVersion {
-				currentVersion = m.Version
-			}
 			continue
 		}
 
@@ -169,14 +178,19 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) (int, error) {
 
 // CheckSchemaVersion verifies that the current schema version matches the
 // expected version and returns an error if it does not.
-func CheckSchemaVersion(ctx context.Context, db *sql.DB) error {
+func CheckSchemaVersion(ctx context.Context, db *sql.DB, mode AnalyticsMode) error {
 	var version int
 	err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM usage_schema_migrations`).Scan(&version)
 	if err != nil {
 		return fmt.Errorf("query schema version: %w", err)
 	}
-	if version != expectedSchemaVersion {
-		return fmt.Errorf("schema version mismatch: database is at version %d, expected %d; run migrations before starting the server", version, expectedSchemaVersion)
+
+	expected := expectedSchemaVersionOSS
+	if mode == AnalyticsModeLicensed {
+		expected = expectedSchemaVersionLicensed
+	}
+	if version < expected {
+		return fmt.Errorf("schema version mismatch: database is at version %d, expected %d; run migrations before starting the server", version, expected)
 	}
 	return nil
 }

@@ -330,7 +330,13 @@ func main() {
 
 		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer migrateCancel()
-		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx")
+		analyticsMode, err := usage.ParseAnalyticsMode(cfg.Usage.AnalyticsMode)
+		if err != nil {
+			logger.Error("invalid usage analytics mode", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx", analyticsMode)
 		if err != nil {
 			logger.Error("usage migration failed", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -344,7 +350,7 @@ func main() {
 			}
 		}
 
-		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
+		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval, analyticsMode)
 		logger.Info("token usage tracking enabled",
 			slog.Int("buffer_size", cfg.Usage.BufferSize),
 			slog.String("flush_interval", cfg.Usage.FlushInterval),

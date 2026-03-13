@@ -103,6 +103,7 @@ providers:
 
 usage:
   enabled: false  # Enable persistent token usage tracking (requires PostgreSQL/TimescaleDB)
+  # analytics_mode: "oss" # "oss" (no continuous aggregates) or "licensed" (requires Timescale license)
   # dsn: "postgres://user:pass@localhost:5432/latticelm"  # PostgreSQL connection string (required when enabled)
   # buffer_size: 1000     # Channel buffer capacity for async writes (default: 1000)
   # flush_interval: "5s"  # How often buffered events are flushed (default: 5s)

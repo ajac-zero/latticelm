@@ -129,6 +129,8 @@ type ExporterConfig struct {
 type UsageConfig struct {
 	// Enabled controls whether token usage tracking is active.
 	Enabled bool `yaml:"enabled"`
+	// AnalyticsMode selects the usage analytics backend: "oss" or "licensed".
+	AnalyticsMode string `yaml:"analytics_mode"`
 	// DSN is the PostgreSQL connection string (required when enabled).
 	DSN string `yaml:"dsn"`
 	// BufferSize is the channel buffer capacity for async writes. Defaults to 1000.
