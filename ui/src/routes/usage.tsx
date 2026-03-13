@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { BarChart3, TrendingUp, Zap, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { requireAdmin } from '../lib/auth'
+import { requireAuth, getAuthSession } from '../lib/auth'
 import { useUsageSummary, useUsageTop, useUsageTrends } from '../lib/api/hooks'
 import {
   Card,
@@ -29,7 +29,11 @@ import {
 import type { UsageSummaryRow, UsageTrendRow } from '../lib/api/types'
 
 export const Route = createFileRoute('/usage')({
-  beforeLoad: requireAdmin,
+  beforeLoad: requireAuth,
+  loader: async () => {
+    const session = await getAuthSession()
+    return { isAdmin: session.user?.is_admin ?? false }
+  },
   component: UsagePage,
 })
 
@@ -59,6 +63,7 @@ function formatNumber(n: number): string {
 }
 
 function UsagePage() {
+  const { isAdmin } = Route.useLoaderData()
   const [timeRange, setTimeRange] = useState<TimeRange>('24h')
   const [topDimension, setTopDimension] = useState('model')
 
@@ -166,9 +171,9 @@ function UsagePage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="model">By Model</SelectItem>
-                        <SelectItem value="user_sub">By User</SelectItem>
+                        {isAdmin && <SelectItem value="user_sub">By User</SelectItem>}
                         <SelectItem value="provider">By Provider</SelectItem>
-                        <SelectItem value="tenant_id">By Tenant</SelectItem>
+                        {isAdmin && <SelectItem value="tenant_id">By Tenant</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
