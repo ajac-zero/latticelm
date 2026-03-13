@@ -1,4 +1,4 @@
-import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown, Users } from 'lucide-react'
+import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown, Users, BarChart3 } from 'lucide-react'
 import { Link, useMatches } from '@tanstack/react-router'
 import {
   Sidebar,
@@ -27,6 +27,7 @@ import type { User } from '#/lib/api/types'
 const navItems = [
   { title: 'Dashboard', to: '/dashboard' as const, icon: LayoutDashboard, adminOnly: true },
   { title: 'Users', to: '/users' as const, icon: Users, adminOnly: true },
+  { title: 'Usage', to: '/usage' as const, icon: BarChart3, adminOnly: true, requiresUsage: true },
   { title: 'Playground', to: '/chat' as const, icon: MessageSquare, adminOnly: false },
 ]
 
@@ -37,12 +38,14 @@ function getInitials(email: string) {
 export function AppSidebar({
   user,
   authEnabled,
+  usageEnabled,
   onLogout,
   theme,
   onToggleTheme,
 }: {
   user: User | null
   authEnabled: boolean
+  usageEnabled: boolean
   onLogout: () => void
   theme: 'light' | 'dark'
   onToggleTheme: () => void
@@ -75,6 +78,10 @@ export function AppSidebar({
             {navItems.map((item) => {
               // Only show admin pages to admin users
               if (item.adminOnly && (!user || !user.is_admin)) {
+                return null
+              }
+              // Hide usage page when usage tracking is disabled
+              if (item.requiresUsage && !usageEnabled) {
                 return null
               }
               return (

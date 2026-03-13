@@ -18,6 +18,7 @@ import (
 	"github.com/ajac-zero/latticelm/internal/logger"
 	"github.com/ajac-zero/latticelm/internal/providers"
 	"github.com/ajac-zero/latticelm/internal/ratelimit"
+	"github.com/ajac-zero/latticelm/internal/usage"
 )
 
 // ProviderRegistry is an interface for provider registries.
@@ -357,6 +358,19 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 	// Record token usage for distributed quota tracking
 	ratelimit.RecordUsageFromContext(r.Context(), result.Usage.InputTokens, result.Usage.OutputTokens)
 
+	// Record token usage for analytics
+	principal := auth.PrincipalFromContext(r.Context())
+	usage.RecordFromContext(r.Context(), usage.UsageEvent{
+		TenantID:     tenantFromPrincipal(principal),
+		UserSub:      subFromPrincipal(principal),
+		Provider:     provider.Name(),
+		Model:        result.Model,
+		InputTokens:  result.Usage.InputTokens,
+		OutputTokens: result.Usage.OutputTokens,
+		ResponseID:   responseID,
+		Stream:       false,
+	})
+
 	s.logger.InfoContext(r.Context(), "response generated",
 		logger.LogAttrsWithTrace(r.Context(),
 			slog.String("request_id", logger.FromContext(r.Context())),
@@ -459,6 +473,7 @@ func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.R
 	var fullText string
 	var streamErr error
 	var providerModel string
+	var streamUsage *api.Usage
 
 	// Track tool calls being built
 	type toolCallBuilder struct {
@@ -548,6 +563,10 @@ loop:
 						Delta:       tc.Arguments,
 					})
 				}
+			}
+
+			if delta.Usage != nil {
+				streamUsage = delta.Usage
 			}
 
 			if delta.Done {
@@ -687,6 +706,9 @@ loop:
 		Text:      fullText,
 		ToolCalls: toolCalls,
 	}
+	if streamUsage != nil {
+		finalResult.Usage = *streamUsage
+	}
 	completedResp := s.buildResponse(origReq, finalResult, provider.Name(), responseID)
 
 	// Update item IDs to match what we sent during streaming
@@ -730,6 +752,19 @@ loop:
 	// Record token usage for distributed quota tracking
 	if completedResp.Usage != nil {
 		ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
+
+		// Record token usage for analytics
+		principal := auth.PrincipalFromContext(r.Context())
+		usage.RecordFromContext(r.Context(), usage.UsageEvent{
+			TenantID:     tenantFromPrincipal(principal),
+			UserSub:      subFromPrincipal(principal),
+			Provider:     provider.Name(),
+			Model:        model,
+			InputTokens:  completedResp.Usage.InputTokens,
+			OutputTokens: completedResp.Usage.OutputTokens,
+			ResponseID:   responseID,
+			Stream:       true,
+		})
 	}
 
 	if fullText != "" || len(toolCalls) > 0 {
@@ -856,10 +891,7 @@ func (s *GatewayServer) buildResponse(req *api.ResponseRequest, result *api.Prov
 		metadata = map[string]string{}
 	}
 
-	var usage *api.Usage
-	if result.Text != "" {
-		usage = &result.Usage
-	}
+	usage := &result.Usage
 
 	return &api.Response{
 		ID:                 responseID,
@@ -916,6 +948,20 @@ func ownerFromPrincipal(p *auth.Principal) conversation.OwnerInfo {
 		OwnerSub: p.Subject,
 		TenantID: p.TenantID,
 	}
+}
+
+func tenantFromPrincipal(p *auth.Principal) string {
+	if p == nil {
+		return ""
+	}
+	return p.TenantID
+}
+
+func subFromPrincipal(p *auth.Principal) string {
+	if p == nil {
+		return ""
+	}
+	return p.Subject
 }
 
 func generateID(prefix string) string {

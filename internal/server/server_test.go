@@ -263,7 +263,7 @@ func TestHandleResponses_Sync_Success(t *testing.T) {
 			validate: func(t *testing.T, resp *api.Response, store *mockConversationStore) {
 				require.Len(t, resp.Output, 1)
 				assert.Equal(t, "function_call", resp.Output[0].Type)
-				assert.Nil(t, resp.Usage)
+				assert.NotNil(t, resp.Usage)
 			},
 		},
 		{
@@ -1002,7 +1002,7 @@ func TestBuildResponse(t *testing.T) {
 			},
 		},
 		{
-			name: "no usage when no text",
+			name: "usage always included",
 			request: &api.ResponseRequest{
 				Model: "gpt-4",
 			},
@@ -1015,7 +1015,7 @@ func TestBuildResponse(t *testing.T) {
 			provider: "openai",
 			id:       "resp_no_usage",
 			validate: func(t *testing.T, resp *api.Response) {
-				assert.Nil(t, resp.Usage)
+				assert.NotNil(t, resp.Usage)
 			},
 		},
 		{

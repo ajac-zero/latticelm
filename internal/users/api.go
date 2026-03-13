@@ -7,14 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-)
 
-// Context keys - must match those defined in internal/auth/oidc_client.go
-type contextKey string
-
-const (
-	userIDKey  contextKey = "user_id"
-	isAdminKey contextKey = "is_admin"
+	"github.com/ajac-zero/latticelm/internal/authctx"
 )
 
 // API provides HTTP handlers for user management.
@@ -71,7 +65,7 @@ func (a *API) HandleMe(w http.ResponseWriter, r *http.Request) {
 
 	// Get user ID from request context
 	// This is set by the SessionMiddleware or auth middleware
-	userID := r.Context().Value(userIDKey)
+	userID := r.Context().Value(authctx.UserIDKey)
 	if userID == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"error": "Not authenticated",
@@ -360,7 +354,7 @@ func (a *API) HandleDeleteUser(w http.ResponseWriter, r *http.Request, userID st
 func (a *API) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	// Check if user is admin via session
 	// The session middleware should have set is_admin in the context
-	isAdmin := r.Context().Value(isAdminKey)
+	isAdmin := r.Context().Value(authctx.IsAdminKey)
 	if isAdmin != nil {
 		if admin, ok := isAdmin.(bool); ok && admin {
 			return true
@@ -389,7 +383,7 @@ func (a *API) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 
 // getUserID extracts the user ID from the request context.
 func (a *API) getUserID(r *http.Request) string {
-	userID := r.Context().Value(userIDKey)
+	userID := r.Context().Value(authctx.UserIDKey)
 	if userID == nil {
 		return ""
 	}

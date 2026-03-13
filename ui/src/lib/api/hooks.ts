@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
-import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest } from './types'
+import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse } from './types'
 
 export const useSystemInfo = () => {
   return useQuery({
@@ -18,11 +18,12 @@ export const useHealth = () => {
   })
 }
 
-export const useConfig = () => {
+export const useConfig = (enabled = true) => {
   return useQuery({
     queryKey: ['config'],
     queryFn: () => apiClient.get<ConfigResponse>('/config'),
     refetchInterval: 30000,
+    enabled,
   })
 }
 
@@ -144,5 +145,62 @@ export const useDeleteUser = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     },
+  })
+}
+
+// Usage Analytics API
+const usageApi = {
+  summary: async (params: { start: string; end: string }): Promise<UsageSummaryResponse> => {
+    const searchParams = new URLSearchParams({ start: params.start, end: params.end })
+    const response = await fetch(`/v1/usage/summary?${searchParams}`, { credentials: 'include' })
+    if (!response.ok) throw new Error('Failed to fetch usage summary')
+    return response.json()
+  },
+
+  top: async (params: { start: string; end: string; dimension: string; limit: number }): Promise<UsageTopResponse> => {
+    const searchParams = new URLSearchParams({
+      start: params.start,
+      end: params.end,
+      dimension: params.dimension,
+      limit: String(params.limit),
+    })
+    const response = await fetch(`/v1/usage/top?${searchParams}`, { credentials: 'include' })
+    if (!response.ok) throw new Error('Failed to fetch top usage')
+    return response.json()
+  },
+
+  trends: async (params: { start: string; end: string; granularity: string }): Promise<UsageTrendsResponse> => {
+    const searchParams = new URLSearchParams({
+      start: params.start,
+      end: params.end,
+      granularity: params.granularity,
+    })
+    const response = await fetch(`/v1/usage/trends?${searchParams}`, { credentials: 'include' })
+    if (!response.ok) throw new Error('Failed to fetch usage trends')
+    return response.json()
+  },
+}
+
+export const useUsageSummary = (params: { start: string; end: string }) => {
+  return useQuery({
+    queryKey: ['usage', 'summary', params],
+    queryFn: () => usageApi.summary(params),
+    refetchInterval: 60000,
+  })
+}
+
+export const useUsageTop = (params: { start: string; end: string; dimension: string; limit: number }) => {
+  return useQuery({
+    queryKey: ['usage', 'top', params],
+    queryFn: () => usageApi.top(params),
+    refetchInterval: 60000,
+  })
+}
+
+export const useUsageTrends = (params: { start: string; end: string; granularity: string }) => {
+  return useQuery({
+    queryKey: ['usage', 'trends', params],
+    queryFn: () => usageApi.trends(params),
+    refetchInterval: 60000,
   })
 }

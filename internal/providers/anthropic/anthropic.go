@@ -307,12 +307,19 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 
 		// Track content block index and tool call state
 		var contentBlockIndex int
+		var inputTokens, outputTokens int64
 
 		// Process stream
 		for stream.Next() {
 			event := stream.Current()
 
 			switch event.Type {
+			case "message_start":
+				inputTokens = event.Message.Usage.InputTokens
+
+			case "message_delta":
+				outputTokens = event.Usage.OutputTokens
+
 			case "content_block_start":
 				// New content block (text or tool_use)
 				contentBlockIndex = int(event.Index)
@@ -362,9 +369,16 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			return
 		}
 
-		// Send final delta
+		// Send final delta with usage
 		select {
-		case deltaChan <- &api.ProviderStreamDelta{Done: true}:
+		case deltaChan <- &api.ProviderStreamDelta{
+			Done: true,
+			Usage: &api.Usage{
+				InputTokens:  int(inputTokens),
+				OutputTokens: int(outputTokens),
+				TotalTokens:  int(inputTokens + outputTokens),
+			},
+		}:
 		case <-ctx.Done():
 			errChan <- ctx.Err()
 		}
