@@ -32,11 +32,12 @@ type Store struct {
 	wg            sync.WaitGroup
 	flushInterval time.Duration
 	batchSize     int
+	analyticsMode AnalyticsMode
 }
 
 // NewStore creates a usage store with a background flush goroutine.
 // Call Close() to flush remaining events and stop the goroutine.
-func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval time.Duration) *Store {
+func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval time.Duration, analyticsMode AnalyticsMode) *Store {
 	if bufferSize <= 0 {
 		bufferSize = 1000
 	}
@@ -51,6 +52,7 @@ func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval tim
 		done:          make(chan struct{}),
 		flushInterval: flushInterval,
 		batchSize:     100,
+		analyticsMode: analyticsMode,
 	}
 
 	s.wg.Add(1)
@@ -223,6 +225,23 @@ func (s *Store) hasTimescaleDB(ctx context.Context) bool {
 	return err == nil && exists
 }
 
+// hasUsageRollups checks whether continuous aggregate rollups exist.
+func (s *Store) hasUsageRollups(ctx context.Context) bool {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT to_regclass('token_usage_hourly') IS NOT NULL AND to_regclass('token_usage_daily') IS NOT NULL`,
+	).Scan(&exists)
+	return err == nil && exists
+}
+
+// useRollups determines whether to use continuous aggregates for analytics.
+func (s *Store) useRollups(ctx context.Context) bool {
+	if s.analyticsMode != AnalyticsModeTimescaleDB {
+		return false
+	}
+	return s.hasUsageRollups(ctx)
+}
+
 // appendFilters builds WHERE clauses and parameter list from a QueryFilter.
 func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
 	var clauses []string
@@ -265,7 +284,8 @@ func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
 func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, error) {
 	table := "token_usage"
 	timeCol := "time"
-	if s.hasTimescaleDB(ctx) {
+	countExpr := "COUNT(*)"
+	if s.useRollups(ctx) {
 		// Use hourly aggregate for ranges ≤ 7 days, daily for longer.
 		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
 			table = "token_usage_hourly"
@@ -273,6 +293,7 @@ func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, 
 			table = "token_usage_daily"
 		}
 		timeCol = "bucket"
+		countExpr = "SUM(request_count)"
 	}
 
 	clauses, args := appendFilters(f, 1)
@@ -287,18 +308,10 @@ func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, 
 	}
 
 	q := fmt.Sprintf(`SELECT tenant_id, user_sub, provider, model,
-		SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), COUNT(*)
+		SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
 		FROM %s %s
 		GROUP BY tenant_id, user_sub, provider, model
-		ORDER BY SUM(total_tokens) DESC`, table, where)
-
-	if table != "token_usage" {
-		q = fmt.Sprintf(`SELECT tenant_id, user_sub, provider, model,
-			SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), SUM(request_count)
-			FROM %s %s
-			GROUP BY tenant_id, user_sub, provider, model
-			ORDER BY SUM(total_tokens) DESC`, table, where)
-	}
+		ORDER BY SUM(total_tokens) DESC`, countExpr, table, where)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -334,7 +347,7 @@ func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, l
 	table := "token_usage"
 	timeCol := "time"
 	countExpr := "COUNT(*)"
-	if s.hasTimescaleDB(ctx) {
+	if s.useRollups(ctx) {
 		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
 			table = "token_usage_hourly"
 		} else {
@@ -392,9 +405,10 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 	table := "token_usage"
 	timeCol := "time"
 	countExpr := "COUNT(*)"
+	useRollups := s.useRollups(ctx)
 	useTSDB := s.hasTimescaleDB(ctx)
 
-	if useTSDB {
+	if useRollups {
 		switch granularity {
 		case "hourly":
 			table = "token_usage_hourly"
@@ -417,16 +431,25 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 	}
 
 	var bucketExpr string
-	if useTSDB {
+	if useRollups {
 		// Querying the continuous aggregate — bucket column is already the bucket.
 		bucketExpr = timeCol
 	} else {
-		// Fallback: use date_trunc on raw table.
-		trunc := "day"
-		if granularity == "hourly" {
-			trunc = "hour"
+		if useTSDB {
+			// OSS TimescaleDB: use time_bucket on the raw hypertable.
+			interval := "1 day"
+			if granularity == "hourly" {
+				interval = "1 hour"
+			}
+			bucketExpr = fmt.Sprintf("time_bucket('%s', %s)", interval, timeCol)
+		} else {
+			// Plain PostgreSQL fallback: use date_trunc on raw table.
+			trunc := "day"
+			if granularity == "hourly" {
+				trunc = "hour"
+			}
+			bucketExpr = fmt.Sprintf("date_trunc('%s', %s)", trunc, timeCol)
 		}
-		bucketExpr = fmt.Sprintf("date_trunc('%s', %s)", trunc, timeCol)
 	}
 
 	// #nosec G201 -- bucket/table selection is limited to allowlisted values; filters remain parameterized.

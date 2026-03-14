@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -303,39 +304,18 @@ func main() {
 	}
 
 	// Initialize token usage tracking
-	var usageStore *usage.Store
+	var usageStore usage.Backend
 	if cfg.Usage.Enabled {
 		if cfg.Usage.DSN == "" {
 			logger.Error("usage tracking requires a dsn configuration")
 			os.Exit(1)
 		}
 
-		usageDB, err := sql.Open("pgx", cfg.Usage.DSN)
+		analyticsMode, err := usage.ParseAnalyticsMode(cfg.Usage.AnalyticsMode)
 		if err != nil {
-			logger.Error("failed to open usage database", slog.String("error", err.Error()))
+			logger.Error("invalid usage analytics mode", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-
-		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer pingCancel()
-		if err := usageDB.PingContext(pingCtx); err != nil {
-			_ = usageDB.Close()
-			logger.Error("failed to ping usage database", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-
-		usageDB.SetMaxOpenConns(10)
-		usageDB.SetMaxIdleConns(5)
-		usageDB.SetConnMaxLifetime(5 * time.Minute)
-
-		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer migrateCancel()
-		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx")
-		if err != nil {
-			logger.Error("usage migration failed", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
 
 		var flushInterval time.Duration
 		if cfg.Usage.FlushInterval != "" {
@@ -344,11 +324,73 @@ func main() {
 			}
 		}
 
-		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
-		logger.Info("token usage tracking enabled",
-			slog.Int("buffer_size", cfg.Usage.BufferSize),
-			slog.String("flush_interval", cfg.Usage.FlushInterval),
-		)
+		if analyticsMode == usage.AnalyticsModeClickHouse {
+			usageDB, err := sql.Open("clickhouse", cfg.Usage.DSN)
+			if err != nil {
+				logger.Error("failed to open clickhouse usage database", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer pingCancel()
+			if err := usageDB.PingContext(pingCtx); err != nil {
+				_ = usageDB.Close()
+				logger.Error("failed to ping clickhouse usage database", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+
+			usageDB.SetMaxOpenConns(10)
+			usageDB.SetMaxIdleConns(5)
+			usageDB.SetConnMaxLifetime(5 * time.Minute)
+
+			migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer migrateCancel()
+			usageSchemaVersion, err := usage.MigrateClickHouse(migrateCtx, usageDB)
+			if err != nil {
+				logger.Error("clickhouse usage migration failed", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+			logger.Info("clickhouse usage schema ready", slog.Int("version", usageSchemaVersion))
+
+			usageStore = usage.NewClickHouseStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
+			logger.Info("token usage tracking enabled (clickhouse)",
+				slog.Int("buffer_size", cfg.Usage.BufferSize),
+				slog.String("flush_interval", cfg.Usage.FlushInterval),
+			)
+		} else {
+			usageDB, err := sql.Open("pgx", cfg.Usage.DSN)
+			if err != nil {
+				logger.Error("failed to open usage database", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer pingCancel()
+			if err := usageDB.PingContext(pingCtx); err != nil {
+				_ = usageDB.Close()
+				logger.Error("failed to ping usage database", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+
+			usageDB.SetMaxOpenConns(10)
+			usageDB.SetMaxIdleConns(5)
+			usageDB.SetConnMaxLifetime(5 * time.Minute)
+
+			migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer migrateCancel()
+			usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx", analyticsMode)
+			if err != nil {
+				logger.Error("usage migration failed", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+			logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
+
+			usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval, analyticsMode)
+			logger.Info("token usage tracking enabled",
+				slog.Int("buffer_size", cfg.Usage.BufferSize),
+				slog.String("flush_interval", cfg.Usage.FlushInterval),
+			)
+		}
 	}
 
 	publicMux := http.NewServeMux()

@@ -11,11 +11,11 @@ import (
 
 // API provides HTTP handlers for usage analytics.
 type API struct {
-	store *Store
+	store Backend
 }
 
 // NewAPI creates a new usage API handler.
-func NewAPI(store *Store) *API {
+func NewAPI(store Backend) *API {
 	return &API{store: store}
 }
 

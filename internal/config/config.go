@@ -125,11 +125,16 @@ type ExporterConfig struct {
 	Headers  map[string]string `yaml:"headers"`
 }
 
-// UsageConfig controls persistent token usage tracking via TimescaleDB/PostgreSQL.
+// UsageConfig controls persistent token usage tracking.
 type UsageConfig struct {
 	// Enabled controls whether token usage tracking is active.
 	Enabled bool `yaml:"enabled"`
-	// DSN is the PostgreSQL connection string (required when enabled).
+	// AnalyticsMode selects the usage analytics backend: "pgx" (plain PostgreSQL, default),
+	// "timescaledb" (PostgreSQL + TimescaleDB continuous aggregates), or "clickhouse".
+	AnalyticsMode string `yaml:"analytics_mode"`
+	// DSN is the database connection string (required when enabled).
+	// PostgreSQL example: "postgres://user:pass@host/db"
+	// ClickHouse example: "clickhouse://user:pass@host:9000/db"
 	DSN string `yaml:"dsn"`
 	// BufferSize is the channel buffer capacity for async writes. Defaults to 1000.
 	BufferSize int `yaml:"buffer_size"`
