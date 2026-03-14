@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import OpenAI from 'openai'
-import { Settings, MessageSquare } from 'lucide-react'
-import { useModels } from '#/lib/api/hooks'
+import { Settings, MessageSquare, History } from 'lucide-react'
+import { useModels, useConversations, useConversation } from '#/lib/api/hooks'
 import { requireAuth } from '#/lib/auth'
 import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
 import { Label } from '#/components/ui/label'
@@ -59,6 +59,10 @@ function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [lastResponseId, setLastResponseId] = useState<string | null>(null)
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null)
+
+  const { data: conversationsData } = useConversations(store)
+  const { data: selectedConversation } = useConversation(loadingConversationId)
 
   const chatStatus = isLoading
     ? streamingText
@@ -82,6 +86,22 @@ function ChatPage() {
     setLastResponseId(null)
     setStreamingText('')
   }
+
+  const handleSelectConversation = (id: string) => {
+    setLoadingConversationId(id)
+  }
+
+  useEffect(() => {
+    if (!selectedConversation) return
+    const mapped: ChatMessage[] = selectedConversation.messages.map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      model: m.role === 'assistant' ? selectedConversation.model : undefined,
+    }))
+    setMessages(mapped)
+    setLastResponseId(selectedConversation.id)
+    setLoadingConversationId(null)
+  }, [selectedConversation])
 
   const handleSubmit = async ({ text }: PromptInputMessage) => {
     const trimmed = text.trim()
@@ -229,6 +249,42 @@ function ChatPage() {
                     ))}
                   </PromptInputSelectContent>
                 </PromptInputSelect>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <PromptInputButton tooltip={store ? 'Conversations' : 'Enable store to use conversations'} disabled={!store}>
+                      <History className="size-4" />
+                    </PromptInputButton>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-0" align="start" side="top">
+                    <div className="border-b px-3 py-2">
+                      <h3 className="text-sm font-semibold">Conversations</h3>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {!conversationsData?.conversations?.length ? (
+                        <p className="px-3 py-4 text-center text-sm text-muted-foreground">No conversations yet</p>
+                      ) : (
+                        conversationsData.conversations.map(conv => (
+                          <button
+                            key={conv.id}
+                            type="button"
+                            onClick={() => handleSelectConversation(conv.id)}
+                            className={`w-full px-3 py-2.5 text-left hover:bg-accent transition-colors border-b last:border-0 ${lastResponseId === conv.id ? 'bg-accent' : ''}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium truncate">{conv.model}</span>
+                              <span className="text-xs text-muted-foreground shrink-0">{conv.message_count} msg{conv.message_count !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 mt-0.5">
+                              <span className="text-xs text-muted-foreground font-mono truncate">{conv.id.slice(0, 16)}…</span>
+                              <span className="text-xs text-muted-foreground shrink-0">{new Date(conv.updated_at).toLocaleDateString()}</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
 
                 <Popover>
                   <PopoverTrigger asChild>

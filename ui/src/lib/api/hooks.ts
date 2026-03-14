@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
-import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse } from './types'
+import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail } from './types'
 
 export const useSystemInfo = () => {
   return useQuery({
@@ -145,6 +145,31 @@ export const useDeleteUser = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     },
+  })
+}
+
+// Conversations API
+export const useConversations = (enabled = true) => {
+  return useQuery({
+    queryKey: ['conversations'],
+    queryFn: async (): Promise<ListConversationsResponse> => {
+      const response = await fetch('/api/conversations?limit=50', { credentials: 'include' })
+      if (!response.ok) throw new Error('Failed to fetch conversations')
+      return response.json()
+    },
+    enabled,
+  })
+}
+
+export const useConversation = (id: string | null) => {
+  return useQuery({
+    queryKey: ['conversations', id],
+    queryFn: async (): Promise<ConversationDetail> => {
+      const response = await fetch(`/api/conversations/${id}`, { credentials: 'include' })
+      if (!response.ok) throw new Error('Failed to fetch conversation')
+      return response.json()
+    },
+    enabled: !!id,
   })
 }
 

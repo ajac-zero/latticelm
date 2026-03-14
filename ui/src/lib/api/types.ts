@@ -158,6 +158,36 @@ export interface UpdateUserRequest {
   status?: 'active' | 'suspended' | 'deleted'
 }
 
+// Conversation Types
+export interface ConversationItem {
+  id: string
+  model: string
+  message_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationMessage {
+  role: string
+  content: string
+  created_at?: string
+}
+
+export interface ConversationDetail {
+  id: string
+  model: string
+  messages: ConversationMessage[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ListConversationsResponse {
+  conversations: ConversationItem[]
+  total: number
+  page: number
+  limit: number
+}
+
 // Usage Analytics Types
 export interface UsageSummaryRow {
   tenant_id: string
