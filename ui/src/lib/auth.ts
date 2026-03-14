@@ -138,7 +138,7 @@ export async function requireAdmin() {
   // If authenticated, check for admin role
   if (session.auth_enabled && session.authenticated && !session.user?.is_admin) {
     // Redirect non-admin users to chat page
-    throw redirect({ to: '/chat' })
+    throw redirect({ to: '/playground' })
   }
 
   return { session }

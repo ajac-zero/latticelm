@@ -5,7 +5,7 @@ export const Route = createFileRoute('/')({
   beforeLoad: async () => {
     const { session } = await requireAuth()
     // Redirect to dashboard if admin, otherwise to chat
-    const destination = session.user?.is_admin ? '/dashboard' : '/chat'
+    const destination = session.user?.is_admin ? '/dashboard' : '/playground'
     throw redirect({ to: destination })
   },
 })
