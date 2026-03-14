@@ -37,9 +37,10 @@ function ChatPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
-  // OpenAI client configured to send session cookies for authentication
+  // OpenAI client configured to send session cookies for authentication.
+  // Uses /api/v1 (admin mux, session-auth) instead of /v1 (JWT-auth only).
   const client = new OpenAI({
-    baseURL: `${window.location.origin}/v1`,
+    baseURL: `${window.location.origin}/api/v1`,
     apiKey: 'unused', // Required by SDK but not used
     dangerouslyAllowBrowser: true,
     fetch: (url, init) => {

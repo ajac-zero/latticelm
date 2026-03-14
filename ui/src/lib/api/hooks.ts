@@ -39,7 +39,7 @@ export const useModels = () => {
   return useQuery({
     queryKey: ['models'],
     queryFn: async () => {
-      const response = await fetch('/v1/models', {
+      const response = await fetch('/api/v1/models', {
         credentials: 'include',
       })
       const data = await response.json()
@@ -152,7 +152,7 @@ export const useDeleteUser = () => {
 const usageApi = {
   summary: async (params: { start: string; end: string }): Promise<UsageSummaryResponse> => {
     const searchParams = new URLSearchParams({ start: params.start, end: params.end })
-    const response = await fetch(`/v1/usage/summary?${searchParams}`, { credentials: 'include' })
+    const response = await fetch(`/api/v1/usage/summary?${searchParams}`, { credentials: 'include' })
     if (!response.ok) throw new Error('Failed to fetch usage summary')
     return response.json()
   },
@@ -164,7 +164,7 @@ const usageApi = {
       dimension: params.dimension,
       limit: String(params.limit),
     })
-    const response = await fetch(`/v1/usage/top?${searchParams}`, { credentials: 'include' })
+    const response = await fetch(`/api/v1/usage/top?${searchParams}`, { credentials: 'include' })
     if (!response.ok) throw new Error('Failed to fetch top usage')
     return response.json()
   },
@@ -175,7 +175,7 @@ const usageApi = {
       end: params.end,
       granularity: params.granularity,
     })
-    const response = await fetch(`/v1/usage/trends?${searchParams}`, { credentials: 'include' })
+    const response = await fetch(`/api/v1/usage/trends?${searchParams}`, { credentials: 'include' })
     if (!response.ok) throw new Error('Failed to fetch usage trends')
     return response.json()
   },

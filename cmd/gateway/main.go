@@ -421,10 +421,21 @@ func main() {
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
+		// Register core gateway API under /api/v1/ so the embedded UI (session auth)
+		// can call /api/v1/models and /api/v1/responses without a JWT bearer token.
+		gatewayServer.RegisterAdminAPIRoutes(adminMux)
+
 		// Register users API on admin mux (protected by session middleware)
 		if userStore != nil {
 			usersAPI := users.NewAPI(userStore)
 			usersAPI.RegisterRoutes(adminMux)
+		}
+
+		// Register usage read API on admin mux so the embedded UI (session auth)
+		// can query /api/v1/usage/* without a JWT bearer token.
+		if usageStore != nil {
+			usageAPI := usage.NewAPI(usageStore)
+			usageAPI.RegisterAdminRoutes(adminMux)
 		}
 
 		// Parse IP allowlist CIDRs; fail fast if misconfigured.
@@ -475,6 +486,12 @@ func main() {
 
 	// Compose middleware on admin handler
 	if adminHandler != nil {
+		if usageStore != nil {
+			inner := adminHandler
+			adminHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				inner.ServeHTTP(w, r.WithContext(usage.WithRecorder(r.Context(), usageStore)))
+			})
+		}
 		if oidcClient != nil {
 			// Use session-based auth for UI
 			adminHandler = oidcClient.SessionMiddleware(adminHandler)
