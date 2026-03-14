@@ -37,9 +37,9 @@ import {
   type PromptInputMessage,
 } from '#/components/ai-elements/prompt-input'
 
-export const Route = createFileRoute('/chat')({
+export const Route = createFileRoute('/playground')({
   beforeLoad: requireAuth,
-  component: ChatPage,
+  component: PlaygroundPage,
 })
 
 interface ChatMessage {
@@ -48,7 +48,7 @@ interface ChatMessage {
   model?: string
 }
 
-function ChatPage() {
+function PlaygroundPage() {
   const { data: models = [], isLoading: modelsLoading } = useModels()
   const [selectedModel, setSelectedModel] = useState('')
   const [instructions, setInstructions] = useState('')

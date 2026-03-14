@@ -28,7 +28,7 @@ const navItems = [
   { title: 'Dashboard', to: '/dashboard' as const, icon: LayoutDashboard, adminOnly: true },
   { title: 'Users', to: '/users' as const, icon: Users, adminOnly: true },
   { title: 'Usage', to: '/usage' as const, icon: BarChart3, adminOnly: false, requiresUsage: true },
-  { title: 'Playground', to: '/chat' as const, icon: MessageSquare, adminOnly: false },
+  { title: 'Playground', to: '/playground' as const, icon: MessageSquare, adminOnly: false },
 ]
 
 function getInitials(email: string) {
@@ -60,7 +60,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to={user?.is_admin ? '/dashboard' : '/chat'}>
+              <Link to={user?.is_admin ? '/dashboard' : '/playground'}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-primary/20 bg-gradient-to-br from-primary/20 to-primary/5">
                   <Zap className="size-4 text-primary" />
                 </div>
