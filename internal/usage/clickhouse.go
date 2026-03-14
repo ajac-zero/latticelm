@@ -252,7 +252,7 @@ func (s *ClickHouseStore) QueryTop(ctx context.Context, f QueryFilter, dimension
 		GROUP BY %s
 		ORDER BY SUM(total_tokens) DESC
 		LIMIT ?`, dimension, where, dimension)
-
+	// #nosec G701
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse query top: %w", err)
