@@ -21,6 +21,9 @@ type SessionData struct {
 	RefreshToken string
 	ExpiresAt    time.Time
 	IsAdmin      bool
+	OwnerIss     string // OIDC issuer for conversation ownership
+	OwnerSub     string // OIDC subject for conversation ownership
+	TenantID     string // Tenant ID for multi-tenancy
 }
 
 // SessionStore manages user sessions.

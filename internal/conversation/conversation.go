@@ -2,6 +2,8 @@ package conversation
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,23 @@ type OwnerInfo struct {
 	TenantID string
 }
 
+// ListOptions contains filters and pagination for listing conversations.
+type ListOptions struct {
+	Page     int    // Page number (1-indexed)
+	Limit    int    // Items per page
+	OwnerIss string // Filter by owner issuer
+	OwnerSub string // Filter by owner subject
+	TenantID string // Filter by tenant
+	Model    string // Filter by model
+	Search   string // Search by ID (partial match)
+}
+
+// ListResult contains paginated conversation list results.
+type ListResult struct {
+	Conversations []*Conversation
+	Total         int
+}
+
 // Store defines the interface for conversation storage backends.
 type Store interface {
 	Get(ctx context.Context, id string) (*Conversation, error)
@@ -23,6 +42,7 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 	Size() int
 	Close() error
+	List(ctx context.Context, opts ListOptions) (*ListResult, error)
 }
 
 // MemoryStore manages conversation history in-memory with automatic expiration.
@@ -180,6 +200,75 @@ func (s *MemoryStore) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.conversations)
+}
+
+// List returns a paginated list of conversations with optional filters.
+func (s *MemoryStore) List(ctx context.Context, opts ListOptions) (*ListResult, error) {
+	// Set defaults
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.Limit < 1 {
+		opts.Limit = 20
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Filter conversations
+	var filtered []*Conversation
+	for _, conv := range s.conversations {
+		// Apply filters
+		if opts.OwnerIss != "" && conv.OwnerIss != opts.OwnerIss {
+			continue
+		}
+		if opts.OwnerSub != "" && conv.OwnerSub != opts.OwnerSub {
+			continue
+		}
+		if opts.TenantID != "" && conv.TenantID != opts.TenantID {
+			continue
+		}
+		if opts.Model != "" && conv.Model != opts.Model {
+			continue
+		}
+		if opts.Search != "" && !strings.Contains(conv.ID, opts.Search) {
+			continue
+		}
+
+		// Create a summary copy (without full messages)
+		filtered = append(filtered, &Conversation{
+			ID:        conv.ID,
+			Model:     conv.Model,
+			OwnerIss:  conv.OwnerIss,
+			OwnerSub:  conv.OwnerSub,
+			TenantID:  conv.TenantID,
+			CreatedAt: conv.CreatedAt,
+			UpdatedAt: conv.UpdatedAt,
+			// Include message count via Messages field (length only)
+			Messages: conv.Messages, // Keep for count, will be trimmed in API response
+		})
+	}
+
+	// Sort by updated_at descending
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].UpdatedAt.After(filtered[j].UpdatedAt)
+	})
+
+	// Paginate
+	total := len(filtered)
+	start := (opts.Page - 1) * opts.Limit
+	end := start + opts.Limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	return &ListResult{
+		Conversations: filtered[start:end],
+		Total:         total,
+	}, nil
 }
 
 // Close stops the cleanup goroutine and releases resources.

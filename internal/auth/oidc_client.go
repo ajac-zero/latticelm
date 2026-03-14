@@ -320,6 +320,9 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		IsAdmin:      user.IsAdmin(),    // From database users.role column
+		OwnerIss:     getClaimString(claims, "iss"), // OIDC issuer
+		OwnerSub:     getClaimString(claims, "sub"), // OIDC subject
+		TenantID:     getTenantID(claims),             // Tenant from claims
 	}
 
 	sessionID, err := c.sessionStore.Create(sessionData)
@@ -501,6 +504,10 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, authctx.UserIDKey, session.UserID)
 		// Add is_admin for authorization checks
 		ctx = context.WithValue(ctx, authctx.IsAdminKey, session.IsAdmin)
+		// Add owner info for conversation ownership checks
+		ctx = context.WithValue(ctx, authctx.OwnerIssKey, session.OwnerIss)
+		ctx = context.WithValue(ctx, authctx.OwnerSubKey, session.OwnerSub)
+		ctx = context.WithValue(ctx, authctx.TenantIDKey, session.TenantID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -604,6 +611,18 @@ func getClaimString(claims jwt.MapClaims, key string) string {
 	if val, ok := claims[key]; ok {
 		if str, ok := val.(string); ok {
 			return str
+		}
+	}
+	return ""
+}
+
+// getTenantID extracts tenant ID from common OIDC claims.
+func getTenantID(claims jwt.MapClaims) string {
+	for _, key := range []string{"org_id", "tenant_id", "tid"} {
+		if val, ok := claims[key]; ok {
+			if str, ok := val.(string); ok && str != "" {
+				return str
+			}
 		}
 	}
 	return ""

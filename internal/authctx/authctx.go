@@ -10,4 +10,10 @@ const (
 	UserIDKey ContextKey = "user_id"
 	// IsAdminKey is the context key for the authenticated user's admin flag.
 	IsAdminKey ContextKey = "is_admin"
+	// OwnerIssKey is the context key for the authenticated user's OIDC issuer.
+	OwnerIssKey ContextKey = "owner_iss"
+	// OwnerSubKey is the context key for the authenticated user's OIDC subject.
+	OwnerSubKey ContextKey = "owner_sub"
+	// TenantIDKey is the context key for the authenticated user's tenant ID.
+	TenantIDKey ContextKey = "tenant_id"
 )
