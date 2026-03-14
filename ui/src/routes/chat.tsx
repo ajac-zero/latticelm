@@ -1,16 +1,41 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import OpenAI from 'openai'
-import { Settings } from 'lucide-react'
-import { useModels } from '../lib/api/hooks'
-import { requireAuth } from '../lib/auth'
-import { Button } from '../components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
-import { Label } from '../components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { Slider } from '../components/ui/slider'
-import { Switch } from '../components/ui/switch'
-import { Textarea } from '../components/ui/textarea'
+import { Settings, MessageSquare } from 'lucide-react'
+import { useModels } from '#/lib/api/hooks'
+import { requireAuth } from '#/lib/auth'
+import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
+import { Label } from '#/components/ui/label'
+import { Slider } from '#/components/ui/slider'
+import { Switch } from '#/components/ui/switch'
+import { Textarea } from '#/components/ui/textarea'
+import { Button } from '#/components/ui/button'
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from '#/components/ai-elements/conversation'
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from '#/components/ai-elements/message'
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputTools,
+  PromptInputTextarea,
+  PromptInputSubmit,
+  PromptInputButton,
+  PromptInputSelect,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectTrigger,
+  PromptInputSelectValue,
+  type PromptInputMessage,
+} from '#/components/ai-elements/prompt-input'
 
 export const Route = createFileRoute('/chat')({
   beforeLoad: requireAuth,
@@ -20,6 +45,7 @@ export const Route = createFileRoute('/chat')({
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  model?: string
 }
 
 function ChatPage() {
@@ -29,68 +55,27 @@ function ChatPage() {
   const [temperature, setTemperature] = useState(1.0)
   const [stream, setStream] = useState(true)
   const [store, setStore] = useState(true)
-  const [userInput, setUserInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [lastResponseId, setLastResponseId] = useState<string | null>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
-  const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
-  // OpenAI client configured to send session cookies for authentication.
-  // Uses /api/v1 (admin mux, session-auth) instead of /v1 (JWT-auth only).
+  const chatStatus = isLoading
+    ? streamingText
+      ? ('streaming' as const)
+      : ('submitted' as const)
+    : ('ready' as const)
+
   const client = new OpenAI({
     baseURL: `${window.location.origin}/api/v1`,
-    apiKey: 'unused', // Required by SDK but not used
+    apiKey: 'unused',
     dangerouslyAllowBrowser: true,
     fetch: (url, init) => {
-      // Remove Authorization header and use session cookies instead
       const headers = new Headers(init?.headers)
       headers.delete('Authorization')
-      return fetch(url, {
-        ...init,
-        headers,
-        credentials: 'include',
-      })
+      return fetch(url, { ...init, headers, credentials: 'include' })
     },
   })
-
-  useEffect(() => {
-    if (models.length > 0 && !selectedModel) {
-      setSelectedModel(models[0].id)
-    }
-  }, [models, selectedModel])
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages, streamingText])
-
-  // Clear lastResponseId when store is disabled
-  useEffect(() => {
-    if (!store) {
-      setLastResponseId(null)
-    }
-  }, [store])
-
-  const scrollToBottom = () => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
-    }
-  }
-
-  const autoResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 150) + 'px'
-  }
-
-  const renderContent = (content: string) => {
-    return content
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')
-  }
 
   const clearChat = () => {
     setMessages([])
@@ -98,44 +83,34 @@ function ChatPage() {
     setStreamingText('')
   }
 
-  const sendMessage = async () => {
-    const text = userInput.trim()
-    if (!text || isLoading) return
+  const handleSubmit = async ({ text }: PromptInputMessage) => {
+    const trimmed = text.trim()
+    if (!trimmed || isLoading) return
 
-    const newUserMessage: ChatMessage = { role: 'user', content: text }
+    const newUserMessage: ChatMessage = { role: 'user', content: trimmed }
     setMessages(prev => [...prev, newUserMessage])
-    setUserInput('')
-    if (chatInputRef.current) {
-      chatInputRef.current.style.height = 'auto'
-    }
-
     setIsLoading(true)
     setStreamingText('')
 
     try {
-      const params: Record<string, any> = {
+      const params: Record<string, unknown> = {
         model: selectedModel,
-        temperature: temperature,
-        stream: stream,
-        store: store,
+        temperature,
+        stream,
+        store,
       }
 
-      // When store is false, send full conversation history in input
-      // When store is true, use previous_response_id to fetch history from backend
       if (store && lastResponseId) {
-        params.input = text
+        params.input = trimmed
         params.previous_response_id = lastResponseId
       } else if (!store && messages.length > 0) {
-        // Build input array with full conversation history
-        const inputItems = [...messages, newUserMessage].map(msg => ({
+        params.input = [...messages, newUserMessage].map(msg => ({
           type: 'message',
           role: msg.role,
           content: msg.content,
         }))
-        params.input = inputItems
       } else {
-        // First message or store=true without history
-        params.input = text
+        params.input = trimmed
       }
 
       if (instructions.trim()) {
@@ -143,221 +118,184 @@ function ChatPage() {
       }
 
       if (stream) {
-        const response = await client.responses.create(params as any)
-
+        const response = await client.responses.create(params as Parameters<typeof client.responses.create>[0])
         let fullText = ''
-        for await (const event of response as any) {
+        for await (const event of response as AsyncIterable<Record<string, unknown>>) {
           if (event.type === 'response.output_text.delta') {
-            fullText += event.delta
+            fullText += event.delta as string
             setStreamingText(fullText)
           } else if (event.type === 'response.completed') {
             if (store) {
-              setLastResponseId(event.response.id)
+              setLastResponseId((event.response as { id: string }).id)
             }
           }
         }
-
-        setMessages(prev => [...prev, { role: 'assistant', content: fullText }])
+        setMessages(prev => [...prev, { role: 'assistant', content: fullText, model: selectedModel }])
       } else {
-        const response = await client.responses.create(params as any) as any
+        const response = await client.responses.create(params as Parameters<typeof client.responses.create>[0]) as unknown as Record<string, unknown>
         if (store) {
-          setLastResponseId(response.id)
+          setLastResponseId(response.id as string)
         }
-
-        const text = response.output
-          ?.filter((item: any) => item.type === 'message')
-          ?.flatMap((item: any) => item.content)
-          ?.filter((part: any) => part.type === 'output_text')
-          ?.map((part: any) => part.text)
-          ?.join('') || ''
-
-        setMessages(prev => [...prev, { role: 'assistant', content: text }])
+        const responseText = (response.output as Array<{ type: string; content: Array<{ type: string; text: string }> }>)
+          ?.filter(item => item.type === 'message')
+          ?.flatMap(item => item.content)
+          ?.filter(part => part.type === 'output_text')
+          ?.map(part => part.text)
+          ?.join('') ?? ''
+        setMessages(prev => [...prev, { role: 'assistant', content: responseText, model: selectedModel }])
       }
-    } catch (e: any) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Error: ${e.message || 'Failed to get response'}`,
-        },
-      ])
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to get response'
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${message}` }])
     } finally {
       setIsLoading(false)
       setStreamingText('')
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
-
   return (
     <div className="absolute inset-0 flex flex-col">
-      {/* Messages */}
-      <div ref={messagesContainerRef} className="flex-1 space-y-4 overflow-y-auto p-6">
-        {messages.length === 0 && (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            Send a message to start chatting.
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-3xl rounded-lg px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white'
-                  : 'border border-border bg-white/5'
-              }`}
-            >
-              {msg.role === 'assistant' && (
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Assistant
-                </div>
-              )}
-              <div
-                className="text-[15px] leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }}
-              />
-            </div>
-          </div>
-        ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="max-w-3xl rounded-lg border border-border bg-white/5 px-4 py-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Assistant
-              </div>
-              <div className="text-[15px] leading-relaxed">
-                <span className="mr-1.5 inline-flex gap-0.5">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:0ms]"></span>
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:200ms]"></span>
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/40 [animation-delay:400ms]"></span>
-                </span>
-                {streamingText && (
-                  <span dangerouslySetInnerHTML={{ __html: renderContent(streamingText) }} />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Input Area */}
-      <div className="flex gap-3 border-t border-border bg-card p-6">
-        <div className="flex flex-1 items-end gap-2 rounded-lg border border-input bg-background/50 px-3 py-3">
-          <textarea
-            ref={chatInputRef}
-            value={userInput}
-            onChange={e => {
-              setUserInput(e.target.value)
-              autoResize(e)
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            rows={1}
-            className="max-h-[150px] flex-1 resize-none bg-transparent text-[15px] leading-normal outline-none placeholder:text-muted-foreground/40"
+      <Conversation className="flex-1">
+        {messages.length === 0 && !isLoading && (
+          <ConversationEmptyState
+            className="absolute inset-0"
+            icon={<MessageSquare className="size-8" />}
+            title="Playground"
+            description="Send a message to start chatting."
           />
+        )}
+        <ConversationContent className="px-4 py-6">
 
-          {/* Settings Popover */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80" align="end">
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm">Settings</h3>
+          {messages.map((msg, i) => (
+            <Message key={i} from={msg.role}>
+              {msg.role === 'assistant' && msg.model && (
+                <span className="text-xs text-muted-foreground/60 px-1">{msg.model}</span>
+              )}
+              <MessageContent className={msg.role === 'user' ? 'group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground' : ''}>
+                {msg.role === 'assistant' ? (
+                  <MessageResponse>{msg.content}</MessageResponse>
+                ) : (
+                  msg.content
+                )}
+              </MessageContent>
+            </Message>
+          ))}
 
-                {/* Model Selection */}
-                <div className="space-y-2">
-                  <Label htmlFor="model">Model</Label>
-                  <Select value={selectedModel} onValueChange={setSelectedModel} disabled={modelsLoading}>
-                    <SelectTrigger id="model">
-                      <SelectValue placeholder={modelsLoading ? "Loading..." : "Select a model"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map((m: any) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+          {isLoading && (
+            <Message from="assistant">
+              <MessageContent>
+                {streamingText ? (
+                  <MessageResponse isAnimating>{streamingText}</MessageResponse>
+                ) : (
+                  <span className="inline-flex gap-0.5">
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:200ms]" />
+                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:400ms]" />
+                  </span>
+                )}
+              </MessageContent>
+            </Message>
+          )}
+        </ConversationContent>
 
-                {/* System Instructions */}
-                <div className="space-y-2">
-                  <Label htmlFor="instructions">System Instructions</Label>
-                  <Textarea
-                    id="instructions"
-                    value={instructions}
-                    onChange={e => setInstructions(e.target.value)}
-                    placeholder="You are a helpful assistant..."
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
+        <ConversationScrollButton />
+      </Conversation>
 
-                {/* Temperature */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="temperature">Temperature</Label>
-                    <span className="text-sm font-medium">{temperature}</span>
-                  </div>
-                  <Slider
-                    id="temperature"
-                    min={0}
-                    max={2}
-                    step={0.1}
-                    value={[temperature]}
-                    onValueChange={([value]) => setTemperature(value)}
-                  />
-                </div>
-
-                {/* Stream Toggle */}
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="stream">Stream</Label>
-                  <Switch
-                    id="stream"
-                    checked={stream}
-                    onCheckedChange={setStream}
-                  />
-                </div>
-
-                {/* Store Toggle */}
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="store">Store Conversation</Label>
-                  <Switch
-                    id="store"
-                    checked={store}
-                    onCheckedChange={setStore}
-                  />
-                </div>
-
-                {/* Clear Chat Button */}
-                <Button
-                  onClick={clearChat}
-                  variant="destructive"
-                  className="w-full"
+      <div className="border-t border-border bg-card px-4 py-4">
+        <div>
+          <PromptInput onSubmit={handleSubmit}>
+            <PromptInputBody>
+              <PromptInputTextarea placeholder="Type a message..." />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+                <PromptInputSelect
+                  value={selectedModel}
+                  onValueChange={val => {
+                    setSelectedModel(val)
+                  }}
+                  disabled={modelsLoading}
                 >
-                  Clear Chat
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
+                  <PromptInputSelectTrigger className="h-7 text-xs">
+                    <PromptInputSelectValue
+                      placeholder={modelsLoading ? 'Loading...' : 'Select model'}
+                    />
+                  </PromptInputSelectTrigger>
+                  <PromptInputSelectContent>
+                    {models.map((m: { id: string }) => (
+                      <PromptInputSelectItem key={m.id} value={m.id}>
+                        {m.id}
+                      </PromptInputSelectItem>
+                    ))}
+                  </PromptInputSelectContent>
+                </PromptInputSelect>
 
-        <Button
-          onClick={sendMessage}
-          disabled={isLoading || !userInput.trim()}
-          className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-500"
-        >
-          Send
-        </Button>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <PromptInputButton tooltip="Settings">
+                      <Settings className="size-4" />
+                    </PromptInputButton>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80" align="start" side="top">
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold">Settings</h3>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="instructions">System Instructions</Label>
+                        <Textarea
+                          id="instructions"
+                          value={instructions}
+                          onChange={e => setInstructions(e.target.value)}
+                          placeholder="You are a helpful assistant..."
+                          rows={4}
+                          className="resize-none"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="temperature">Temperature</Label>
+                          <span className="text-sm font-medium">{temperature}</span>
+                        </div>
+                        <Slider
+                          id="temperature"
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          value={[temperature]}
+                          onValueChange={([value]) => setTemperature(value)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="stream">Stream</Label>
+                        <Switch id="stream" checked={stream} onCheckedChange={setStream} />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="store">Store Conversation</Label>
+                        <Switch
+                          id="store"
+                          checked={store}
+                          onCheckedChange={val => {
+                            setStore(val)
+                            if (!val) setLastResponseId(null)
+                          }}
+                        />
+                      </div>
+
+                      <Button onClick={clearChat} variant="destructive" className="w-full">
+                        Clear Chat
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </PromptInputTools>
+
+              <PromptInputSubmit status={chatStatus} disabled={isLoading || !selectedModel} />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
       </div>
     </div>
   )
