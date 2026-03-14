@@ -64,7 +64,7 @@ export function AppSidebar({
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-primary/20 bg-gradient-to-br from-primary/20 to-primary/5">
                   <Zap className="size-4 text-primary" />
                 </div>
-                <span className="truncate text-lg font-medium tracking-tight">LLM Gateway</span>
+                <span className="truncate text-lg font-medium tracking-tight">LatticeLM</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

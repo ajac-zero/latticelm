@@ -1,7 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { getAuthSession, login, startOIDCLogin } from '../lib/auth'
+import { getAuthSession, startOIDCLogin } from '../lib/auth'
+import { Button } from '#/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
 
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -12,16 +14,15 @@ export const Route = createFileRoute('/auth/login')({
 
 function LoginPage() {
   const { session_expired } = Route.useSearch()
-  const [token, setToken] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [checkingOIDC, setCheckingOIDC] = useState(true)
+  const [oidcLoading, setOidcLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
 
-    async function checkOIDC() {
+    async function checkSession() {
       const session = await getAuthSession()
 
       if (!session.auth_enabled) {
@@ -34,110 +35,62 @@ function LoginPage() {
         return
       }
 
-      if (session.oidc_enabled) {
-        try {
-          await startOIDCLogin()
-          return
-        } catch (err: unknown) {
-          if (!cancelled) {
-            setError(err instanceof Error ? err.message : 'Unable to start OIDC login')
-          }
-        }
-      }
-
       if (!cancelled) {
-        setCheckingOIDC(false)
+        setChecking(false)
       }
     }
 
-    checkOIDC()
+    checkSession()
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleOIDCLogin = async () => {
     setError('')
-
-    const trimmedToken = token.trim()
-    if (!trimmedToken) {
-      setError('Please enter a token')
-      return
-    }
-
-    setLoading(true)
+    setOidcLoading(true)
     try {
-      await login(trimmedToken)
-      navigate({ to: '/dashboard' })
+      await startOIDCLogin()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setLoading(false)
+      setError(err instanceof Error ? err.message : 'Unable to start SSO login')
+      setOidcLoading(false)
     }
   }
 
-  if (checkingOIDC) {
+  if (checking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-lg">Redirecting to login...</div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-lg dark:bg-gray-800">
-        {session_expired && (
-          <div className="mb-4 rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400">
-            Your session has expired. Please sign in again.
-          </div>
-        )}
-
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-            LLM Gateway Admin
-          </h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Authentication is required to access the admin panel.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label
-              htmlFor="token"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Bearer Token
-            </label>
-            <textarea
-              id="token"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              rows={5}
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-              placeholder="Paste your JWT token here..."
-              required
-            />
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-muted/40">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl">LatticeLM</CardTitle>
+          <CardDescription>Sign in to continue.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {session_expired && (
+            <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400">
+              Your session has expired. Please sign in again.
+            </div>
+          )}
 
           {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-400">
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={!token.trim() || loading}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
+          <Button onClick={handleOIDCLogin} disabled={oidcLoading} size="lg" className="w-full">
+            {oidcLoading ? 'Redirecting...' : 'Sign in with SSO'}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   )
 }
