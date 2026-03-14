@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,54 @@ func (m *MockStore) Delete(ctx context.Context, conversationID string) error {
 func (m *MockStore) Size() int {
 	m.sizeCalled = true
 	return len(m.conversations)
+}
+
+func (m *MockStore) List(ctx context.Context, opts ListOptions) (*ListResult, error) {
+	// Set defaults
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.Limit < 1 {
+		opts.Limit = 20
+	}
+
+	// Filter conversations
+	var filtered []*Conversation
+	for _, conv := range m.conversations {
+		// Apply filters
+		if opts.OwnerIss != "" && conv.OwnerIss != opts.OwnerIss {
+			continue
+		}
+		if opts.OwnerSub != "" && conv.OwnerSub != opts.OwnerSub {
+			continue
+		}
+		if opts.TenantID != "" && conv.TenantID != opts.TenantID {
+			continue
+		}
+		if opts.Model != "" && conv.Model != opts.Model {
+			continue
+		}
+		if opts.Search != "" && !strings.Contains(conv.ID, opts.Search) {
+			continue
+		}
+		filtered = append(filtered, conv)
+	}
+
+	// Paginate
+	total := len(filtered)
+	start := (opts.Page - 1) * opts.Limit
+	end := start + opts.Limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	return &ListResult{
+		Conversations: filtered[start:end],
+		Total:         total,
+	}, nil
 }
 
 func (m *MockStore) Close() error {

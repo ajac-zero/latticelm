@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/ajac-zero/latticelm/internal/api"
@@ -170,6 +171,52 @@ func (m *mockConversationStore) Size() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.conversations)
+}
+
+func (m *mockConversationStore) List(ctx context.Context, opts conversation.ListOptions) (*conversation.ListResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Filter conversations
+	var filtered []*conversation.Conversation
+	for _, conv := range m.conversations {
+		// Apply filters
+		if opts.OwnerIss != "" && conv.OwnerIss != opts.OwnerIss {
+			continue
+		}
+		if opts.OwnerSub != "" && conv.OwnerSub != opts.OwnerSub {
+			continue
+		}
+		if opts.TenantID != "" && conv.TenantID != opts.TenantID {
+			continue
+		}
+		if opts.Model != "" && conv.Model != opts.Model {
+			continue
+		}
+		if opts.Search != "" && !strings.Contains(conv.ID, opts.Search) {
+			continue
+		}
+		filtered = append(filtered, conv)
+	}
+
+	// Paginate
+	total := len(filtered)
+	start := (opts.Page - 1) * opts.Limit
+	if start < 0 {
+		start = 0
+	}
+	end := start + opts.Limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	return &conversation.ListResult{
+		Conversations: filtered[start:end],
+		Total:         total,
+	}, nil
 }
 
 func (m *mockConversationStore) Close() error {

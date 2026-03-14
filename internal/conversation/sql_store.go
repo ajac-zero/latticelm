@@ -41,6 +41,7 @@ func newDialect(driver string) sqlDialect {
 // SQLStore manages conversation history in a SQL database with automatic expiration.
 type SQLStore struct {
 	db      *sql.DB
+	driver  string // "sqlite", "pgx", or "postgres"
 	ttl     time.Duration
 	dialect sqlDialect
 	done    chan struct{}
@@ -62,6 +63,7 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 
 	s := &SQLStore{
 		db:      db,
+		driver:  driver,
 		ttl:     ttl,
 		dialect: newDialect(driver),
 		done:    make(chan struct{}),
@@ -148,6 +150,150 @@ func (s *SQLStore) Size() int {
 	var count int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM conversations`).Scan(&count)
 	return count
+}
+
+// List returns a paginated list of conversations with optional filters.
+func (s *SQLStore) List(ctx context.Context, opts ListOptions) (*ListResult, error) {
+	// Set defaults
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.Limit < 1 {
+		opts.Limit = 20
+	}
+
+	// Build WHERE clause
+	var whereClauses []string
+	var args []interface{}
+	argNum := 1
+
+	if opts.OwnerIss != "" {
+		if s.driver == "pgx" || s.driver == "postgres" {
+			whereClauses = append(whereClauses, fmt.Sprintf("owner_iss = $%d", argNum))
+		} else {
+			whereClauses = append(whereClauses, "owner_iss = ?")
+		}
+		args = append(args, opts.OwnerIss)
+		argNum++
+	}
+
+	if opts.OwnerSub != "" {
+		if s.driver == "pgx" || s.driver == "postgres" {
+			whereClauses = append(whereClauses, fmt.Sprintf("owner_sub = $%d", argNum))
+		} else {
+			whereClauses = append(whereClauses, "owner_sub = ?")
+		}
+		args = append(args, opts.OwnerSub)
+		argNum++
+	}
+
+	if opts.TenantID != "" {
+		if s.driver == "pgx" || s.driver == "postgres" {
+			whereClauses = append(whereClauses, fmt.Sprintf("tenant_id = $%d", argNum))
+		} else {
+			whereClauses = append(whereClauses, "tenant_id = ?")
+		}
+		args = append(args, opts.TenantID)
+		argNum++
+	}
+
+	if opts.Model != "" {
+		if s.driver == "pgx" || s.driver == "postgres" {
+			whereClauses = append(whereClauses, fmt.Sprintf("model = $%d", argNum))
+		} else {
+			whereClauses = append(whereClauses, "model = ?")
+		}
+		args = append(args, opts.Model)
+		argNum++
+	}
+
+	if opts.Search != "" {
+		searchPattern := "%" + opts.Search + "%"
+		if s.driver == "pgx" || s.driver == "postgres" {
+			whereClauses = append(whereClauses, fmt.Sprintf("id ILIKE $%d", argNum))
+		} else {
+			whereClauses = append(whereClauses, "id LIKE ?")
+		}
+		args = append(args, searchPattern)
+		argNum++
+	}
+
+	whereClause := ""
+	if len(whereClauses) > 0 {
+		whereClause = "WHERE " + whereClauses[0]
+		for i := 1; i < len(whereClauses); i++ {
+			whereClause += " AND " + whereClauses[i]
+		}
+	}
+
+	// Count total matching records
+	countQuery := "SELECT COUNT(*) FROM conversations " + whereClause
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	// Fetch paginated results (without full messages, just metadata)
+	offset := (opts.Page - 1) * opts.Limit
+
+	// SQLite uses json_array_length, PostgreSQL uses jsonb_array_length
+	var messageCountExpr string
+	if s.driver == "pgx" || s.driver == "postgres" {
+		messageCountExpr = "jsonb_array_length(messages::jsonb)"
+	} else {
+		messageCountExpr = "json_array_length(messages)"
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT id, model, owner_iss, owner_sub, tenant_id, created_at, updated_at, %s as message_count
+		FROM conversations
+		%s
+		ORDER BY updated_at DESC
+		LIMIT ? OFFSET ?
+	`, messageCountExpr, whereClause)
+
+	if s.driver == "pgx" || s.driver == "postgres" {
+		dataQuery = fmt.Sprintf(`
+			SELECT id, model, owner_iss, owner_sub, tenant_id, created_at, updated_at, %s as message_count
+			FROM conversations
+			%s
+			ORDER BY updated_at DESC
+			LIMIT $%d OFFSET $%d
+		`, messageCountExpr, whereClause, argNum, argNum+1)
+	}
+
+	listArgs := append(args, opts.Limit, offset)
+
+	rows, err := s.db.QueryContext(ctx, dataQuery, listArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conversations []*Conversation
+	for rows.Next() {
+		var conv Conversation
+		var messageCount int
+		err := rows.Scan(
+			&conv.ID, &conv.Model, &conv.OwnerIss, &conv.OwnerSub, &conv.TenantID,
+			&conv.CreatedAt, &conv.UpdatedAt, &messageCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Store message count as a slice of that length (API will use len())
+		conv.Messages = make([]api.Message, messageCount)
+		conversations = append(conversations, &conv)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &ListResult{
+		Conversations: conversations,
+		Total:         total,
+	}, nil
 }
 
 func (s *SQLStore) cleanup() {

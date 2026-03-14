@@ -35,6 +35,13 @@ func (s *NopStore) Size() int {
 	return 0
 }
 
+func (s *NopStore) List(ctx context.Context, opts ListOptions) (*ListResult, error) {
+	return &ListResult{
+		Conversations: []*Conversation{},
+		Total:         0,
+	}, nil
+}
+
 func (s *NopStore) Close() error {
 	return nil
 }

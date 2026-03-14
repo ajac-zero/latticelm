@@ -246,6 +246,56 @@ func (s *InstrumentedStore) Size() int {
 	return s.base.Size()
 }
 
+// List wraps the store's List method with metrics and tracing.
+func (s *InstrumentedStore) List(ctx context.Context, opts conversation.ListOptions) (*conversation.ListResult, error) {
+	// Start span if tracing is enabled
+	if s.tracer != nil {
+		var span trace.Span
+		ctx, span = s.tracer.Start(ctx, "conversation.list",
+			trace.WithAttributes(
+				attribute.String("conversation.backend", s.backend),
+				attribute.Int("conversation.page", opts.Page),
+				attribute.Int("conversation.limit", opts.Limit),
+			),
+		)
+		defer span.End()
+	}
+
+	// Record start time
+	start := time.Now()
+
+	// Call underlying store
+	result, err := s.base.List(ctx, opts)
+
+	// Record metrics
+	duration := time.Since(start).Seconds()
+	status := "success"
+	if err != nil {
+		status = "error"
+		if s.tracer != nil {
+			span := trace.SpanFromContext(ctx)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+	} else {
+		if s.tracer != nil {
+			span := trace.SpanFromContext(ctx)
+			span.SetAttributes(
+				attribute.Int("conversation.result_count", len(result.Conversations)),
+				attribute.Int("conversation.total_count", result.Total),
+			)
+			span.SetStatus(codes.Ok, "")
+		}
+	}
+
+	if s.registry != nil {
+		conversationOperationsTotal.WithLabelValues("list", s.backend, status).Inc()
+		conversationOperationDuration.WithLabelValues("list", s.backend).Observe(duration)
+	}
+
+	return result, err
+}
+
 // Close wraps the store's Close method.
 func (s *InstrumentedStore) Close() error {
 	return s.base.Close()
