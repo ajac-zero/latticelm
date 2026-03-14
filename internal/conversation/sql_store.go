@@ -75,7 +75,7 @@ func NewSQLStore(db *sql.DB, driver string, ttl time.Duration) (*SQLStore, error
 }
 
 func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
-	row := s.db.QueryRowContext(ctx, s.dialect.getByID, id)
+	row := s.db.QueryRowContext(ctx, s.dialect.getByID, id) // #nosec G701
 
 	var conv Conversation
 	var msgJSON string
@@ -142,7 +142,7 @@ func (s *SQLStore) Append(ctx context.Context, id string, messages ...api.Messag
 }
 
 func (s *SQLStore) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, s.dialect.deleteByID, id)
+	_, err := s.db.ExecContext(ctx, s.dialect.deleteByID, id) // #nosec G701
 	return err
 }
 
@@ -244,6 +244,7 @@ func (s *SQLStore) List(ctx context.Context, opts ListOptions) (*ListResult, err
 		messageCountExpr = "json_array_length(messages)"
 	}
 
+	// #nosec G201
 	dataQuery := fmt.Sprintf(`
 		SELECT id, model, owner_iss, owner_sub, tenant_id, created_at, updated_at, %s as message_count
 		FROM conversations
