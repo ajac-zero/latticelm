@@ -23,6 +23,7 @@
     "@tanstack/react-query-devtools": "latest",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-table": "^8.21.3",
     "@xyflow/react": "^12.10.1",
     "ai": "^6.0.116",
     "ansi-to-react": "^6.2.6",

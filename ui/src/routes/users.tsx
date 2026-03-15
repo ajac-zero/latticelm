@@ -1,5 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  createColumnHelper,
+} from '@tanstack/react-table'
 import { Users as UsersIcon, Search, MoreVertical, Trash2, Shield, Ban, CheckCircle } from 'lucide-react'
 import { useUsers, useUpdateUser, useDeleteUser } from '../lib/api/hooks'
 import { requireAdmin } from '../lib/auth'
@@ -48,6 +54,8 @@ import {
 } from '#/components/ui/select'
 import type { UserDetail } from '../lib/api/types'
 
+const columnHelper = createColumnHelper<UserDetail>()
+
 export const Route = createFileRoute('/users')({
   beforeLoad: requireAdmin,
   component: UsersPage,
@@ -64,7 +72,7 @@ function UsersPage() {
 
   const limit = 20
 
-  const { data, isLoading, refetch } = useUsers({
+  const { data, isLoading } = useUsers({
     page,
     limit,
     search: search || undefined,
@@ -129,6 +137,76 @@ function UsersPage() {
 
   const totalPages = data ? Math.ceil(data.total / limit) : 1
 
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor('name', {
+        header: 'Name',
+        cell: (info) => <span className="font-medium">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('email', {
+        header: 'Email',
+      }),
+      columnHelper.accessor('role', {
+        header: 'Role',
+        cell: (info) => <RoleBadge role={info.getValue()} />,
+      }),
+      columnHelper.accessor('status', {
+        header: 'Status',
+        cell: (info) => <StatusBadge status={info.getValue()} />,
+      }),
+      columnHelper.accessor('created_at', {
+        header: 'Created',
+        cell: (info) => (
+          <span className="text-sm text-muted-foreground">
+            {new Date(info.getValue()).toLocaleDateString()}
+          </span>
+        ),
+      }),
+      columnHelper.display({
+        id: 'actions',
+        header: () => <span className="flex justify-end">Actions</span>,
+        cell: (info) => {
+          const user = info.row.original
+          return (
+            <div className="flex justify-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleEditUser(user)}>
+                    <Shield className="mr-2 h-4 w-4" />
+                    Edit User
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => handleDeleteUser(user)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete User
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )
+        },
+      }),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  const table = useReactTable({
+    data: data?.users ?? [],
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: totalPages,
+  })
+
   return (
     <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto max-w-[1400px] px-6">
@@ -190,52 +268,24 @@ function UsersPage() {
             <>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
                 </TableHeader>
                 <TableBody>
-                  {data.users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>
-                        <RoleBadge role={user.role} />
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={user.status} />
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(user.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditUser(user)}>
-                              <Shield className="mr-2 h-4 w-4" />
-                              Edit User
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => handleDeleteUser(user)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete User
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   ))}
                 </TableBody>
