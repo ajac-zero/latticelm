@@ -11,8 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as SystemRouteImport } from './routes/system'
 import { Route as PlaygroundRouteImport } from './routes/playground'
-import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DebugClaimsRouteImport } from './routes/debug.claims'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
@@ -27,14 +27,14 @@ const UsageRoute = UsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SystemRoute = SystemRouteImport.update({
+  id: '/system',
+  path: '/system',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlaygroundRoute = PlaygroundRouteImport.update({
   id: '/playground',
   path: '/playground',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,8 +55,8 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
   '/playground': typeof PlaygroundRoute
+  '/system': typeof SystemRoute
   '/usage': typeof UsageRoute
   '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
@@ -64,8 +64,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
   '/playground': typeof PlaygroundRoute
+  '/system': typeof SystemRoute
   '/usage': typeof UsageRoute
   '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
@@ -74,8 +74,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
   '/playground': typeof PlaygroundRoute
+  '/system': typeof SystemRoute
   '/usage': typeof UsageRoute
   '/users': typeof UsersRoute
   '/auth/login': typeof AuthLoginRoute
@@ -85,8 +85,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/dashboard'
     | '/playground'
+    | '/system'
     | '/usage'
     | '/users'
     | '/auth/login'
@@ -94,8 +94,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/dashboard'
     | '/playground'
+    | '/system'
     | '/usage'
     | '/users'
     | '/auth/login'
@@ -103,8 +103,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/dashboard'
     | '/playground'
+    | '/system'
     | '/usage'
     | '/users'
     | '/auth/login'
@@ -113,8 +113,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRoute: typeof DashboardRoute
   PlaygroundRoute: typeof PlaygroundRoute
+  SystemRoute: typeof SystemRoute
   UsageRoute: typeof UsageRoute
   UsersRoute: typeof UsersRoute
   AuthLoginRoute: typeof AuthLoginRoute
@@ -137,18 +137,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/system': {
+      id: '/system'
+      path: '/system'
+      fullPath: '/system'
+      preLoaderRoute: typeof SystemRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/playground': {
       id: '/playground'
       path: '/playground'
       fullPath: '/playground'
       preLoaderRoute: typeof PlaygroundRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -177,8 +177,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRoute: DashboardRoute,
   PlaygroundRoute: PlaygroundRoute,
+  SystemRoute: SystemRoute,
   UsageRoute: UsageRoute,
   UsersRoute: UsersRoute,
   AuthLoginRoute: AuthLoginRoute,

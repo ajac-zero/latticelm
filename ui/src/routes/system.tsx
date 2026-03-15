@@ -4,7 +4,7 @@ import { Activity, Server, Database, Lock, Settings, BarChart3 } from 'lucide-re
 import { useSystemInfo, useHealth, useConfig, useProviders } from '../lib/api/hooks'
 import { requireAdmin } from '../lib/auth'
 
-export const Route = createFileRoute('/dashboard')({
+export const Route = createFileRoute('/system')({
   beforeLoad: requireAdmin,
   component: DashboardPage,
 })

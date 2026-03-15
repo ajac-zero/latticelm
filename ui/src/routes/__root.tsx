@@ -26,9 +26,10 @@ import { AppSidebar } from '#/components/app-sidebar'
 import { useTheme } from '#/hooks/use-theme'
 
 const routeLabels: Record<string, string> = {
-  '/dashboard': 'Dashboard',
+  '/system': 'System',
   '/playground': 'Playground',
   '/usage': 'Usage',
+  '/users': 'Users',
 }
 
 interface MyRouterContext {
@@ -100,7 +101,7 @@ function RootComponent() {
                   <BreadcrumbList>
                     <BreadcrumbItem className="hidden md:block">
                       <BreadcrumbLink asChild>
-                        <Link to={user?.is_admin ? '/dashboard' : '/playground'}>Home</Link>
+                        <Link to="/">Home</Link>
                       </BreadcrumbLink>
                     </BreadcrumbItem>
                     <BreadcrumbSeparator className="hidden md:block" />

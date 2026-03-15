@@ -2,19 +2,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
 import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail } from './types'
 
-export const useSystemInfo = () => {
+export const useSystemInfo = (enabled = true) => {
   return useQuery({
     queryKey: ['system', 'info'],
     queryFn: () => apiClient.get<SystemInfo>('/system/info'),
     refetchInterval: 30000, // Refresh every 30 seconds
+    enabled,
   })
 }
 
-export const useHealth = () => {
+export const useHealth = (enabled = true) => {
   return useQuery({
     queryKey: ['system', 'health'],
     queryFn: () => apiClient.get<HealthCheckResponse>('/system/health'),
     refetchInterval: 30000,
+    enabled,
   })
 }
 
@@ -27,11 +29,12 @@ export const useConfig = (enabled = true) => {
   })
 }
 
-export const useProviders = () => {
+export const useProviders = (enabled = true) => {
   return useQuery({
     queryKey: ['providers'],
     queryFn: () => apiClient.get<ProviderInfo[]>('/providers'),
     refetchInterval: 30000,
+    enabled,
   })
 }
 
@@ -206,11 +209,12 @@ const usageApi = {
   },
 }
 
-export const useUsageSummary = (params: { start: string; end: string }) => {
+export const useUsageSummary = (params: { start: string; end: string }, enabled = true) => {
   return useQuery({
     queryKey: ['usage', 'summary', params],
     queryFn: () => usageApi.summary(params),
     refetchInterval: 60000,
+    enabled,
   })
 }
 
