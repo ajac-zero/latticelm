@@ -1,4 +1,4 @@
-import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown, Users, BarChart3 } from 'lucide-react'
+import { Zap, LayoutDashboard, MessageSquare, LogOut, Sun, Moon, ChevronsUpDown, Users, BarChart3, Home } from 'lucide-react'
 import { Link, useMatches } from '@tanstack/react-router'
 import {
   Sidebar,
@@ -25,14 +25,16 @@ import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import type { User } from '#/lib/api/types'
 
 const navItems = [
-  { title: 'Dashboard', to: '/dashboard' as const, icon: LayoutDashboard, adminOnly: true },
+  { title: 'Home', to: '/' as const, icon: Home, adminOnly: false },
+  { title: 'Playground', to: '/playground' as const, icon: MessageSquare, adminOnly: false },
+  { title: 'System', to: '/system' as const, icon: LayoutDashboard, adminOnly: true },
   { title: 'Users', to: '/users' as const, icon: Users, adminOnly: true },
   { title: 'Usage', to: '/usage' as const, icon: BarChart3, adminOnly: false, requiresUsage: true },
-  { title: 'Playground', to: '/playground' as const, icon: MessageSquare, adminOnly: false },
 ]
 
-function getInitials(email: string) {
-  return email.slice(0, 2).toUpperCase()
+function getInitials(name: string | undefined, email: string) {
+  const initials = name?.slice(0, 2).toUpperCase() || email.slice(0, 2).toUpperCase()
+  return initials
 }
 
 export function AppSidebar({
@@ -60,7 +62,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to={user?.is_admin ? '/dashboard' : '/playground'}>
+              <Link to="/">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-primary/20 bg-gradient-to-br from-primary/20 to-primary/5">
                   <Zap className="size-4 text-primary" />
                 </div>
@@ -115,11 +117,11 @@ export function AppSidebar({
                   >
                     <Avatar className="h-8 w-8 rounded-lg">
                       <AvatarFallback className="rounded-lg bg-primary/20 text-xs text-primary">
-                        {getInitials(user.email)}
+                        {getInitials(user.name, user.email)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{user.email}</span>
+                      <span className="truncate font-medium">{user.name || user.email}</span>
                     </div>
                     <ChevronsUpDown className="ml-auto size-4" />
                   </SidebarMenuButton>
@@ -134,11 +136,11 @@ export function AppSidebar({
                     <div className="flex items-center gap-2 text-left text-sm">
                       <Avatar className="h-8 w-8 rounded-lg">
                         <AvatarFallback className="rounded-lg bg-primary/20 text-xs text-primary">
-                          {getInitials(user.email)}
+                          {getInitials(user.name, user.email)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex flex-col">
-                        <span className="truncate font-medium">{user.email}</span>
+                        <span className="truncate font-medium">{user.name || user.email}</span>
                         {user.is_admin && (
                           <span className="text-xs text-muted-foreground">Admin</span>
                         )}

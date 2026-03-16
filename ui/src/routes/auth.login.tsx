@@ -26,12 +26,12 @@ function LoginPage() {
       const session = await getAuthSession()
 
       if (!session.auth_enabled) {
-        await navigate({ to: '/dashboard' })
+        await navigate({ to: '/' })
         return
       }
 
       if (session.authenticated) {
-        await navigate({ to: '/dashboard' })
+        await navigate({ to: '/' })
         return
       }
 
