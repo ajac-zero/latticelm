@@ -191,11 +191,22 @@ func (s *Store) UpdateRole(ctx context.Context, userID string, role Role) error 
 
 // ListOptions contains filters and pagination for listing users.
 type ListOptions struct {
-	Page   int
-	Limit  int
-	Role   Role
-	Status Status
-	Search string
+	Page    int
+	Limit   int
+	Role    Role
+	Status  Status
+	Search  string
+	SortBy  string
+	SortDir string // "asc" or "desc"
+}
+
+// validSortColumns is the allowlist for sort_by query parameter.
+var validSortColumns = map[string]string{
+	"name":       "name",
+	"email":      "email",
+	"role":       "role",
+	"status":     "status",
+	"created_at": "created_at",
 }
 
 // ListResult contains paginated user list results.
@@ -322,6 +333,17 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 		return nil, err
 	}
 
+	// Build ORDER BY clause
+	sortCol := "created_at"
+	if col, ok := validSortColumns[opts.SortBy]; ok {
+		sortCol = col
+	}
+	sortDir := "DESC"
+	if opts.SortDir == "asc" {
+		sortDir = "ASC"
+	}
+	orderClause := fmt.Sprintf("ORDER BY %s %s", sortCol, sortDir)
+
 	// Fetch paginated results
 	offset := (opts.Page - 1) * opts.Limit
 	listArgs := append(args, opts.Limit, offset)
@@ -330,18 +352,18 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 		SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
 		FROM users
 		%s
-		ORDER BY created_at DESC
+		%s
 		LIMIT ? OFFSET ?
-	`, whereClause)
+	`, whereClause, orderClause)
 
 	if s.driver == "pgx" || s.driver == "postgres" {
 		dataQuery = fmt.Sprintf(`
 			SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
 			FROM users
 			%s
-			ORDER BY created_at DESC
+			%s
 			LIMIT $%d OFFSET $%d
-		`, whereClause, argNum, argNum+1)
+		`, whereClause, orderClause, argNum, argNum+1)
 	}
 
 	rows, err := s.db.QueryContext(ctx, dataQuery, listArgs...)
@@ -376,6 +398,46 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 		Users: users,
 		Total: total,
 	}, nil
+}
+
+// BulkUpdateOptions holds the fields to update for a set of users.
+type BulkUpdateOptions struct {
+	IDs    []string
+	Role   Role
+	Status Status
+}
+
+// BulkUpdate updates role and/or status for a list of user IDs.
+func (s *Store) BulkUpdate(ctx context.Context, opts BulkUpdateOptions) error {
+	if len(opts.IDs) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+
+	for _, id := range opts.IDs {
+		u, err := s.GetByID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("user not found: %s", id)
+		}
+		if opts.Role != "" {
+			u.Role = opts.Role
+		}
+		if opts.Status != "" {
+			u.Status = opts.Status
+		}
+		u.UpdatedAt = now
+
+		query := `UPDATE users SET role = ?, status = ?, updated_at = ? WHERE id = ?`
+		if s.driver == "pgx" || s.driver == "postgres" {
+			query = `UPDATE users SET role = $1, status = $2, updated_at = $3 WHERE id = $4`
+		}
+		if _, err := s.db.ExecContext(ctx, query, string(u.Role), string(u.Status), now, id); err != nil {
+			return fmt.Errorf("failed to update user %s: %w", id, err)
+		}
+	}
+
+	return nil
 }
 
 // GetByEmail retrieves a user by their email address.

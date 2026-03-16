@@ -159,6 +159,12 @@ export interface UpdateUserRequest {
   status?: 'active' | 'suspended' | 'deleted'
 }
 
+export interface BulkUpdateUserRequest {
+  ids: string[]
+  role?: 'admin' | 'user'
+  status?: 'active' | 'suspended' | 'deleted'
+}
+
 // Conversation Types
 export interface ConversationItem {
   id: string

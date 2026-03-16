@@ -24,6 +24,7 @@ func NewAPI(store *Store) *API {
 // RegisterRoutes registers user API routes.
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/me", a.HandleMe)
+	mux.HandleFunc("/api/users/bulk", a.HandleBulkUpdateUsers)
 	mux.HandleFunc("/api/users/", a.HandleUsers)
 	mux.HandleFunc("/api/users", a.HandleListUsersOnly)
 }
@@ -53,6 +54,13 @@ type ListUsersResponse struct {
 type UpdateUserRequest struct {
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status,omitempty"`
+}
+
+// BulkUpdateRequest is the request body for bulk user updates.
+type BulkUpdateRequest struct {
+	IDs    []string `json:"ids"`
+	Role   string   `json:"role,omitempty"`
+	Status string   `json:"status,omitempty"`
 }
 
 // HandleMe returns the current authenticated user's information.
@@ -147,11 +155,15 @@ func (a *API) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 	roleStr := r.URL.Query().Get("role")
 	statusStr := r.URL.Query().Get("status")
 	search := r.URL.Query().Get("search")
+	sortBy := r.URL.Query().Get("sort_by")
+	sortDir := r.URL.Query().Get("sort_dir")
 
 	opts := ListOptions{
-		Page:   page,
-		Limit:  limit,
-		Search: search,
+		Page:    page,
+		Limit:   limit,
+		Search:  search,
+		SortBy:  sortBy,
+		SortDir: sortDir,
 	}
 
 	if roleStr != "" {
@@ -188,6 +200,66 @@ func (a *API) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 		Total: result.Total,
 		Page:  opts.Page,
 		Limit: opts.Limit,
+	})
+}
+
+// HandleBulkUpdateUsers handles PATCH /api/users/bulk for bulk status/role updates (admin only).
+func (a *API) HandleBulkUpdateUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !a.requireAdmin(w, r) {
+		return
+	}
+
+	var req BulkUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid request body"})
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "No user IDs provided"})
+		return
+	}
+
+	// Prevent acting on self
+	currentUserID := a.getUserID(r)
+	for _, id := range req.IDs {
+		if id == currentUserID {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Cannot bulk-update your own account"})
+			return
+		}
+	}
+
+	opts := BulkUpdateOptions{IDs: req.IDs}
+
+	if req.Role != "" {
+		newRole := Role(req.Role)
+		if newRole != RoleAdmin && newRole != RoleUser {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid role"})
+			return
+		}
+		opts.Role = newRole
+	}
+
+	if req.Status != "" {
+		newStatus := Status(req.Status)
+		if newStatus != StatusActive && newStatus != StatusSuspended && newStatus != StatusDeleted {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid status"})
+			return
+		}
+		opts.Status = newStatus
+	}
+
+	if err := a.store.BulkUpdate(r.Context(), opts); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Users updated successfully",
+		"count":   len(req.IDs),
 	})
 }
 

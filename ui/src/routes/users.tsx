@@ -5,13 +5,16 @@ import {
   getCoreRowModel,
   flexRender,
   createColumnHelper,
+  type SortingState,
+  type RowSelectionState,
 } from '@tanstack/react-table'
-import { Users as UsersIcon, Search, MoreVertical, Trash2, Shield, Ban, CheckCircle } from 'lucide-react'
-import { useUsers, useUpdateUser, useDeleteUser } from '../lib/api/hooks'
+import { Users as UsersIcon, Search, MoreVertical, Trash2, Shield, Ban, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { useUsers, useUpdateUser, useDeleteUser, useBulkUpdateUsers } from '../lib/api/hooks'
 import { requireAdmin } from '../lib/auth'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Badge } from '#/components/ui/badge'
+import { Checkbox } from '#/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -66,11 +69,16 @@ function UsersPage() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const limit = 20
+
+  const sortBy = sorting[0]?.id
+  const sortDir = sorting[0] ? (sorting[0].desc ? 'desc' : 'asc') : undefined
 
   const { data, isLoading } = useUsers({
     page,
@@ -78,10 +86,13 @@ function UsersPage() {
     search: search || undefined,
     role: roleFilter !== 'all' ? roleFilter : undefined,
     status: statusFilter !== 'all' ? statusFilter : undefined,
+    sort_by: sortBy,
+    sort_dir: sortDir,
   })
 
   const updateUser = useUpdateUser()
   const deleteUser = useDeleteUser()
+  const bulkUpdate = useBulkUpdateUsers()
 
   const handleEditUser = (user: UserDetail) => {
     setSelectedUser(user)
@@ -108,10 +119,7 @@ function UsersPage() {
   const handleUpdateRole = async (newRole: 'admin' | 'user') => {
     if (!selectedUser) return
     try {
-      await updateUser.mutateAsync({
-        id: selectedUser.id,
-        data: { role: newRole },
-      })
+      await updateUser.mutateAsync({ id: selectedUser.id, data: { role: newRole } })
       setEditDialogOpen(false)
       setSelectedUser(null)
     } catch (error) {
@@ -123,10 +131,7 @@ function UsersPage() {
   const handleUpdateStatus = async (newStatus: 'active' | 'suspended' | 'deleted') => {
     if (!selectedUser) return
     try {
-      await updateUser.mutateAsync({
-        id: selectedUser.id,
-        data: { status: newStatus },
-      })
+      await updateUser.mutateAsync({ id: selectedUser.id, data: { status: newStatus } })
       setEditDialogOpen(false)
       setSelectedUser(null)
     } catch (error) {
@@ -135,27 +140,59 @@ function UsersPage() {
     }
   }
 
+  const handleBulkAction = async (action: 'suspend' | 'activate' | 'delete') => {
+    const selectedIds = Object.keys(rowSelection).map(
+      (idx) => data!.users[parseInt(idx)].id,
+    )
+    const statusMap = { suspend: 'suspended', activate: 'active', delete: 'deleted' } as const
+    try {
+      await bulkUpdate.mutateAsync({ ids: selectedIds, status: statusMap[action] })
+      setRowSelection({})
+    } catch (error) {
+      console.error('Bulk action failed:', error)
+      alert(error instanceof Error ? error.message : 'Bulk action failed')
+    }
+  }
+
   const totalPages = data ? Math.ceil(data.total / limit) : 1
+  const selectedCount = Object.keys(rowSelection).length
 
   const columns = useMemo(
     () => [
+      columnHelper.display({
+        id: 'select',
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllRowsSelected()}
+            onCheckedChange={(checked) => table.toggleAllRowsSelected(!!checked)}
+            aria-label="Select all"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(!!checked)}
+            aria-label="Select row"
+          />
+        ),
+      }),
       columnHelper.accessor('name', {
-        header: 'Name',
+        header: ({ column }) => <SortHeader label="Name" column={column} />,
         cell: (info) => <span className="font-medium">{info.getValue()}</span>,
       }),
       columnHelper.accessor('email', {
-        header: 'Email',
+        header: ({ column }) => <SortHeader label="Email" column={column} />,
       }),
       columnHelper.accessor('role', {
-        header: 'Role',
+        header: ({ column }) => <SortHeader label="Role" column={column} />,
         cell: (info) => <RoleBadge role={info.getValue()} />,
       }),
       columnHelper.accessor('status', {
-        header: 'Status',
+        header: ({ column }) => <SortHeader label="Status" column={column} />,
         cell: (info) => <StatusBadge status={info.getValue()} />,
       }),
       columnHelper.accessor('created_at', {
-        header: 'Created',
+        header: ({ column }) => <SortHeader label="Created" column={column} />,
         cell: (info) => (
           <span className="text-sm text-muted-foreground">
             {new Date(info.getValue()).toLocaleDateString()}
@@ -202,8 +239,15 @@ function UsersPage() {
   const table = useReactTable({
     data: data?.users ?? [],
     columns,
+    state: { sorting, rowSelection },
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      setPage(1)
+    },
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
+    manualSorting: true,
     pageCount: totalPages,
   })
 
@@ -253,6 +297,53 @@ function UsersPage() {
             </Select>
           </div>
         </div>
+
+        {/* Bulk Action Bar */}
+        {selectedCount > 0 && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+            <span className="text-sm text-muted-foreground">
+              {selectedCount} user{selectedCount !== 1 ? 's' : ''} selected
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkAction('activate')}
+                disabled={bulkUpdate.isPending}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Activate
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkAction('suspend')}
+                disabled={bulkUpdate.isPending}
+              >
+                <Ban className="mr-2 h-4 w-4" />
+                Suspend
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => handleBulkAction('delete')}
+                disabled={bulkUpdate.isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setRowSelection({})}
+            >
+              Clear
+            </Button>
+          </div>
+        )}
 
         {/* Table */}
         <div className="rounded-xl border border-border bg-card">
@@ -430,6 +521,26 @@ function UsersPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+// SortHeader renders a clickable column header with sort indicator
+function SortHeader({ label, column }: { label: string; column: { getIsSorted: () => false | 'asc' | 'desc'; toggleSorting: (desc?: boolean) => void } }) {
+  const sorted = column.getIsSorted()
+  return (
+    <button
+      className="flex items-center gap-1 hover:text-foreground"
+      onClick={() => column.toggleSorting(sorted === 'asc')}
+    >
+      {label}
+      {sorted === 'asc' ? (
+        <ArrowUp className="h-3 w-3" />
+      ) : sorted === 'desc' ? (
+        <ArrowDown className="h-3 w-3" />
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-40" />
+      )}
+    </button>
   )
 }
 
