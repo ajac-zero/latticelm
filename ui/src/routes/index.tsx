@@ -71,7 +71,7 @@ function HomePage() {
   const activeProviders = providers.filter(p => p.status === 'active').length
 
   return (
-    <div className="min-h-screen bg-background py-8">
+    <div className="h-full overflow-auto bg-background py-8">
       <div className="container mx-auto max-w-5xl px-6">
         {/* Greeting */}
         <div className="mb-8">

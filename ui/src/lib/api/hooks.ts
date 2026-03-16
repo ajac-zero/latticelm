@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
-import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail } from './types'
+import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, BulkUpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail } from './types'
 
 export const useSystemInfo = (enabled = true) => {
   return useQuery({
@@ -59,6 +59,8 @@ const userApi = {
     role?: string
     status?: string
     search?: string
+    sort_by?: string
+    sort_dir?: string
   }): Promise<ListUsersResponse> => {
     const searchParams = new URLSearchParams()
     if (params.page) searchParams.append('page', String(params.page))
@@ -66,11 +68,27 @@ const userApi = {
     if (params.role) searchParams.append('role', params.role)
     if (params.status) searchParams.append('status', params.status)
     if (params.search) searchParams.append('search', params.search)
+    if (params.sort_by) searchParams.append('sort_by', params.sort_by)
+    if (params.sort_dir) searchParams.append('sort_dir', params.sort_dir)
 
     const response = await fetch(`/api/users?${searchParams}`, {
       credentials: 'include',
     })
     if (!response.ok) throw new Error('Failed to fetch users')
+    return response.json()
+  },
+
+  bulkUpdateUsers: async (data: BulkUpdateUserRequest): Promise<{ message: string; count: number }> => {
+    const response = await fetch('/api/users/bulk', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to bulk update users')
+    }
     return response.json()
   },
 
@@ -115,10 +133,22 @@ export const useUsers = (params?: {
   role?: string
   status?: string
   search?: string
+  sort_by?: string
+  sort_dir?: string
 }) => {
   return useQuery({
     queryKey: ['users', params],
     queryFn: () => userApi.listUsers(params || {}),
+  })
+}
+
+export const useBulkUpdateUsers = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: BulkUpdateUserRequest) => userApi.bulkUpdateUsers(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
   })
 }
 
