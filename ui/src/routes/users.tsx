@@ -8,7 +8,7 @@ import {
   type SortingState,
   type RowSelectionState,
 } from '@tanstack/react-table'
-import { Users as UsersIcon, Search, MoreVertical, Trash2, Shield, Ban, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Users as UsersIcon, Search, MoreVertical, Trash2, Ban, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Pencil } from 'lucide-react'
 import { useUsers, useUpdateUser, useDeleteUser, useBulkUpdateUsers } from '../lib/api/hooks'
 import { requireAdmin } from '../lib/auth'
 import { Button } from '#/components/ui/button'
@@ -27,17 +27,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '#/components/ui/dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,9 +62,8 @@ function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-  const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null)
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<UserDetail | null>(null)
 
   const limit = 20
 
@@ -94,46 +84,35 @@ function UsersPage() {
   const deleteUser = useDeleteUser()
   const bulkUpdate = useBulkUpdateUsers()
 
-  const handleEditUser = (user: UserDetail) => {
-    setSelectedUser(user)
-    setEditDialogOpen(true)
-  }
-
   const handleDeleteUser = (user: UserDetail) => {
-    setSelectedUser(user)
+    setUserToDelete(user)
     setDeleteDialogOpen(true)
   }
 
   const confirmDelete = async () => {
-    if (!selectedUser) return
+    if (!userToDelete) return
     try {
-      await deleteUser.mutateAsync(selectedUser.id)
+      await deleteUser.mutateAsync(userToDelete.id)
       setDeleteDialogOpen(false)
-      setSelectedUser(null)
+      setUserToDelete(null)
     } catch (error) {
       console.error('Failed to delete user:', error)
       alert(error instanceof Error ? error.message : 'Failed to delete user')
     }
   }
 
-  const handleUpdateRole = async (newRole: 'admin' | 'user') => {
-    if (!selectedUser) return
+  const handleUpdateRole = async (userId: string, newRole: 'admin' | 'user') => {
     try {
-      await updateUser.mutateAsync({ id: selectedUser.id, data: { role: newRole } })
-      setEditDialogOpen(false)
-      setSelectedUser(null)
+      await updateUser.mutateAsync({ id: userId, data: { role: newRole } })
     } catch (error) {
       console.error('Failed to update user:', error)
       alert(error instanceof Error ? error.message : 'Failed to update user')
     }
   }
 
-  const handleUpdateStatus = async (newStatus: 'active' | 'suspended' | 'deleted') => {
-    if (!selectedUser) return
+  const handleUpdateStatus = async (userId: string, newStatus: 'active' | 'suspended' | 'deleted') => {
     try {
-      await updateUser.mutateAsync({ id: selectedUser.id, data: { status: newStatus } })
-      setEditDialogOpen(false)
-      setSelectedUser(null)
+      await updateUser.mutateAsync({ id: userId, data: { status: newStatus } })
     } catch (error) {
       console.error('Failed to update user:', error)
       alert(error instanceof Error ? error.message : 'Failed to update user')
@@ -185,11 +164,25 @@ function UsersPage() {
       }),
       columnHelper.accessor('role', {
         header: ({ column }) => <SortHeader label="Role" column={column} />,
-        cell: (info) => <RoleBadge role={info.getValue()} />,
+        cell: (info) => (
+          <InlineRoleSelect
+            userId={info.row.original.id}
+            role={info.getValue()}
+            onUpdate={handleUpdateRole}
+            isPending={updateUser.isPending}
+          />
+        ),
       }),
       columnHelper.accessor('status', {
         header: ({ column }) => <SortHeader label="Status" column={column} />,
-        cell: (info) => <StatusBadge status={info.getValue()} />,
+        cell: (info) => (
+          <InlineStatusSelect
+            userId={info.row.original.id}
+            status={info.getValue()}
+            onUpdate={handleUpdateStatus}
+            isPending={updateUser.isPending}
+          />
+        ),
       }),
       columnHelper.accessor('created_at', {
         header: ({ column }) => <SortHeader label="Created" column={column} />,
@@ -213,11 +206,6 @@ function UsersPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => handleEditUser(user)}>
-                    <Shield className="mr-2 h-4 w-4" />
-                    Edit User
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => handleDeleteUser(user)}
@@ -412,99 +400,13 @@ function UsersPage() {
         </div>
       </div>
 
-      {/* Edit User Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Update user role and status for {selectedUser?.email}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedUser && (
-            <div className="space-y-6 py-4">
-              {/* User Info */}
-              <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Email:</span>
-                  <span className="text-sm font-medium">{selectedUser.email}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Name:</span>
-                  <span className="text-sm font-medium">{selectedUser.name}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Created:</span>
-                  <span className="text-sm font-medium">
-                    {new Date(selectedUser.created_at).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Role Selection */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium">Role</label>
-                <div className="flex gap-2">
-                  <Button
-                    variant={selectedUser.role === 'user' ? 'default' : 'outline'}
-                    className="flex-1"
-                    onClick={() => handleUpdateRole('user')}
-                    disabled={updateUser.isPending}
-                  >
-                    User
-                  </Button>
-                  <Button
-                    variant={selectedUser.role === 'admin' ? 'default' : 'outline'}
-                    className="flex-1"
-                    onClick={() => handleUpdateRole('admin')}
-                    disabled={updateUser.isPending}
-                  >
-                    Admin
-                  </Button>
-                </div>
-              </div>
-
-              {/* Status Selection */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium">Status</label>
-                <div className="flex flex-col gap-2">
-                  <Button
-                    variant={selectedUser.status === 'active' ? 'default' : 'outline'}
-                    onClick={() => handleUpdateStatus('active')}
-                    disabled={updateUser.isPending}
-                    className="justify-start"
-                  >
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    Active
-                  </Button>
-                  <Button
-                    variant={selectedUser.status === 'suspended' ? 'default' : 'outline'}
-                    onClick={() => handleUpdateStatus('suspended')}
-                    disabled={updateUser.isPending}
-                    className="justify-start"
-                  >
-                    <Ban className="mr-2 h-4 w-4" />
-                    Suspended
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete <strong>{selectedUser?.email}</strong>? This will set
+              Are you sure you want to delete <strong>{userToDelete?.email}</strong>? This will set
               their status to &apos;deleted&apos; and prevent them from logging in. This action can
               be reversed by changing the status back to &apos;active&apos;.
             </AlertDialogDescription>
@@ -544,25 +446,130 @@ function SortHeader({ label, column }: { label: string; column: { getIsSorted: (
   )
 }
 
-// Badge Components
-function RoleBadge({ role }: { role: string }) {
-  const isAdmin = role === 'admin'
+// Inline Role Select Component
+function InlineRoleSelect({
+  userId,
+  role,
+  onUpdate,
+  isPending,
+}: {
+  userId: string
+  role: 'admin' | 'user'
+  onUpdate: (userId: string, role: 'admin' | 'user') => Promise<void>
+  isPending: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
   return (
-    <Badge variant={isAdmin ? 'default' : 'secondary'} className="capitalize">
-      {role}
-    </Badge>
+    <div className="relative inline-flex">
+      <button
+        onClick={() => setIsOpen(true)}
+        disabled={isPending}
+        className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+      >
+        <Badge variant={role === 'admin' ? 'default' : 'secondary'} className="capitalize group-hover:opacity-70">
+          {role}
+        </Badge>
+        <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+      </button>
+      {isOpen && (
+        <Select
+          value={role}
+          onValueChange={(value) => {
+            onUpdate(userId, value as 'admin' | 'user')
+            setIsOpen(false)
+          }}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setIsOpen(false)
+          }}
+        >
+          <SelectTrigger className="absolute inset-0 h-full w-full opacity-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="user">User</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === 'active' ? 'default' :
-    status === 'suspended' ? 'secondary' :
-    'destructive'
+// Inline Status Select Component
+function InlineStatusSelect({
+  userId,
+  status,
+  onUpdate,
+  isPending,
+}: {
+  userId: string
+  status: 'active' | 'suspended' | 'deleted'
+  onUpdate: (userId: string, status: 'active' | 'suspended' | 'deleted') => Promise<void>
+  isPending: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  const getVariant = () => {
+    if (status === 'active') return 'default'
+    if (status === 'suspended') return 'secondary'
+    return 'destructive'
+  }
+
+  const getStatusIcon = () => {
+    if (status === 'active') return <CheckCircle className="h-3 w-3" />
+    if (status === 'suspended') return <Ban className="h-3 w-3" />
+    return null
+  }
 
   return (
-    <Badge variant={variant} className="capitalize">
-      {status}
-    </Badge>
+    <div className="relative inline-flex">
+      <button
+        onClick={() => setIsOpen(true)}
+        disabled={isPending}
+        className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+      >
+        <Badge variant={getVariant()} className="capitalize group-hover:opacity-70">
+          <span className="flex items-center gap-1">
+            {getStatusIcon()}
+            {status}
+          </span>
+        </Badge>
+        <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+      </button>
+      {isOpen && (
+        <Select
+          value={status}
+          onValueChange={(value) => {
+            onUpdate(userId, value as 'active' | 'suspended' | 'deleted')
+            setIsOpen(false)
+          }}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setIsOpen(false)
+          }}
+        >
+          <SelectTrigger className="absolute inset-0 h-full w-full opacity-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">
+              <span className="flex items-center gap-2">
+                <CheckCircle className="h-3 w-3" />
+                Active
+              </span>
+            </SelectItem>
+            <SelectItem value="suspended">
+              <span className="flex items-center gap-2">
+                <Ban className="h-3 w-3" />
+                Suspended
+              </span>
+            </SelectItem>
+            <SelectItem value="deleted">Deleted</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   )
 }
