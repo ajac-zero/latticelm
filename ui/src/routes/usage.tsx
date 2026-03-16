@@ -82,7 +82,7 @@ function UsagePage() {
   const loading = summaryLoading || topLoading || trendsLoading
 
   return (
-    <div className="min-h-screen bg-background py-8">
+    <div className="h-full overflow-auto bg-background py-8">
       <div className="container mx-auto max-w-[1400px] px-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">

@@ -26,6 +26,7 @@ import { AppSidebar } from '#/components/app-sidebar'
 import { useTheme } from '#/hooks/use-theme'
 
 const routeLabels: Record<string, string> = {
+  '/': 'Home',
   '/system': 'System',
   '/playground': 'Playground',
   '/usage': 'Usage',
@@ -92,19 +93,23 @@ function RootComponent() {
       <SidebarProvider>
         <AppSidebar user={user} authEnabled={authEnabled} usageEnabled={config?.usage?.enabled ?? false} onLogout={logout} theme={theme} onToggleTheme={toggleTheme} />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-white/5 bg-background/80 backdrop-blur-sm px-4">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background/80 backdrop-blur-sm px-4">
             <SidebarTrigger className="-ml-1" />
             {currentLabel && (
               <>
                 <Separator orientation="vertical" className="mr-2 h-4" />
                 <Breadcrumb>
                   <BreadcrumbList>
-                    <BreadcrumbItem className="hidden md:block">
-                      <BreadcrumbLink asChild>
-                        <Link to="/">Home</Link>
-                      </BreadcrumbLink>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator className="hidden md:block" />
+                    {currentPath !== '/' && (
+                      <>
+                        <BreadcrumbItem className="hidden md:block">
+                          <BreadcrumbLink asChild>
+                            <Link to="/">Home</Link>
+                          </BreadcrumbLink>
+                        </BreadcrumbItem>
+                        <BreadcrumbSeparator className="hidden md:block" />
+                      </>
+                    )}
                     <BreadcrumbItem>
                       <BreadcrumbPage>{currentLabel}</BreadcrumbPage>
                     </BreadcrumbItem>
@@ -114,7 +119,7 @@ function RootComponent() {
             )}
           </header>
 
-          <main className="relative flex-1">
+          <main className="relative flex-1 overflow-auto">
             <Outlet />
           </main>
         </SidebarInset>
