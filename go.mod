@@ -3,6 +3,7 @@ module github.com/ajac-zero/latticelm
 go 1.26.1
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/go-sql-driver/mysql v1.9.3
@@ -20,10 +21,8 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.41.0
 	go.opentelemetry.io/otel/sdk v1.41.0
 	go.opentelemetry.io/otel/trace v1.41.0
-	golang.org/x/time v0.14.0
 	google.golang.org/genai v1.49.0
 	google.golang.org/grpc v1.79.1
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -34,7 +33,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
-	github.com/ClickHouse/clickhouse-go/v2 v2.43.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -87,4 +85,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

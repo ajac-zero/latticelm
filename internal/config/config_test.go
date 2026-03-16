@@ -1,311 +1,233 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoad(t *testing.T) {
+func TestLoadFromEnv(t *testing.T) {
 	tests := []struct {
 		name        string
-		configYAML  string
-		envVars     map[string]string
+		env         map[string]string
 		expectError bool
 		validate    func(t *testing.T, cfg *Config)
 	}{
 		{
-			name: "basic config with all fields",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: sk-test-key
-  anthropic:
-    type: anthropic
-    api_key: sk-ant-key
-models:
-  - name: gpt-4
-    provider: openai
-    provider_model_id: gpt-4-turbo
-  - name: claude-3
-    provider: anthropic
-    provider_model_id: claude-3-sonnet-20240229
-auth:
-  enabled: true
-  issuer: https://accounts.google.com
-  audience: my-client-id
-conversations:
-  store: memory
-  ttl: 1h
-ui:
-  enabled: true
-  claim: groups
-  allowed_values:
-    - platform-admin
-    - ops
-`,
+			name: "empty env produces zero-value config",
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, ":8080", cfg.Server.Address)
-				assert.Len(t, cfg.Providers, 2)
-				assert.Equal(t, "openai", cfg.Providers["openai"].Type)
-				assert.Equal(t, "sk-test-key", cfg.Providers["openai"].APIKey)
-				assert.Len(t, cfg.Models, 2)
-				assert.Equal(t, "gpt-4", cfg.Models[0].Name)
+				assert.Equal(t, "", cfg.Server.Address)
+				assert.False(t, cfg.Auth.Enabled)
+				assert.False(t, cfg.UI.Enabled)
+				assert.Nil(t, cfg.Providers)
+				assert.Nil(t, cfg.Models)
+			},
+		},
+		{
+			name: "server and logging",
+			env: map[string]string{
+				"SERVER_ADDRESS":             ":9090",
+				"SERVER_MAX_REQUEST_BODY_SIZE": "5242880",
+				"LOG_FORMAT":                 "text",
+				"LOG_LEVEL":                  "debug",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, ":9090", cfg.Server.Address)
+				assert.Equal(t, int64(5242880), cfg.Server.MaxRequestBodySize)
+				assert.Equal(t, "text", cfg.Logging.Format)
+				assert.Equal(t, "debug", cfg.Logging.Level)
+			},
+		},
+		{
+			name: "auth fields",
+			env: map[string]string{
+				"AUTH_ENABLED":      "true",
+				"AUTH_ISSUER":       "https://accounts.google.com",
+				"AUTH_CLIENT_ID":    "my-client-id",
+				"AUTH_CLIENT_SECRET": "my-secret",
+				"AUTH_REDIRECT_URI": "https://example.com/callback",
+				"AUTH_ADMIN_EMAIL":  "admin@example.com",
+			},
+			validate: func(t *testing.T, cfg *Config) {
 				assert.True(t, cfg.Auth.Enabled)
-				assert.Equal(t, "memory", cfg.Conversations.Store)
+				assert.Equal(t, "https://accounts.google.com", cfg.Auth.Issuer)
+				assert.Equal(t, "my-client-id", cfg.Auth.ClientID)
+				assert.Equal(t, "my-secret", cfg.Auth.ClientSecret)
+				assert.Equal(t, "https://example.com/callback", cfg.Auth.RedirectURI)
+				assert.Equal(t, "admin@example.com", cfg.Auth.AdminEmail)
+			},
+		},
+		{
+			name: "audience defaults to client_id when not set",
+			env: map[string]string{
+				"AUTH_CLIENT_ID": "my-client-id",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, "my-client-id", cfg.Auth.Audience)
+			},
+		},
+		{
+			name: "explicit audience takes precedence over client_id",
+			env: map[string]string{
+				"AUTH_CLIENT_ID": "my-client-id",
+				"AUTH_AUDIENCE":  "explicit-audience",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, "explicit-audience", cfg.Auth.Audience)
+			},
+		},
+		{
+			name: "ui fields with comma-separated slices",
+			env: map[string]string{
+				"UI_ENABLED":        "true",
+				"UI_CLAIM":          "groups",
+				"UI_ALLOWED_VALUES": "platform-admin, ops",
+				"UI_IP_ALLOWLIST":   "10.0.0.0/8, 192.168.1.0/24",
+			},
+			validate: func(t *testing.T, cfg *Config) {
 				assert.True(t, cfg.UI.Enabled)
 				assert.Equal(t, "groups", cfg.UI.Claim)
 				assert.Equal(t, []string{"platform-admin", "ops"}, cfg.UI.AllowedValues)
+				assert.Equal(t, []string{"10.0.0.0/8", "192.168.1.0/24"}, cfg.UI.IPAllowlist)
 			},
 		},
 		{
-			name: "config with environment variables",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: ${OPENAI_API_KEY}
-models:
-  - name: gpt-4
-    provider: openai
-    provider_model_id: gpt-4
-`,
-			envVars: map[string]string{
-				"OPENAI_API_KEY": "sk-from-env",
+			name: "rate limit fields",
+			env: map[string]string{
+				"RATE_LIMIT_ENABLED":               "true",
+				"RATE_LIMIT_REDIS_URL":             "redis://localhost:6379/1",
+				"RATE_LIMIT_TRUSTED_PROXY_CIDRS":   "10.0.0.0/8,172.16.0.0/12",
+				"RATE_LIMIT_REQUESTS_PER_SECOND":   "20.5",
+				"RATE_LIMIT_BURST":                 "40",
+				"RATE_LIMIT_MAX_PROMPT_TOKENS":      "50000",
+				"RATE_LIMIT_MAX_OUTPUT_TOKENS":      "8192",
+				"RATE_LIMIT_MAX_CONCURRENT_REQUESTS": "5",
+				"RATE_LIMIT_DAILY_TOKEN_QUOTA":      "500000",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "sk-from-env", cfg.Providers["openai"].APIKey)
-			},
-		},
-	{
-			name: "minimal config",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: openai
-`,
-			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, ":8080", cfg.Server.Address)
-				assert.Len(t, cfg.Providers, 1)
-				assert.Len(t, cfg.Models, 1)
-				assert.False(t, cfg.Auth.Enabled)
+				assert.True(t, cfg.RateLimit.Enabled)
+				assert.Equal(t, "redis://localhost:6379/1", cfg.RateLimit.RedisURL)
+				assert.Equal(t, []string{"10.0.0.0/8", "172.16.0.0/12"}, cfg.RateLimit.TrustedProxyCIDRs)
+				assert.Equal(t, 20.5, cfg.RateLimit.RequestsPerSecond)
+				assert.Equal(t, 40, cfg.RateLimit.Burst)
+				assert.Equal(t, 50000, cfg.RateLimit.MaxPromptTokens)
+				assert.Equal(t, 8192, cfg.RateLimit.MaxOutputTokens)
+				assert.Equal(t, 5, cfg.RateLimit.MaxConcurrentRequests)
+				assert.Equal(t, int64(500000), cfg.RateLimit.DailyTokenQuota)
 			},
 		},
 		{
-			name: "auth audience defaults to client id",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: openai
-auth:
-  enabled: true
-  issuer: https://accounts.google.com
-  client_id: my-client-id
-`,
+			name: "usage fields",
+			env: map[string]string{
+				"USAGE_ENABLED":        "true",
+				"USAGE_ANALYTICS_MODE": "timescaledb",
+				"USAGE_DSN":            "postgres://user:pass@host/db",
+				"USAGE_BUFFER_SIZE":    "2000",
+				"USAGE_FLUSH_INTERVAL": "10s",
+			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "my-client-id", cfg.Auth.Audience)
-				assert.Equal(t, "my-client-id", cfg.Auth.ClientID)
+				assert.True(t, cfg.Usage.Enabled)
+				assert.Equal(t, "timescaledb", cfg.Usage.AnalyticsMode)
+				assert.Equal(t, "postgres://user:pass@host/db", cfg.Usage.DSN)
+				assert.Equal(t, 2000, cfg.Usage.BufferSize)
+				assert.Equal(t, "10s", cfg.Usage.FlushInterval)
 			},
 		},
 		{
-			name: "azure openai provider",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  azure:
-    type: azureopenai
-    api_key: azure-key
-    endpoint: https://my-resource.openai.azure.com
-    api_version: "2024-02-15-preview"
-models:
-  - name: gpt-4-azure
-    provider: azure
-    provider_model_id: gpt-4-deployment
-`,
-			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "azureopenai", cfg.Providers["azure"].Type)
-				assert.Equal(t, "azure-key", cfg.Providers["azure"].APIKey)
-				assert.Equal(t, "https://my-resource.openai.azure.com", cfg.Providers["azure"].Endpoint)
-				assert.Equal(t, "2024-02-15-preview", cfg.Providers["azure"].APIVersion)
+			name: "conversations fields including nullable bool",
+			env: map[string]string{
+				"CONVERSATIONS_ENABLED":          "true",
+				"CONVERSATIONS_STORE_BY_DEFAULT": "true",
+				"CONVERSATIONS_STORE":            "sql",
+				"CONVERSATIONS_TTL":              "2h",
+				"CONVERSATIONS_MAX_TTL":          "24h",
+				"CONVERSATIONS_DSN":              "postgres://user:pass@host/db",
+				"CONVERSATIONS_DRIVER":           "pgx",
+				"CONVERSATIONS_MAX_OPEN_CONNS":   "30",
+				"CONVERSATIONS_MAX_IDLE_CONNS":   "10",
+				"CONVERSATIONS_CONN_MAX_LIFETIME": "10m",
+				"CONVERSATIONS_CONN_MAX_IDLE_TIME": "2m",
 			},
-		},
-		{
-			name: "vertex ai provider",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  vertex:
-    type: vertexai
-    project: my-gcp-project
-    location: us-central1
-models:
-  - name: gemini-pro
-    provider: vertex
-    provider_model_id: gemini-1.5-pro
-`,
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "vertexai", cfg.Providers["vertex"].Type)
-				assert.Equal(t, "my-gcp-project", cfg.Providers["vertex"].Project)
-				assert.Equal(t, "us-central1", cfg.Providers["vertex"].Location)
-			},
-		},
-		{
-			name: "sql conversation store",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: openai
-conversations:
-  store: sql
-  driver: sqlite3
-  dsn: conversations.db
-  ttl: 2h
-`,
-			validate: func(t *testing.T, cfg *Config) {
+				require.NotNil(t, cfg.Conversations.Enabled)
+				assert.True(t, *cfg.Conversations.Enabled)
+				assert.True(t, cfg.Conversations.StoreByDefault)
 				assert.Equal(t, "sql", cfg.Conversations.Store)
-				assert.Equal(t, "sqlite3", cfg.Conversations.Driver)
-				assert.Equal(t, "conversations.db", cfg.Conversations.DSN)
 				assert.Equal(t, "2h", cfg.Conversations.TTL)
+				assert.Equal(t, "24h", cfg.Conversations.MaxTTL)
+				assert.Equal(t, "postgres://user:pass@host/db", cfg.Conversations.DSN)
+				assert.Equal(t, "pgx", cfg.Conversations.Driver)
+				assert.Equal(t, 30, cfg.Conversations.MaxOpenConns)
+				assert.Equal(t, 10, cfg.Conversations.MaxIdleConns)
+				assert.Equal(t, "10m", cfg.Conversations.ConnMaxLifetime)
+				assert.Equal(t, "2m", cfg.Conversations.ConnMaxIdleTime)
 			},
 		},
 		{
-			name: "redis conversation store",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: openai
-conversations:
-  store: redis
-  dsn: redis://localhost:6379/0
-  ttl: 30m
-`,
+			name: "observability and tracing fields",
+			env: map[string]string{
+				"OBSERVABILITY_ENABLED":    "true",
+				"METRICS_ENABLED":          "true",
+				"METRICS_PATH":             "/prom",
+				"TRACING_ENABLED":          "true",
+				"TRACING_SERVICE_NAME":     "my-gateway",
+				"TRACING_SAMPLER_TYPE":     "always",
+				"TRACING_SAMPLER_RATE":     "1.0",
+				"TRACING_EXPORTER_TYPE":    "otlp",
+				"TRACING_EXPORTER_ENDPOINT": "collector:4317",
+				"TRACING_EXPORTER_INSECURE": "true",
+			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "redis", cfg.Conversations.Store)
-				assert.Equal(t, "redis://localhost:6379/0", cfg.Conversations.DSN)
-				assert.Equal(t, "30m", cfg.Conversations.TTL)
+				assert.True(t, cfg.Observability.Enabled)
+				assert.True(t, cfg.Observability.Metrics.Enabled)
+				assert.Equal(t, "/prom", cfg.Observability.Metrics.Path)
+				assert.True(t, cfg.Observability.Tracing.Enabled)
+				assert.Equal(t, "my-gateway", cfg.Observability.Tracing.ServiceName)
+				assert.Equal(t, "always", cfg.Observability.Tracing.Sampler.Type)
+				assert.Equal(t, 1.0, cfg.Observability.Tracing.Sampler.Rate)
+				assert.Equal(t, "otlp", cfg.Observability.Tracing.Exporter.Type)
+				assert.Equal(t, "collector:4317", cfg.Observability.Tracing.Exporter.Endpoint)
+				assert.True(t, cfg.Observability.Tracing.Exporter.Insecure)
 			},
 		},
 		{
-			name: "invalid model references unknown provider",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: unknown_provider
-`,
+			name:        "invalid bool returns error",
+			env:         map[string]string{"AUTH_ENABLED": "notabool"},
 			expectError: true,
 		},
 		{
-			name:        "invalid YAML",
-			configYAML:  `invalid: yaml: content: [unclosed`,
+			name:        "invalid int returns error",
+			env:         map[string]string{"RATE_LIMIT_BURST": "notanint"},
 			expectError: true,
 		},
 		{
-			name: "model references provider without required API key",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-models:
-  - name: gpt-4
-    provider: openai
-`,
+			name:        "invalid float returns error",
+			env:         map[string]string{"RATE_LIMIT_REQUESTS_PER_SECOND": "notafloat"},
 			expectError: true,
 		},
 		{
-			name: "multiple models same provider",
-			configYAML: `
-server:
-  address: ":8080"
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-models:
-  - name: gpt-4
-    provider: openai
-    provider_model_id: gpt-4-turbo
-  - name: gpt-3.5
-    provider: openai
-    provider_model_id: gpt-3.5-turbo
-  - name: gpt-4-mini
-    provider: openai
-    provider_model_id: gpt-4o-mini
-`,
-			validate: func(t *testing.T, cfg *Config) {
-				assert.Len(t, cfg.Models, 3)
-				for _, model := range cfg.Models {
-					assert.Equal(t, "openai", model.Provider)
-				}
-			},
+			name:        "invalid int64 returns error",
+			env:         map[string]string{"SERVER_MAX_REQUEST_BODY_SIZE": "notanint"},
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temporary config file
-			tmpDir := t.TempDir()
-			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.configYAML), 0644)
-			require.NoError(t, err, "failed to write test config file")
-
-			// Set environment variables
-			for key, value := range tt.envVars {
-				t.Setenv(key, value)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
 			}
 
-			// Load config
-			cfg, err := Load(configPath)
+			cfg, err := LoadFromEnv()
 
 			if tt.expectError {
-				assert.Error(t, err, "expected an error")
+				assert.Error(t, err)
 				return
 			}
 
-			require.NoError(t, err, "unexpected error loading config")
-			require.NotNil(t, cfg, "config should not be nil")
-
+			require.NoError(t, err)
+			require.NotNil(t, cfg)
 			if tt.validate != nil {
 				tt.validate(t, cfg)
 			}
@@ -313,12 +235,7 @@ models:
 	}
 }
 
-func TestLoadNonExistentFile(t *testing.T) {
-	_, err := Load("/nonexistent/config.yaml")
-	assert.Error(t, err, "should error on nonexistent file")
-}
-
-func TestConfigValidate(t *testing.T) {
+func TestValidate(t *testing.T) {
 	tests := []struct {
 		name        string
 		config      Config
@@ -334,7 +251,14 @@ func TestConfigValidate(t *testing.T) {
 					{Name: "gpt-4", Provider: "openai"},
 				},
 			},
-			expectError: false,
+		},
+		{
+			name: "no models passes",
+			config: Config{
+				Providers: map[string]ProviderEntry{
+					"openai": {Type: "openai"},
+				},
+			},
 		},
 		{
 			name: "model references unknown provider",
@@ -349,7 +273,7 @@ func TestConfigValidate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "model references provider without api key",
+			name: "model references provider without api_key",
 			config: Config{
 				Providers: map[string]ProviderEntry{
 					"openai": {Type: "openai"},
@@ -361,20 +285,34 @@ func TestConfigValidate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "no models",
+			name: "azure requires endpoint",
 			config: Config{
 				Providers: map[string]ProviderEntry{
-					"openai": {Type: "openai"},
+					"azure": {Type: "azureopenai", APIKey: "key"},
 				},
-				Models: []ModelEntry{},
+				Models: []ModelEntry{
+					{Name: "gpt-4", Provider: "azure"},
+				},
 			},
-			expectError: false,
+			expectError: true,
+		},
+		{
+			name: "vertexai requires project and location",
+			config: Config{
+				Providers: map[string]ProviderEntry{
+					"vertex": {Type: "vertexai", Project: "my-project"},
+				},
+				Models: []ModelEntry{
+					{Name: "gemini", Provider: "vertex"},
+				},
+			},
+			expectError: true,
 		},
 		{
 			name: "multiple models multiple providers",
 			config: Config{
 				Providers: map[string]ProviderEntry{
-					"openai":    {Type: "openai", APIKey: "test-key"},
+					"openai":    {Type: "openai", APIKey: "key"},
 					"anthropic": {Type: "anthropic", APIKey: "ant-key"},
 				},
 				Models: []ModelEntry{
@@ -382,53 +320,17 @@ func TestConfigValidate(t *testing.T) {
 					{Name: "claude-3", Provider: "anthropic"},
 				},
 			},
-			expectError: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate()
+			err := tt.config.Validate()
 			if tt.expectError {
-				assert.Error(t, err, "expected validation error")
+				assert.Error(t, err)
 			} else {
-				assert.NoError(t, err, "unexpected validation error")
+				assert.NoError(t, err)
 			}
 		})
 	}
-}
-
-func TestEnvironmentVariableExpansion(t *testing.T) {
-	configYAML := `
-server:
-  address: "${SERVER_ADDRESS}"
-providers:
-  openai:
-    type: openai
-    api_key: ${OPENAI_KEY}
-  anthropic:
-    type: anthropic
-    api_key: ${ANTHROPIC_KEY:-default-key}
-models:
-  - name: gpt-4
-    provider: openai
-`
-
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configPath, []byte(configYAML), 0644)
-	require.NoError(t, err)
-
-	// Set only some env vars to test defaults
-	t.Setenv("SERVER_ADDRESS", ":9090")
-	t.Setenv("OPENAI_KEY", "sk-from-env")
-	// Don't set ANTHROPIC_KEY to test default value
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err)
-
-	assert.Equal(t, ":9090", cfg.Server.Address)
-	assert.Equal(t, "sk-from-env", cfg.Providers["openai"].APIKey)
-	// Note: Go's os.Expand doesn't support default values like ${VAR:-default}
-	// This is just documenting current behavior
 }
