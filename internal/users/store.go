@@ -348,6 +348,7 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 	offset := (opts.Page - 1) * opts.Limit
 	listArgs := append(args, opts.Limit, offset)
 
+	// #nosec G201 - sortCol is validated against allowlist, sortDir only accepts asc/desc
 	dataQuery := fmt.Sprintf(`
 		SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
 		FROM users
@@ -357,6 +358,7 @@ func (s *Store) ListWithOptions(ctx context.Context, opts ListOptions) (*ListRes
 	`, whereClause, orderClause)
 
 	if s.driver == "pgx" || s.driver == "postgres" {
+		// #nosec G201 - sortCol is validated against allowlist, sortDir only accepts asc/desc
 		dataQuery = fmt.Sprintf(`
 			SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
 			FROM users
