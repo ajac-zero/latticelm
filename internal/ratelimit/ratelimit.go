@@ -12,15 +12,15 @@ import (
 
 // Config defines distributed rate limiting configuration.
 type Config struct {
-	Enabled               bool     `yaml:"enabled"`
-	RedisURL              string   `yaml:"redis_url"`
-	TrustedProxyCIDRs     []string `yaml:"trusted_proxy_cidrs"`
-	RequestsPerSecond     float64  `yaml:"requests_per_second"`
-	Burst                 int      `yaml:"burst"`
-	MaxPromptTokens       int      `yaml:"max_prompt_tokens"`
-	MaxOutputTokens       int      `yaml:"max_output_tokens"`
-	MaxConcurrentRequests int      `yaml:"max_concurrent_requests"`
-	DailyTokenQuota       int64    `yaml:"daily_token_quota"`
+	Enabled               bool
+	RedisURL              string
+	TrustedProxyCIDRs     []string
+	RequestsPerSecond     float64
+	Burst                 int
+	MaxPromptTokens       int
+	MaxOutputTokens       int
+	MaxConcurrentRequests int
+	DailyTokenQuota       int64
 }
 
 // RateLimitError is a structured error response for rate limit violations.

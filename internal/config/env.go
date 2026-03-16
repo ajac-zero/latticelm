@@ -11,7 +11,7 @@ import (
 // corresponding fields in cfg. Env vars always take precedence over values
 // loaded from the config file or GATEWAY_CONFIG. Unset vars are ignored.
 //
-// Naming convention: YAML dot-path in SCREAMING_SNAKE_CASE.
+// Naming convention: field path in SCREAMING_SNAKE_CASE.
 // Lists (slices) are comma-separated strings.
 func applyEnvOverrides(cfg *Config) error {
 	var err error

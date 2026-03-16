@@ -31,11 +31,11 @@ import (
 //     remain accepted. Set a non-zero value (e.g., 15 m) to bound that window at the
 //     cost of hard failures for active tokens if the IdP outage is prolonged.
 type Config struct {
-	Enabled   bool          `yaml:"enabled"`
-	Issuer    string        `yaml:"issuer"`     // e.g., "https://accounts.google.com"
-	Audience  string        `yaml:"audience"`   // e.g., your client ID
-	ClockSkew time.Duration `yaml:"clock_skew"` // allowance for clock drift; default 0
-	StaleTTL  time.Duration `yaml:"stale_ttl"`  // stale-key acceptance window; 0 = unlimited
+	Enabled   bool
+	Issuer    string        // e.g., "https://accounts.google.com"
+	Audience  string        // e.g., your client ID
+	ClockSkew time.Duration // allowance for clock drift; default 0
+	StaleTTL  time.Duration // stale-key acceptance window; 0 = unlimited
 }
 
 // AdminConfig holds authorization settings for admin-only routes.
