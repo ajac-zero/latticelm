@@ -358,8 +358,21 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 		providerModels[m.Provider] = append(providerModels[m.Provider], m.Model)
 	}
 
+	var providerMap map[string]config.ProviderEntry
+	if s.configStore != nil {
+		var err error
+		providerMap, err = s.configStore.ListProviders(r.Context())
+		if err != nil {
+			s.logger.Error("failed to list providers from store", "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to list providers")
+			return
+		}
+	} else {
+		providerMap = s.cfg.Providers
+	}
+
 	var providers []ProviderInfo
-	for name, entry := range s.cfg.Providers {
+	for name, entry := range providerMap {
 		providers = append(providers, ProviderInfo{
 			Name:   name,
 			Type:   entry.Type,
@@ -467,6 +480,16 @@ func (s *Server) handleProviderByName(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConfigModels(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if s.configStore != nil {
+			models, err := s.configStore.ListModels(r.Context())
+			if err != nil {
+				s.logger.Error("failed to list models from store", "error", err)
+				writeError(w, http.StatusInternalServerError, "store_error", "Failed to list models")
+				return
+			}
+			writeSuccess(w, models)
+			return
+		}
 		writeSuccess(w, s.cfg.Models)
 	case http.MethodPost:
 		if s.configStore == nil {

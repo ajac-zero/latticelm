@@ -93,30 +93,36 @@ func main() {
 		logger.Info("metrics initialized", slog.String("path", metricsPath))
 	}
 
-	// Create provider registry with circuit breaker support
-	var baseRegistry *providers.Registry
-	if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
-		// Pass observability callback for circuit breaker state changes
-		baseRegistry, err = providers.NewRegistryWithCircuitBreaker(
-			cfg.Providers,
-			cfg.Models,
-			observability.RecordCircuitBreakerStateChange,
-		)
-	} else {
-		// No observability, use default registry
-		baseRegistry, err = providers.NewRegistry(cfg.Providers, cfg.Models)
+	// buildRegistry constructs a live registry from the supplied config, applying
+	// observability wrapping when enabled. Used both at startup and by the
+	// config-polling goroutine to hot-swap the registry without restarting.
+	buildRegistry := func(provEntries map[string]config.ProviderEntry, mods []config.ModelEntry) (providers.ProviderRegistry, error) {
+		var base *providers.Registry
+		var buildErr error
+		if cfg.Observability.Enabled && cfg.Observability.Metrics.Enabled {
+			base, buildErr = providers.NewRegistryWithCircuitBreaker(provEntries, mods, observability.RecordCircuitBreakerStateChange)
+		} else {
+			base, buildErr = providers.NewRegistry(provEntries, mods)
+		}
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		if cfg.Observability.Enabled {
+			return observability.WrapProviderRegistry(base, metricsRegistry, tracerProvider), nil
+		}
+		return base, nil
 	}
+
+	initialRegistry, err := buildRegistry(cfg.Providers, cfg.Models)
 	if err != nil {
 		logger.Error("failed to initialize providers", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-
-	// Wrap providers with observability
-	var registry server.ProviderRegistry = baseRegistry
 	if cfg.Observability.Enabled {
-		registry = observability.WrapProviderRegistry(registry, metricsRegistry, tracerProvider)
 		logger.Info("providers instrumented")
 	}
+
+	holder := providers.NewRegistryHolder(initialRegistry)
 
 	// Initialize authentication middleware
 	authConfig := auth.Config{
@@ -231,7 +237,7 @@ func main() {
 		logger.Info("conversation store instrumented")
 	}
 
-	gatewayServer := server.New(registry, convStore, logger,
+	gatewayServer := server.New(holder, convStore, logger,
 		server.WithAdminConfig(auth.AdminConfig{
 			Enabled:       cfg.Auth.Enabled && cfg.UI.Enabled,
 			Claim:         cfg.UI.Claim,
@@ -412,7 +418,7 @@ func main() {
 			GitCommit: "unknown",
 			GoVersion: runtime.Version(),
 		}
-		adminServer = ui.New(registry, convStore, cfg, configStore, logger, buildInfo)
+		adminServer = ui.New(holder, convStore, cfg, configStore, logger, buildInfo)
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 
@@ -450,6 +456,43 @@ func main() {
 		if len(allowlist) > 0 {
 			logger.Info("admin IP allowlist active", slog.Int("cidr_count", len(allowlist)))
 		}
+	}
+
+	// Start config-polling goroutine when a DB-backed config store is available.
+	// Every 30 s each pod independently reloads providers and models from the DB
+	// and hot-swaps the registry via the holder. This keeps all horizontally-
+	// scaled instances eventually consistent without any inter-pod signalling.
+	pollCtx, pollCancel := context.WithCancel(context.Background())
+	if configStore != nil {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					provEntries, listErr := configStore.ListProviders(pollCtx)
+					if listErr != nil {
+						logger.Error("registry poll: list providers", slog.String("error", listErr.Error()))
+						continue
+					}
+					mods, listErr := configStore.ListModels(pollCtx)
+					if listErr != nil {
+						logger.Error("registry poll: list models", slog.String("error", listErr.Error()))
+						continue
+					}
+					newReg, buildErr := buildRegistry(provEntries, mods)
+					if buildErr != nil {
+						logger.Error("registry poll: build registry", slog.String("error", buildErr.Error()))
+						continue
+					}
+					holder.Swap(newReg)
+					logger.Debug("registry reloaded from config store")
+				case <-pollCtx.Done():
+					return
+				}
+			}
+		}()
+		logger.Info("config polling enabled", slog.Duration("interval", 30*time.Second))
 	}
 
 	metricsPath := cfg.Observability.Metrics.Path
@@ -567,6 +610,9 @@ func main() {
 		}
 	case sig := <-sigChan:
 		logger.Info("received shutdown signal", slog.String("signal", sig.String()))
+
+		// Stop the config-polling goroutine.
+		pollCancel()
 
 		// Create shutdown context with timeout
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)

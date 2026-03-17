@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ajac-zero/latticelm/internal/api"
@@ -173,6 +174,60 @@ func circuitBreakerConfigFromEntry(entry config.ProviderEntry, onStateChange fun
 		}
 	}
 	return cfg
+}
+
+// ProviderRegistry is the interface satisfied by *Registry and any wrapper.
+// server, ui, and observability packages each define the same interface locally;
+// this canonical definition allows RegistryHolder to be shared across all of them.
+type ProviderRegistry interface {
+	Get(name string) (Provider, bool)
+	Models() []struct{ Provider, Model string }
+	ResolveModelID(model string) string
+	Default(model string) (Provider, error)
+}
+
+// RegistryHolder is a thread-safe, hot-swappable ProviderRegistry.
+// Passing a *RegistryHolder to server.New or ui.New works because those
+// packages define the same interface (structural typing).
+type RegistryHolder struct {
+	mu  sync.RWMutex
+	reg ProviderRegistry
+}
+
+// NewRegistryHolder returns a holder wrapping initial.
+func NewRegistryHolder(initial ProviderRegistry) *RegistryHolder {
+	return &RegistryHolder{reg: initial}
+}
+
+// Swap atomically replaces the inner registry. Safe to call concurrently with reads.
+func (h *RegistryHolder) Swap(r ProviderRegistry) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reg = r
+}
+
+func (h *RegistryHolder) Get(name string) (Provider, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.reg.Get(name)
+}
+
+func (h *RegistryHolder) Models() []struct{ Provider, Model string } {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.reg.Models()
+}
+
+func (h *RegistryHolder) ResolveModelID(model string) string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.reg.ResolveModelID(model)
+}
+
+func (h *RegistryHolder) Default(model string) (Provider, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.reg.Default(model)
 }
 
 // Default returns the provider for the given model name.
