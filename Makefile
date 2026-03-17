@@ -93,7 +93,6 @@ docker-run: ## Run Docker container locally
 		-e GOOGLE_API_KEY="$(GOOGLE_API_KEY)" \
 		-e ANTHROPIC_API_KEY="$(ANTHROPIC_API_KEY)" \
 		-e OPENAI_API_KEY="$(OPENAI_API_KEY)" \
-		-v $(PWD)/config.yaml:/app/config/config.yaml:ro \
 		$(DOCKER_TAG)
 
 docker-compose-up: ## Start services with docker-compose
@@ -157,7 +156,7 @@ security-scan: ## Run security scan
 # Run target
 run: ## Run locally
 	@echo "Running $(APP_NAME) locally..."
-	$(GOCMD) run ./cmd/gateway --config config.yaml
+	$(GOCMD) run ./cmd/gateway
 
 # Version info
 version: ## Show version

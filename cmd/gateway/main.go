@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"flag"
 	"fmt"
 	"log"
 	"log/slog"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,14 +39,11 @@ import (
 )
 
 func main() {
-	var configPath string
-	flag.StringVar(&configPath, "config", "config.yaml", "path to config file")
-	flag.Parse()
-
-	cfg, err := config.Load(configPath)
+	configStore, cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	_ = configStore // available for future UI config-edit endpoints
 
 	// Initialize logger from config
 	logFormat := cfg.Logging.Format
@@ -607,8 +604,87 @@ func main() {
 			logger.Error("error closing conversation store", slog.String("error", err.Error()))
 		}
 
+		// Close config store DB connection if DB-backed config is in use
+		if configStore != nil {
+			if err := configStore.Close(); err != nil {
+				logger.Error("error closing config store", slog.String("error", err.Error()))
+			}
+		}
+
 		logger.Info("shutdown complete")
 	}
+}
+
+// loadConfig builds the gateway configuration. Infrastructure config always
+// comes from environment variables via LoadFromEnv. When DATABASE_URL and
+// ENCRYPTION_KEY are both set, providers and models are loaded from (and
+// persisted to) the database; on the first run with an empty database they
+// are expected to be added through the UI or seeding mechanism.
+//
+// The returned *config.Store is nil when DATABASE_URL/ENCRYPTION_KEY are absent.
+func loadConfig() (*config.Store, *config.Config, error) {
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load config from env: %w", err)
+	}
+
+	dbURL := os.Getenv("DATABASE_URL")
+	encKey := os.Getenv("ENCRYPTION_KEY")
+
+	if dbURL == "" || encKey == "" {
+		return nil, cfg, nil
+	}
+
+	if !strings.HasPrefix(dbURL, "postgres://") && !strings.HasPrefix(dbURL, "postgresql://") {
+		return nil, nil, fmt.Errorf("DATABASE_URL must be a PostgreSQL connection string (got %q)", dbURL)
+	}
+
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open config database: %w", err)
+	}
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("connect to config database: %w", err)
+	}
+
+	configStore, err := config.NewStore(db, encKey)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("init config store: %w", err)
+	}
+
+	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer migrateCancel()
+	if err := configStore.Migrate(migrateCtx); err != nil {
+		_ = configStore.Close()
+		return nil, nil, fmt.Errorf("config migration: %w", err)
+	}
+
+	ctx := context.Background()
+	providers, err := configStore.ListProviders(ctx)
+	if err != nil {
+		_ = configStore.Close()
+		return nil, nil, fmt.Errorf("load providers from database: %w", err)
+	}
+	models, err := configStore.ListModels(ctx)
+	if err != nil {
+		_ = configStore.Close()
+		return nil, nil, fmt.Errorf("load models from database: %w", err)
+	}
+
+	cfg.Providers = providers
+	cfg.Models = models
+
+	if err := cfg.Validate(); err != nil {
+		_ = configStore.Close()
+		return nil, nil, fmt.Errorf("config validation: %w", err)
+	}
+
+	return configStore, cfg, nil
 }
 
 func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (conversation.Store, string, error) {

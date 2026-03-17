@@ -41,7 +41,7 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o gateway \
     ./cmd/gateway
 
-# Stage 2: Create minimal runtime image
+# Stage 3: Create minimal runtime image
 FROM alpine:3.19
 
 # Install runtime dependencies
@@ -60,9 +60,6 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /build/gateway /app/gateway
 
-# Copy example config (optional, mainly for documentation)
-COPY config.example.yaml /app/config.example.yaml
-
 # Switch to non-root user
 USER gateway
 
@@ -73,8 +70,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Set entrypoint
 ENTRYPOINT ["/app/gateway"]
-
-# Default command (can be overridden)
-CMD ["--config", "/app/config/config.yaml"]
