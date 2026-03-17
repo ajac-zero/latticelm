@@ -240,22 +240,15 @@ func (a *API) isAdmin(r *http.Request) bool {
 }
 
 // getOwner extracts the owner identity from the request context.
+// The OIDC session middleware sets OwnerIssKey and OwnerSubKey before this is called.
 func (a *API) getOwner(r *http.Request) (ownerIss, ownerSub string) {
-	// Try to get from auth context (set by OIDC middleware)
-	// The OIDC client sets owner info in the session
-	userID := r.Context().Value(authctx.UserIDKey)
-	if userID == nil {
-		return "", ""
+	if v := r.Context().Value(authctx.OwnerIssKey); v != nil {
+		ownerIss, _ = v.(string)
 	}
-
-	// For now, we'll need to look up the user's OIDC identity
-	// This requires access to the user store - we'll handle this
-	// by having the session middleware set owner info directly
-	// For simplicity, we return empty strings and let the caller handle it
-
-	// Note: In practice, the session middleware should set OwnerIss and OwnerSub
-	// directly in the context. This is a placeholder implementation.
-	return "", ""
+	if v := r.Context().Value(authctx.OwnerSubKey); v != nil {
+		ownerSub, _ = v.(string)
+	}
+	return
 }
 
 // canAccess checks if the current user can access the conversation.
