@@ -62,10 +62,6 @@ func NewRegistryWithCircuitBreaker(
 		}
 	}
 
-	if len(reg.providers) == 0 {
-		return nil, fmt.Errorf("no providers configured")
-	}
-
 	return reg, nil
 }
 

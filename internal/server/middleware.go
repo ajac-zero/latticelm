@@ -1,7 +1,7 @@
 package server
 
 import (
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -56,36 +56,25 @@ func RequestSizeLimitMiddleware(next http.Handler, maxBytes int64) http.Handler 
 	})
 }
 
-// ErrorRecoveryMiddleware catches errors from MaxBytesReader and converts them
-// to proper HTTP error responses. This should be placed after RequestSizeLimitMiddleware
-// in the middleware chain.
-func ErrorRecoveryMiddleware(next http.Handler, log *slog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-
-		// Check if the request body exceeded the size limit
-		// MaxBytesReader sets an error that we can detect on the next read attempt
-		// But we need to handle the error when it actually occurs during JSON decoding
-		// The JSON decoder will return the error, so we don't need special handling here
-		// This middleware is more for future extensibility
-	})
-}
-
-// WriteJSONError is a helper function to safely write JSON error responses,
-// handling any encoding errors that might occur.
+// WriteJSONError writes a JSON error response, safely encoding the message.
 func WriteJSONError(w http.ResponseWriter, log *slog.Logger, message string, statusCode int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	// Use fmt.Fprintf to write the error response
-	// This is safer than json.Encoder as we control the format
-	_, err := fmt.Fprintf(w, `{"error":{"message":"%s"}}`, message)
+	body, err := json.Marshal(struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}{Error: struct {
+		Message string `json:"message"`
+	}{Message: message}})
 	if err != nil {
-		// If we can't even write the error response, log it
-		log.Error("failed to write error response",
+		log.Error("failed to marshal error response",
 			slog.String("original_message", message),
 			slog.Int("status_code", statusCode),
-			slog.String("write_error", err.Error()),
+			slog.String("error", err.Error()),
 		)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(body)
 }

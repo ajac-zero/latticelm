@@ -280,8 +280,13 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Extract ID from path: /v1/responses/{id}
-	id := strings.TrimPrefix(r.URL.Path, "/v1/responses/")
+	// Extract ID from path: supports both /v1/responses/{id} and /api/v1/responses/{id}
+	const responsesSuffix = "/responses/"
+	idx := strings.LastIndex(r.URL.Path, responsesSuffix)
+	id := ""
+	if idx >= 0 {
+		id = r.URL.Path[idx+len(responsesSuffix):]
+	}
 	if id == "" {
 		http.Error(w, "response id is required", http.StatusBadRequest)
 		return
