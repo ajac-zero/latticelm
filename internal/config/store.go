@@ -186,6 +186,7 @@ func (s *Store) ListModels(ctx context.Context) ([]ModelEntry, error) {
 
 // UpsertProvider encrypts and stores a provider config, inserting or updating.
 func (s *Store) UpsertProvider(ctx context.Context, name string, entry ProviderEntry) error {
+	// #nosec G117 - Data is encrypted via encryptBlob() before storage, so the marshaled API key is never exposed.
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal provider %q config: %w", name, err)
