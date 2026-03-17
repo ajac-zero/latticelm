@@ -46,6 +46,13 @@ class APIClient {
     })
   }
 
+  async put<T>(url: string, body: any): Promise<T> {
+    return this.request<T>(url, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+  }
+
   async patch<T>(url: string, body: any): Promise<T> {
     return this.request<T>(url, {
       method: 'PATCH',
