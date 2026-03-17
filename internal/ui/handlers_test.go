@@ -30,6 +30,7 @@ func newTestServer(cfg *config.Config) *Server {
 		&stubRegistry{},
 		conversation.NewNopStore(),
 		cfg,
+		nil,
 		slog.Default(),
 		DefaultBuildInfo(),
 	)
@@ -170,4 +171,180 @@ func TestMaskHeaderValues(t *testing.T) {
 	assert.Equal(t, "****", masked["authorization"])
 	assert.Equal(t, "****", masked["x-api-key"])
 	assert.Nil(t, maskHeaderValues(nil))
+}
+
+func TestHandleProviders_MethodNotAllowed(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/providers", nil)
+	rec := httptest.NewRecorder()
+	s.handleProviders(rec, req)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandleProviders_GetList(t *testing.T) {
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderEntry{
+			"openai": {Type: "openai", APIKey: "sk-test"},
+		},
+	}
+	s := newTestServer(cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers", nil)
+	rec := httptest.NewRecorder()
+	s.handleProviders(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp APIResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.True(t, resp.Success)
+}
+
+func TestHandleProviders_PostNoConfigStore(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	body := strings.NewReader(`{"name":"openai","type":"openai","api_key":"sk-test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers", body)
+	rec := httptest.NewRecorder()
+	s.handleProviders(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestHandleProviders_PostMissingName(t *testing.T) {
+	s := newTestServer(&config.Config{})
+	s.configStore = &config.Store{} // non-nil so we get past the nil check... but we test validation first
+
+	// We can't easily create a real config.Store in tests without a DB, so test missing-name
+	// by injecting invalid JSON body that decodes but fails validation.
+	body := strings.NewReader(`{"type":"openai","api_key":"sk-test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers", body)
+	rec := httptest.NewRecorder()
+
+	// Manually set a stub that returns nil configStore to test validation path
+	s2 := &Server{cfg: &config.Config{}, configStore: &config.Store{}}
+	s2.handleProviders(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandleProviderByName_GetNotFound(t *testing.T) {
+	s := newTestServer(&config.Config{Providers: map[string]config.ProviderEntry{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/missing", nil)
+	req.SetPathValue("name", "missing")
+	rec := httptest.NewRecorder()
+	s.handleProviderByName(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandleProviderByName_GetFound(t *testing.T) {
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderEntry{
+			"openai": {Type: "openai", APIKey: strings.Repeat("k", 20)},
+		},
+	}
+	s := newTestServer(cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/openai", nil)
+	req.SetPathValue("name", "openai")
+	rec := httptest.NewRecorder()
+	s.handleProviderByName(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	// API key must be masked
+	assert.NotContains(t, rec.Body.String(), strings.Repeat("k", 20))
+}
+
+func TestHandleProviderByName_DeleteNoConfigStore(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/providers/openai", nil)
+	req.SetPathValue("name", "openai")
+	rec := httptest.NewRecorder()
+	s.handleProviderByName(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestHandleConfigModels_GetList(t *testing.T) {
+	cfg := &config.Config{
+		Models: []config.ModelEntry{
+			{Name: "gpt-4o", Provider: "openai"},
+		},
+	}
+	s := newTestServer(cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/models", nil)
+	rec := httptest.NewRecorder()
+	s.handleConfigModels(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp APIResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.True(t, resp.Success)
+}
+
+func TestHandleConfigModels_PostNoConfigStore(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	body := strings.NewReader(`{"name":"gpt-4o","provider":"openai"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/models", body)
+	rec := httptest.NewRecorder()
+	s.handleConfigModels(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestHandleConfigModels_MethodNotAllowed(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/config/models", nil)
+	rec := httptest.NewRecorder()
+	s.handleConfigModels(rec, req)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandleConfigModelByName_GetFound(t *testing.T) {
+	cfg := &config.Config{
+		Models: []config.ModelEntry{
+			{Name: "gpt-4o", Provider: "openai"},
+		},
+	}
+	s := newTestServer(cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/models/gpt-4o", nil)
+	req.SetPathValue("name", "gpt-4o")
+	rec := httptest.NewRecorder()
+	s.handleConfigModelByName(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp APIResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.True(t, resp.Success)
+}
+
+func TestHandleConfigModelByName_GetNotFound(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/models/unknown", nil)
+	req.SetPathValue("name", "unknown")
+	rec := httptest.NewRecorder()
+	s.handleConfigModelByName(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandleConfigModelByName_DeleteNoConfigStore(t *testing.T) {
+	s := newTestServer(&config.Config{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/config/models/gpt-4o", nil)
+	req.SetPathValue("name", "gpt-4o")
+	rec := httptest.NewRecorder()
+	s.handleConfigModelByName(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 }

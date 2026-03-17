@@ -43,8 +43,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
-	_ = configStore // available for future UI config-edit endpoints
-
 	// Initialize logger from config
 	logFormat := cfg.Logging.Format
 	if logFormat == "" {
@@ -414,7 +412,7 @@ func main() {
 			GitCommit: "unknown",
 			GoVersion: runtime.Version(),
 		}
-		adminServer = ui.New(registry, convStore, cfg, logger, buildInfo)
+		adminServer = ui.New(registry, convStore, cfg, configStore, logger, buildInfo)
 		adminMux := http.NewServeMux()
 		adminServer.RegisterRoutes(adminMux)
 

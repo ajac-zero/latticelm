@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -255,34 +256,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, response)
 }
 
-// handleProviders returns the list of configured providers.
-func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is allowed")
-		return
-	}
-
-	// Build provider info map
-	providerModels := make(map[string][]string)
-	models := s.registry.Models()
-	for _, m := range models {
-		providerModels[m.Provider] = append(providerModels[m.Provider], m.Model)
-	}
-
-	// Build provider list
-	var providers []ProviderInfo
-	for name, entry := range s.cfg.Providers {
-		providers = append(providers, ProviderInfo{
-			Name:   name,
-			Type:   entry.Type,
-			Models: providerModels[name],
-			Status: "active",
-		})
-	}
-
-	writeSuccess(w, providers)
-}
-
 // maskSecret masks a secret string for display.
 func maskSecret(secret string) string {
 	if secret == "" {
@@ -357,4 +330,226 @@ func maskHeaderValues(headers map[string]string) map[string]string {
 		masked[k] = "****"
 	}
 	return masked
+}
+
+// ProviderRequest is the request body for creating or updating a provider.
+type ProviderRequest struct {
+	Name string `json:"name"`
+	config.ProviderEntry
+}
+
+// handleProviders handles GET (list) and POST (create) for providers.
+func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.listProviders(w, r)
+	case http.MethodPost:
+		s.createProvider(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and POST are allowed")
+	}
+}
+
+// listProviders returns the list of configured providers.
+func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
+	providerModels := make(map[string][]string)
+	models := s.registry.Models()
+	for _, m := range models {
+		providerModels[m.Provider] = append(providerModels[m.Provider], m.Model)
+	}
+
+	var providers []ProviderInfo
+	for name, entry := range s.cfg.Providers {
+		providers = append(providers, ProviderInfo{
+			Name:   name,
+			Type:   entry.Type,
+			Models: providerModels[name],
+			Status: "active",
+		})
+	}
+
+	writeSuccess(w, providers)
+}
+
+// createProvider upserts a provider via the config store.
+func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
+	if s.configStore == nil {
+		writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+		return
+	}
+
+	var req ProviderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON payload")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "missing_name", "Field 'name' is required")
+		return
+	}
+	if req.Type == "" {
+		writeError(w, http.StatusBadRequest, "missing_type", "Field 'type' is required")
+		return
+	}
+
+	if err := s.configStore.UpsertProvider(r.Context(), req.Name, req.ProviderEntry); err != nil {
+		s.logger.Error("failed to upsert provider", "name", req.Name, "error", err)
+		writeError(w, http.StatusInternalServerError, "store_error", "Failed to save provider")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, APIResponse{Success: true, Data: map[string]string{"name": req.Name}})
+}
+
+// handleProviderByName handles GET, PUT, and DELETE for a single provider.
+func (s *Server) handleProviderByName(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "missing_name", "Provider name is required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		entry, ok := s.cfg.Providers[name]
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "Provider not found")
+			return
+		}
+		writeSuccess(w, SanitizedProvider{
+			Type:       entry.Type,
+			APIKey:     maskSecret(entry.APIKey),
+			Endpoint:   entry.Endpoint,
+			APIVersion: entry.APIVersion,
+			Project:    entry.Project,
+			Location:   entry.Location,
+		})
+
+	case http.MethodPut:
+		if s.configStore == nil {
+			writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+			return
+		}
+		var entry config.ProviderEntry
+		if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON payload")
+			return
+		}
+		if entry.Type == "" {
+			writeError(w, http.StatusBadRequest, "missing_type", "Field 'type' is required")
+			return
+		}
+		if err := s.configStore.UpsertProvider(r.Context(), name, entry); err != nil {
+			s.logger.Error("failed to update provider", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to update provider")
+			return
+		}
+		writeSuccess(w, map[string]string{"name": name})
+
+	case http.MethodDelete:
+		if s.configStore == nil {
+			writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+			return
+		}
+		if err := s.configStore.DeleteProvider(r.Context(), name); err != nil {
+			s.logger.Error("failed to delete provider", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to delete provider")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET, PUT, and DELETE are allowed")
+	}
+}
+
+// handleConfigModels handles GET (list) and POST (create) for config models.
+func (s *Server) handleConfigModels(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeSuccess(w, s.cfg.Models)
+	case http.MethodPost:
+		if s.configStore == nil {
+			writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+			return
+		}
+		var m config.ModelEntry
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON payload")
+			return
+		}
+		if m.Name == "" {
+			writeError(w, http.StatusBadRequest, "missing_name", "Field 'name' is required")
+			return
+		}
+		if m.Provider == "" {
+			writeError(w, http.StatusBadRequest, "missing_provider", "Field 'provider' is required")
+			return
+		}
+		if err := s.configStore.UpsertModel(r.Context(), m); err != nil {
+			s.logger.Error("failed to upsert model", "name", m.Name, "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to save model")
+			return
+		}
+		writeJSON(w, http.StatusCreated, APIResponse{Success: true, Data: m})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and POST are allowed")
+	}
+}
+
+// handleConfigModelByName handles GET, PUT, and DELETE for a single config model.
+func (s *Server) handleConfigModelByName(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "missing_name", "Model name is required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		for _, m := range s.cfg.Models {
+			if m.Name == name {
+				writeSuccess(w, m)
+				return
+			}
+		}
+		writeError(w, http.StatusNotFound, "not_found", "Model not found")
+
+	case http.MethodPut:
+		if s.configStore == nil {
+			writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+			return
+		}
+		var m config.ModelEntry
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON payload")
+			return
+		}
+		m.Name = name
+		if m.Provider == "" {
+			writeError(w, http.StatusBadRequest, "missing_provider", "Field 'provider' is required")
+			return
+		}
+		if err := s.configStore.UpsertModel(r.Context(), m); err != nil {
+			s.logger.Error("failed to update model", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to update model")
+			return
+		}
+		writeSuccess(w, m)
+
+	case http.MethodDelete:
+		if s.configStore == nil {
+			writeError(w, http.StatusNotImplemented, "no_config_store", "Config store not configured (DATABASE_URL and ENCRYPTION_KEY required)")
+			return
+		}
+		if err := s.configStore.DeleteModel(r.Context(), name); err != nil {
+			s.logger.Error("failed to delete model", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to delete model")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET, PUT, and DELETE are allowed")
+	}
 }
