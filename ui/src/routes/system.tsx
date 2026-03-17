@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useMemo } from 'react'
 import { Activity, Server, Database, Lock, Settings, BarChart3, Plus, Trash2, Pencil, Cpu } from 'lucide-react'
+import { Skeleton } from '#/components/ui/skeleton'
 import {
   useSystemInfo,
   useHealth,
@@ -99,16 +100,6 @@ function StatusTab() {
   const { data: config, isLoading: configLoading } = useConfig()
   const { data: providers, isLoading: providersLoading } = useProviders()
 
-  const loading = systemLoading || healthLoading || configLoading || providersLoading
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center">
-        <div className="text-lg">Loading...</div>
-      </div>
-    )
-  }
-
   const getServerAddress = () => {
     if (!config) return 'N/A'
     const addr = config.server.Address || config.server.address
@@ -172,7 +163,7 @@ function StatusTab() {
     <div className="space-y-6">
       {/* Top Grid */}
       <div className="grid gap-6 md:grid-cols-2">
-        <InfoCard title="Server Configuration" icon={Server}>
+        <InfoCard title="Server Configuration" icon={Server} isLoading={systemLoading || configLoading}>
           <div className="space-y-4">
             <InfoRow label="Address" value={getServerAddress()} mono />
             <InfoRow label="Max Request Size" value={getMaxRequestSize()} />
@@ -182,7 +173,7 @@ function StatusTab() {
           </div>
         </InfoCard>
 
-        <InfoCard title="Health Status" icon={Activity}>
+        <InfoCard title="Health Status" icon={Activity} isLoading={healthLoading}>
           {health && (
             <div>
               <div className="mb-4 flex items-center justify-between border-b border-border pb-4">
@@ -217,7 +208,12 @@ function StatusTab() {
           <Database className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-medium tracking-tight">Providers</h2>
         </div>
-        {config && config.providers && Object.keys(config.providers).length > 0 ? (
+        {configLoading || providersLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-20 w-full rounded-lg" />
+            <Skeleton className="h-20 w-full rounded-lg" />
+          </div>
+        ) : config && config.providers && Object.keys(config.providers).length > 0 ? (
           <div className="space-y-4">
             {Object.entries(config.providers).map(([name, providerConfig]) => (
               <ProviderCard
@@ -239,7 +235,7 @@ function StatusTab() {
 
       {/* Bottom Grid */}
       <div className="grid gap-6 md:grid-cols-3">
-        <InfoCard title="Authentication" icon={Lock}>
+        <InfoCard title="Authentication" icon={Lock} isLoading={configLoading}>
           {config && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -258,7 +254,7 @@ function StatusTab() {
           )}
         </InfoCard>
 
-        <InfoCard title="Conversations" icon={Database}>
+        <InfoCard title="Conversations" icon={Database} isLoading={configLoading}>
           {config && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -281,7 +277,7 @@ function StatusTab() {
           )}
         </InfoCard>
 
-        <InfoCard title="Rate Limiting" icon={Settings}>
+        <InfoCard title="Rate Limiting" icon={Settings} isLoading={configLoading}>
           {config && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -311,12 +307,25 @@ function StatusTab() {
       </div>
 
       {/* Observability */}
-      {config && (
-        <div className="rounded-xl border border-border bg-card p-6">
-          <div className="mb-6 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-lg font-medium tracking-tight">Observability</h2>
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="mb-6 flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-medium tracking-tight">Observability</h2>
+        </div>
+        {configLoading ? (
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
           </div>
+        ) : config ? (
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-border pb-2">
@@ -351,8 +360,8 @@ function StatusTab() {
               )}
             </div>
           </div>
-        </div>
-      )}
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -868,14 +877,21 @@ function ModelsSection() {
 
 // ─── Shared Helper Components ────────────────────────────────────────────────
 
-function InfoCard({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) {
+function InfoCard({ title, icon: Icon, children, isLoading = false }: { title: string; icon: any; children: React.ReactNode; isLoading?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-card p-6">
       <div className="mb-4 flex items-center gap-2">
         <Icon className="h-5 w-5 text-muted-foreground" />
         <h2 className="text-lg font-medium tracking-tight">{title}</h2>
       </div>
-      {children}
+      {isLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      ) : children}
     </div>
   )
 }

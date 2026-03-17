@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { BarChart3, TrendingUp, Zap, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { requireAuth, getAuthSession } from '../lib/auth'
+import { Skeleton } from '#/components/ui/skeleton'
 import { useUsageSummary, useUsageTop, useUsageTrends } from '../lib/api/hooks'
 import {
   Card,
@@ -53,6 +54,10 @@ function getTimeRange(range: TimeRange): { start: string; end: string } {
       start.setDate(start.getDate() - 30)
       break
   }
+  // Truncate to the minute so the query key stays stable within the same minute,
+  // allowing React Query to cache hits on re-navigation.
+  end.setSeconds(0, 0)
+  start.setSeconds(0, 0)
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
@@ -79,8 +84,6 @@ function UsagePage() {
   const totalTokens = summary?.data.reduce((sum, r) => sum + r.total_tokens, 0) ?? 0
   const totalRequests = summary?.data.reduce((sum, r) => sum + r.request_count, 0) ?? 0
 
-  const loading = summaryLoading || topLoading || trendsLoading
-
   return (
     <div className="h-full overflow-auto bg-background py-8">
       <div className="container mx-auto max-w-[1400px] px-6">
@@ -102,159 +105,175 @@ function UsagePage() {
           </Select>
         </div>
 
-        {loading ? (
-          <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center">
-            <div className="text-lg">Loading...</div>
-          </div>
-        ) : (
-          <>
-            {/* Stat Cards */}
-            <div className="mb-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                title="Total Tokens"
-                value={formatNumber(totalTokens)}
-                icon={Zap}
-                description={`${formatNumber(totalInput)} in / ${formatNumber(totalOutput)} out`}
-              />
-              <StatCard
-                title="Input Tokens"
-                value={formatNumber(totalInput)}
-                icon={ArrowUpRight}
-                description="Prompt tokens consumed"
-              />
-              <StatCard
-                title="Output Tokens"
-                value={formatNumber(totalOutput)}
-                icon={ArrowDownRight}
-                description="Completion tokens generated"
-              />
-              <StatCard
-                title="Requests"
-                value={formatNumber(totalRequests)}
-                icon={Clock}
-                description={`Avg ${totalRequests > 0 ? formatNumber(Math.round(totalTokens / totalRequests)) : '0'} tokens/req`}
-              />
-            </div>
+        {/* Stat Cards */}
+        <div className="mb-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Total Tokens"
+            value={formatNumber(totalTokens)}
+            icon={Zap}
+            description={`${formatNumber(totalInput)} in / ${formatNumber(totalOutput)} out`}
+            isLoading={summaryLoading}
+          />
+          <StatCard
+            title="Input Tokens"
+            value={formatNumber(totalInput)}
+            icon={ArrowUpRight}
+            description="Prompt tokens consumed"
+            isLoading={summaryLoading}
+          />
+          <StatCard
+            title="Output Tokens"
+            value={formatNumber(totalOutput)}
+            icon={ArrowDownRight}
+            description="Completion tokens generated"
+            isLoading={summaryLoading}
+          />
+          <StatCard
+            title="Requests"
+            value={formatNumber(totalRequests)}
+            icon={Clock}
+            description={`Avg ${totalRequests > 0 ? formatNumber(Math.round(totalTokens / totalRequests)) : '0'} tokens/req`}
+            isLoading={summaryLoading}
+          />
+        </div>
 
-            {/* Trends Chart */}
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <TrendingUp className="h-5 w-5 text-muted-foreground" />
-                  Usage Trends
-                </CardTitle>
-                <CardDescription>
-                  Token consumption over time ({granularity})
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {trends && trends.data.length > 0 ? (
-                  <TrendsChart data={trends.data} granularity={granularity} />
-                ) : (
-                  <div className="flex items-center justify-center py-12 text-muted-foreground">
-                    No trend data for this period
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        {/* Trends Chart */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <TrendingUp className="h-5 w-5 text-muted-foreground" />
+              Usage Trends
+            </CardTitle>
+            <CardDescription>
+              Token consumption over time ({granularity})
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {trendsLoading ? (
+              <Skeleton className="h-[248px] w-full" />
+            ) : trends && trends.data.length > 0 ? (
+              <TrendsChart data={trends.data} granularity={granularity} />
+            ) : (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                No trend data for this period
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-            {/* Bottom Section: Top Consumers + Summary Table */}
-            <div className="grid gap-6 lg:grid-cols-2">
-              {/* Top Consumers */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Top Consumers</CardTitle>
-                    <Select value={topDimension} onValueChange={setTopDimension}>
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="model">By Model</SelectItem>
-                        {isAdmin && <SelectItem value="user_sub">By User</SelectItem>}
-                        <SelectItem value="provider">By Provider</SelectItem>
-                        {isAdmin && <SelectItem value="tenant_id">By Tenant</SelectItem>}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {topData && topData.data.length > 0 ? (
-                    <div className="space-y-3">
-                      {topData.data.map((row, i) => {
-                        const maxTokens = topData.data[0].total_tokens
-                        const pct = maxTokens > 0 ? (row.total_tokens / maxTokens) * 100 : 0
-                        return (
-                          <div key={row.key} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="flex items-center gap-2 truncate font-medium">
-                                <span className="text-xs text-muted-foreground">#{i + 1}</span>
-                                <span className="truncate font-mono">{row.key}</span>
-                              </span>
-                              <span className="ml-2 shrink-0 text-muted-foreground">
-                                {formatNumber(row.total_tokens)}
-                              </span>
-                            </div>
-                            <div className="h-2 rounded-full bg-muted">
-                              <div
-                                className="h-2 rounded-full bg-primary/70"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </div>
-                        )
-                      })}
+        {/* Bottom Section: Top Consumers + Summary Table */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Top Consumers */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Top Consumers</CardTitle>
+                <Select value={topDimension} onValueChange={setTopDimension}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="model">By Model</SelectItem>
+                    {isAdmin && <SelectItem value="user_sub">By User</SelectItem>}
+                    <SelectItem value="provider">By Provider</SelectItem>
+                    {isAdmin && <SelectItem value="tenant_id">By Tenant</SelectItem>}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {topLoading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Skeleton className="h-4 w-12" />
+                      </div>
+                      <Skeleton className="h-2 w-full" />
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      No data for this period
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
+              ) : topData && topData.data.length > 0 ? (
+                <div className="space-y-3">
+                  {topData.data.map((row, i) => {
+                    const maxTokens = topData.data[0].total_tokens
+                    const pct = maxTokens > 0 ? (row.total_tokens / maxTokens) * 100 : 0
+                    return (
+                      <div key={row.key} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-2 truncate font-medium">
+                            <span className="text-xs text-muted-foreground">#{i + 1}</span>
+                            <span className="truncate font-mono">{row.key}</span>
+                          </span>
+                          <span className="ml-2 shrink-0 text-muted-foreground">
+                            {formatNumber(row.total_tokens)}
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div
+                            className="h-2 rounded-full bg-primary/70"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  No data for this period
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-              {/* Summary Breakdown */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Breakdown by Model</CardTitle>
-                  <CardDescription>
-                    Aggregated usage per model in this period
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {summary && summary.data.length > 0 ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Model</TableHead>
-                          <TableHead className="text-right">Input</TableHead>
-                          <TableHead className="text-right">Output</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                          <TableHead className="text-right">Reqs</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {summary.data.map((row: UsageSummaryRow) => (
-                          <TableRow key={`${row.tenant_id}-${row.user_sub}-${row.provider}-${row.model}`}>
-                            <TableCell className="font-mono text-sm">{row.model || '—'}</TableCell>
-                            <TableCell className="text-right text-sm">{formatNumber(row.input_tokens)}</TableCell>
-                            <TableCell className="text-right text-sm">{formatNumber(row.output_tokens)}</TableCell>
-                            <TableCell className="text-right text-sm font-medium">{formatNumber(row.total_tokens)}</TableCell>
-                            <TableCell className="text-right text-sm text-muted-foreground">{formatNumber(row.request_count)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      No summary data for this period
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </>
-        )}
+          {/* Summary Breakdown */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Breakdown by Model</CardTitle>
+              <CardDescription>
+                Aggregated usage per model in this period
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {summaryLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : summary && summary.data.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Model</TableHead>
+                      <TableHead className="text-right">Input</TableHead>
+                      <TableHead className="text-right">Output</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Reqs</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {summary.data.map((row: UsageSummaryRow) => (
+                      <TableRow key={`${row.tenant_id}-${row.user_sub}-${row.provider}-${row.model}`}>
+                        <TableCell className="font-mono text-sm">{row.model || '—'}</TableCell>
+                        <TableCell className="text-right text-sm">{formatNumber(row.input_tokens)}</TableCell>
+                        <TableCell className="text-right text-sm">{formatNumber(row.output_tokens)}</TableCell>
+                        <TableCell className="text-right text-sm font-medium">{formatNumber(row.total_tokens)}</TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">{formatNumber(row.request_count)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  No summary data for this period
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
@@ -265,11 +284,13 @@ function StatCard({
   value,
   icon: Icon,
   description,
+  isLoading = false,
 }: {
   title: string
   value: string
   icon: any
   description: string
+  isLoading?: boolean
 }) {
   return (
     <Card>
@@ -278,8 +299,17 @@ function StatCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+        ) : (
+          <>
+            <div className="text-2xl font-bold">{value}</div>
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </>
+        )}
       </CardContent>
     </Card>
   )
