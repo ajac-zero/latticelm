@@ -150,7 +150,35 @@ function UsagePage() {
           </CardHeader>
           <CardContent>
             {trendsLoading ? (
-              <Skeleton className="h-[248px] w-full" />
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Skeleton className="h-3 w-10" />
+                  <Skeleton className="h-3 w-10" />
+                  <Skeleton className="h-3 w-6" />
+                </div>
+                <div className="flex items-end gap-px" style={{ height: '200px' }}>
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-1 flex-col items-stretch justify-end"
+                    >
+                      <Skeleton
+                        className="w-full rounded-t-sm"
+                        style={{ height: `${20 + Math.sin(i * 0.7) * 15 + Math.cos(i * 0.4) * 10 + 30}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between">
+                  <Skeleton className="h-3 w-10" />
+                  <Skeleton className="h-3 w-10" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+                <div className="flex items-center justify-center gap-4 pt-2">
+                  <Skeleton className="h-3 w-14" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              </div>
             ) : trends && trends.data.length > 0 ? (
               <TrendsChart data={trends.data} granularity={granularity} />
             ) : (
@@ -183,14 +211,19 @@ function UsagePage() {
             </CardHeader>
             <CardContent>
               {topLoading ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <div key={i} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <Skeleton className="h-4 w-1/3" />
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-3 w-5" />
+                          <Skeleton className="h-4 w-32" />
+                        </div>
                         <Skeleton className="h-4 w-12" />
                       </div>
-                      <Skeleton className="h-2 w-full" />
+                      <div className="h-2 rounded-full bg-muted">
+                        <Skeleton className="h-2 rounded-full" style={{ width: `${80 - i * 12}%` }} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -238,9 +271,22 @@ function UsagePage() {
             </CardHeader>
             <CardContent>
               {summaryLoading ? (
-                <div className="space-y-2">
+                <div>
+                  <div className="flex items-center gap-4 border-b pb-3 mb-1">
+                    <Skeleton className="h-3 w-1/4" />
+                    <Skeleton className="h-3 w-12 ml-auto" />
+                    <Skeleton className="h-3 w-12" />
+                    <Skeleton className="h-3 w-12" />
+                    <Skeleton className="h-3 w-10" />
+                  </div>
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full" />
+                    <div key={i} className="flex items-center gap-4 py-3 border-b last:border-0">
+                      <Skeleton className="h-4 w-1/3" />
+                      <Skeleton className="h-4 w-12 ml-auto" />
+                      <Skeleton className="h-4 w-12" />
+                      <Skeleton className="h-4 w-12" />
+                      <Skeleton className="h-4 w-10" />
+                    </div>
                   ))}
                 </div>
               ) : summary && summary.data.length > 0 ? (

@@ -6,7 +6,6 @@ import {
   useSystemInfo,
   useHealth,
   useConfig,
-  useProviders,
   useConfigProviders,
   useCreateProvider,
   useUpdateProvider,
@@ -98,7 +97,6 @@ function StatusTab() {
   const { data: systemInfo, isLoading: systemLoading } = useSystemInfo()
   const { data: health, isLoading: healthLoading } = useHealth()
   const { data: config, isLoading: configLoading } = useConfig()
-  const { data: providers, isLoading: providersLoading } = useProviders()
 
   const getServerAddress = () => {
     if (!config) return 'N/A'
@@ -144,21 +142,6 @@ function StatusTab() {
     return maxConns ? String(maxConns) : ''
   }
 
-  const getProviderStatus = (providerName: string) => {
-    const provider = providers?.find(p => p.name === providerName)
-    return provider?.status || 'active'
-  }
-
-  const getProviderModels = (providerName: string) => {
-    if (!config) return []
-    return config.models
-      .filter(m => {
-        const modelProvider = m.Provider || m.provider
-        return modelProvider === providerName
-      })
-      .map(m => m.Name || m.name || '')
-  }
-
   return (
     <div className="space-y-6">
       {/* Top Grid */}
@@ -200,37 +183,6 @@ function StatusTab() {
             </div>
           )}
         </InfoCard>
-      </div>
-
-      {/* Providers Section */}
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-6 flex items-center gap-2">
-          <Database className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-medium tracking-tight">Providers</h2>
-        </div>
-        {configLoading || providersLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-20 w-full rounded-lg" />
-            <Skeleton className="h-20 w-full rounded-lg" />
-          </div>
-        ) : config && config.providers && Object.keys(config.providers).length > 0 ? (
-          <div className="space-y-4">
-            {Object.entries(config.providers).map(([name, providerConfig]) => (
-              <ProviderCard
-                key={name}
-                name={name}
-                status={getProviderStatus(name)}
-                type={providerConfig.type}
-                endpoint={providerConfig.endpoint}
-                apiKey={providerConfig.api_key}
-                modelsCount={getProviderModels(name).length}
-                models={getProviderModels(name)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="py-8 text-center text-muted-foreground">No providers configured</div>
-        )}
       </div>
 
       {/* Bottom Grid */}
@@ -314,16 +266,18 @@ function StatusTab() {
         </div>
         {configLoading ? (
           <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </div>
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </div>
+            {[0, 1].map((i) => (
+              <div key={i} className="space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-2">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-5 w-16 rounded-md" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-36" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : config ? (
           <div className="grid gap-6 md:grid-cols-2">
@@ -528,7 +482,33 @@ function ProvidersSection() {
 
       <div className="rounded-xl border border-border bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-muted-foreground">Loading...</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Models</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-14 rounded-md" /></TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-2">
+                      <Skeleton className="h-8 w-8 rounded-md" />
+                      <Skeleton className="h-8 w-8 rounded-md" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         ) : !providers || providers.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-muted-foreground">No providers configured</div>
         ) : (
@@ -743,7 +723,31 @@ function ModelsSection() {
 
       <div className="rounded-xl border border-border bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-muted-foreground">Loading...</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Provider</TableHead>
+                <TableHead>Provider Model ID</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-20 rounded-md" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-2">
+                      <Skeleton className="h-8 w-8 rounded-md" />
+                      <Skeleton className="h-8 w-8 rounded-md" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         ) : normalizedModels.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-muted-foreground">No models configured</div>
         ) : (
@@ -885,11 +889,13 @@ function InfoCard({ title, icon: Icon, children, isLoading = false }: { title: s
         <h2 className="text-lg font-medium tracking-tight">{title}</h2>
       </div>
       {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-4 w-1/2" />
+        <div className="space-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-4 w-1/4" />
+            </div>
+          ))}
         </div>
       ) : children}
     </div>
@@ -931,60 +937,4 @@ function HealthItem({ label, status, description }: { label: string; status: str
   )
 }
 
-function ProviderCard({
-  name,
-  status,
-  type,
-  endpoint,
-  apiKey,
-  modelsCount,
-  models,
-}: {
-  name: string
-  status: string
-  type: string
-  endpoint?: string
-  apiKey: string
-  modelsCount: number
-  models: string[]
-}) {
-  const [expanded, setExpanded] = useState(false)
 
-  return (
-    <div className="rounded-lg border border-border bg-secondary/50 p-4">
-      <div className="mb-3 flex items-start justify-between">
-        <div className="flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <h3 className="font-medium">{name}</h3>
-            <StatusBadge status={status} />
-          </div>
-          <div className="space-y-1 text-sm text-muted-foreground">
-            <div>Type: {PROVIDER_TYPES[type]?.label ?? type}</div>
-            {endpoint && <div>Endpoint: {endpoint}</div>}
-            <div>API Key: {apiKey ? apiKey.substring(0, 8) + '...' : 'not set'}</div>
-            <div>{modelsCount} model(s)</div>
-          </div>
-        </div>
-        {modelsCount > 0 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-sm text-primary hover:underline"
-          >
-            {expanded ? 'Hide' : 'Show'} Models
-          </button>
-        )}
-      </div>
-      {expanded && models.length > 0 && (
-        <div className="mt-3 border-t border-border pt-3">
-          <div className="flex flex-wrap gap-2">
-            {models.map(model => (
-              <span key={model} className="rounded-md bg-muted px-2 py-1 text-xs font-mono">
-                {model}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
