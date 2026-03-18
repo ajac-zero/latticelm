@@ -272,7 +272,14 @@ func (s *ClickHouseStore) QueryTop(ctx context.Context, f QueryFilter, dimension
 
 // QueryTrends returns time-bucketed token usage from the materialized rollup tables.
 // granularity must be "hourly" or "daily".
-func (s *ClickHouseStore) QueryTrends(ctx context.Context, f QueryFilter, granularity string) ([]TrendRow, error) {
+// dimension, when non-empty, groups results by that column (model, provider, user_sub, tenant_id).
+func (s *ClickHouseStore) QueryTrends(ctx context.Context, f QueryFilter, granularity string, dimension string) ([]TrendRow, error) {
+	switch dimension {
+	case "", "model", "provider", "user_sub", "tenant_id":
+	default:
+		return nil, fmt.Errorf("invalid dimension %q", dimension)
+	}
+
 	if f.Start.IsZero() || f.End.IsZero() {
 		return nil, fmt.Errorf("start and end times are required for trends")
 	}
@@ -288,12 +295,18 @@ func (s *ClickHouseStore) QueryTrends(ctx context.Context, f QueryFilter, granul
 		where = "WHERE " + strings.Join(clauses, " AND ")
 	}
 
+	selectDim, groupByDim := "", ""
+	if dimension != "" {
+		selectDim = fmt.Sprintf(", %s", dimension)
+		groupByDim = fmt.Sprintf(", %s", dimension)
+	}
+
 	// SummingMergeTree requires SUM() because background merges may be pending.
-	// #nosec G201 -- table is selected from a fixed allowlist above.
-	q := fmt.Sprintf(`SELECT bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), SUM(request_count)
+	// #nosec G201 -- table/dimension are selected from fixed allowlists above.
+	q := fmt.Sprintf(`SELECT bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), SUM(request_count)%s
 		FROM %s %s
-		GROUP BY bucket
-		ORDER BY bucket ASC`, table, where)
+		GROUP BY bucket%s
+		ORDER BY bucket ASC`, selectDim, table, where, groupByDim)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -304,7 +317,13 @@ func (s *ClickHouseStore) QueryTrends(ctx context.Context, f QueryFilter, granul
 	var results []TrendRow
 	for rows.Next() {
 		var r TrendRow
-		if err := rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount); err != nil {
+		var err error
+		if dimension != "" {
+			err = rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount, &r.Key)
+		} else {
+			err = rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("clickhouse scan trend row: %w", err)
 		}
 		results = append(results, r)

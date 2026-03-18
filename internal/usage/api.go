@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,14 +10,29 @@ import (
 	"github.com/ajac-zero/latticelm/internal/auth"
 )
 
+// UserResolver resolves an OIDC subject to a human-readable display name.
+type UserResolver interface {
+	ResolveUserSub(ctx context.Context, sub string) (name, email string, err error)
+}
+
 // API provides HTTP handlers for usage analytics.
 type API struct {
-	store Backend
+	store    Backend
+	users    UserResolver
 }
 
 // NewAPI creates a new usage API handler.
-func NewAPI(store Backend) *API {
-	return &API{store: store}
+func NewAPI(store Backend, opts ...func(*API)) *API {
+	a := &API{store: store}
+	for _, opt := range opts {
+		opt(a)
+	}
+	return a
+}
+
+// WithUserResolver configures a user resolver for display-name lookup.
+func WithUserResolver(r UserResolver) func(*API) {
+	return func(a *API) { a.users = r }
 }
 
 // RegisterRoutes registers usage API routes on the provided mux.
@@ -32,6 +48,26 @@ func (a *API) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/usage/summary", a.handleSummary)
 	mux.HandleFunc("/api/v1/usage/top", a.handleTop)
 	mux.HandleFunc("/api/v1/usage/trends", a.handleTrends)
+}
+
+// resolveUserSubs replaces user_sub keys with display names when a UserResolver is configured.
+func (a *API) resolveUserSubs(ctx context.Context, keys []string) map[string]string {
+	out := make(map[string]string, len(keys))
+	if a.users == nil {
+		return out
+	}
+	for _, sub := range keys {
+		name, email, err := a.users.ResolveUserSub(ctx, sub)
+		if err != nil {
+			continue
+		}
+		if name != "" {
+			out[sub] = name
+		} else if email != "" {
+			out[sub] = email
+		}
+	}
+	return out
 }
 
 // parseFilter extracts common query filter parameters from the request.
@@ -147,6 +183,19 @@ func (a *API) handleTop(w http.ResponseWriter, r *http.Request) {
 		rows = []TopRow{}
 	}
 
+	if dimension == "user_sub" {
+		subs := make([]string, len(rows))
+		for i, row := range rows {
+			subs[i] = row.Key
+		}
+		names := a.resolveUserSubs(r.Context(), subs)
+		for i, row := range rows {
+			if name, ok := names[row.Key]; ok {
+				rows[i].Key = name
+			}
+		}
+	}
+
 	writeUsageJSON(w, http.StatusOK, TopResponse{
 		Dimension: dimension,
 		Data:      rows,
@@ -181,13 +230,32 @@ func (a *API) handleTrends(w http.ResponseWriter, r *http.Request) {
 		granularity = "daily"
 	}
 
-	rows, err := a.store.QueryTrends(r.Context(), f, granularity)
+	dimension := r.URL.Query().Get("dimension")
+
+	rows, err := a.store.QueryTrends(r.Context(), f, granularity, dimension)
 	if err != nil {
 		writeUsageJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query trends"})
 		return
 	}
 	if rows == nil {
 		rows = []TrendRow{}
+	}
+
+	if dimension == "user_sub" {
+		seen := make(map[string]struct{})
+		for _, row := range rows {
+			seen[row.Key] = struct{}{}
+		}
+		subs := make([]string, 0, len(seen))
+		for sub := range seen {
+			subs = append(subs, sub)
+		}
+		names := a.resolveUserSubs(r.Context(), subs)
+		for i, row := range rows {
+			if name, ok := names[row.Key]; ok {
+				rows[i].Key = name
+			}
+		}
 	}
 
 	writeUsageJSON(w, http.StatusOK, TrendsResponse{

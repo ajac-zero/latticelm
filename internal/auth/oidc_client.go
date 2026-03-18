@@ -493,6 +493,10 @@ func (c *OIDCClient) SessionMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Add session data to context
+		// Note: "sub" is intentionally set to the application User.ID (not the
+		// OIDC provider's subject). This value propagates as Principal.Subject and
+		// is stored as user_sub in usage events, allowing lookups via users.GetByID.
+		// The raw OIDC subject is available separately as session.OwnerSub.
 		claims := jwt.MapClaims{
 			"sub":   session.UserID,
 			"email": session.Email,

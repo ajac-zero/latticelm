@@ -55,6 +55,47 @@ func (s *Store) GetByOIDC(ctx context.Context, issuer, subject string) (*User, e
 	return &u, nil
 }
 
+// GetBySub retrieves a user by their OIDC subject.
+// Returns sql.ErrNoRows if the user does not exist.
+func (s *Store) GetBySub(ctx context.Context, sub string) (*User, error) {
+	var u User
+	var role, status string
+	query := `
+		SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
+		FROM users
+		WHERE oidc_sub = ?
+		LIMIT 1
+	`
+	if s.driver == "pgx" || s.driver == "postgres" {
+		query = `
+			SELECT id, oidc_iss, oidc_sub, email, name, role, status, created_at, updated_at
+			FROM users
+			WHERE oidc_sub = $1
+			LIMIT 1
+		`
+	}
+	err := s.db.QueryRowContext(ctx, query, sub).Scan(
+		&u.ID, &u.OIDCIss, &u.OIDCSub, &u.Email, &u.Name,
+		&role, &status, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	u.Role = Role(role)
+	u.Status = Status(status)
+	return &u, nil
+}
+
+// ResolveUserSub resolves a user_sub (stored as the application User.ID) to its
+// display name and email. Satisfies the usage.UserResolver interface.
+func (s *Store) ResolveUserSub(ctx context.Context, sub string) (name, email string, err error) {
+	u, err := s.GetByID(ctx, sub)
+	if err != nil {
+		return "", "", err
+	}
+	return u.Name, u.Email, nil
+}
+
 // GetByID retrieves a user by their application ID.
 // Returns sql.ErrNoRows if the user does not exist.
 func (s *Store) GetByID(ctx context.Context, id string) (*User, error) {

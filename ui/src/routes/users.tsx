@@ -11,6 +11,7 @@ import {
 import { Users as UsersIcon, Search, MoreVertical, Trash2, Ban, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Pencil } from 'lucide-react'
 import { useUsers, useUpdateUser, useDeleteUser, useBulkUpdateUsers } from '../lib/api/hooks'
 import { requireAdmin } from '../lib/auth'
+import { Spinner } from '#/components/ui/spinner'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Badge } from '#/components/ui/badge'
@@ -337,7 +338,7 @@ function UsersPage() {
         <div className="rounded-xl border border-border bg-card">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="text-lg">Loading...</div>
+              <Spinner className="size-6 text-muted-foreground" />
             </div>
           ) : !data || data.users.length === 0 ? (
             <div className="flex items-center justify-center py-20 text-muted-foreground">
