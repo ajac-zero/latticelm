@@ -402,7 +402,11 @@ func main() {
 
 	// Register usage read API on the API mux (auth-protected via middleware below)
 	if usageStore != nil {
-		usageAPI := usage.NewAPI(usageStore)
+		usageOpts := []func(*usage.API){}
+		if userStore != nil {
+			usageOpts = append(usageOpts, usage.WithUserResolver(userStore))
+		}
+		usageAPI := usage.NewAPI(usageStore, usageOpts...)
 		usageAPI.RegisterRoutes(apiMux)
 		logger.Info("usage read API enabled")
 	}
@@ -435,7 +439,11 @@ func main() {
 		// Register usage read API on admin mux so the embedded UI (session auth)
 		// can query /api/v1/usage/* without a JWT bearer token.
 		if usageStore != nil {
-			usageAPI := usage.NewAPI(usageStore)
+			usageOpts := []func(*usage.API){}
+			if userStore != nil {
+				usageOpts = append(usageOpts, usage.WithUserResolver(userStore))
+			}
+			usageAPI := usage.NewAPI(usageStore, usageOpts...)
 			usageAPI.RegisterAdminRoutes(adminMux)
 		}
 

@@ -61,6 +61,19 @@ function getTimeRange(range: TimeRange): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
+const CHART_COLORS = [
+  '#6366f1', // indigo
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#ef4444', // red
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#f97316', // orange
+  '#14b8a6', // teal
+  '#ec4899', // pink
+  '#84cc16', // lime
+]
+
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
@@ -71,13 +84,15 @@ function UsagePage() {
   const { isAdmin } = Route.useLoaderData()
   const [timeRange, setTimeRange] = useState<TimeRange>('24h')
   const [topDimension, setTopDimension] = useState('model')
+  const [trendDimension, setTrendDimension] = useState('all')
 
   const { start, end } = getTimeRange(timeRange)
   const granularity = timeRange === '24h' ? 'hourly' : 'daily'
 
   const { data: summary, isLoading: summaryLoading } = useUsageSummary({ start, end })
   const { data: topData, isLoading: topLoading } = useUsageTop({ start, end, dimension: topDimension, limit: 10 })
-  const { data: trends, isLoading: trendsLoading } = useUsageTrends({ start, end, granularity })
+  const { data: trends, isLoading: trendsLoading } = useUsageTrends({ start, end, granularity, dimension: trendDimension === 'all' ? undefined : trendDimension })
+
 
   const totalInput = summary?.data.reduce((sum, r) => sum + r.input_tokens, 0) ?? 0
   const totalOutput = summary?.data.reduce((sum, r) => sum + r.output_tokens, 0) ?? 0
@@ -140,13 +155,29 @@ function UsagePage() {
         {/* Trends Chart */}
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <TrendingUp className="h-5 w-5 text-muted-foreground" />
-              Usage Trends
-            </CardTitle>
-            <CardDescription>
-              Token consumption over time ({granularity})
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <TrendingUp className="h-5 w-5 text-muted-foreground" />
+                  Usage Trends
+                </CardTitle>
+                <CardDescription>
+                  Token consumption over time ({granularity})
+                </CardDescription>
+              </div>
+              <Select value={trendDimension} onValueChange={setTrendDimension}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All (combined)</SelectItem>
+                  <SelectItem value="model">By Model</SelectItem>
+                  {isAdmin && <SelectItem value="user_sub">By User</SelectItem>}
+                  <SelectItem value="provider">By Provider</SelectItem>
+                  {isAdmin && <SelectItem value="tenant_id">By Tenant</SelectItem>}
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
             {trendsLoading ? (
@@ -180,7 +211,7 @@ function UsagePage() {
                 </div>
               </div>
             ) : trends && trends.data.length > 0 ? (
-              <TrendsChart data={trends.data} granularity={granularity} />
+              <TrendsChart data={trends.data} granularity={granularity} dimension={trendDimension} />
             ) : (
               <div className="flex items-center justify-center py-12 text-muted-foreground">
                 No trend data for this period
@@ -245,8 +276,8 @@ function UsagePage() {
                         </div>
                         <div className="h-2 rounded-full bg-muted">
                           <div
-                            className="h-2 rounded-full bg-primary/70"
-                            style={{ width: `${pct}%` }}
+                            className="h-2 rounded-full"
+                            style={{ width: `${pct}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
                           />
                         </div>
                       </div>
@@ -361,8 +392,27 @@ function StatCard({
   )
 }
 
-function TrendsChart({ data, granularity }: { data: UsageTrendRow[]; granularity: string }) {
-  const maxTotal = Math.max(...data.map((d) => d.total_tokens), 1)
+function TrendsChart({ data, granularity, dimension }: { data: UsageTrendRow[]; granularity: string; dimension?: string }) {
+  const isGrouped = !!dimension && dimension !== 'all' && data.some((d) => d.key != null)
+
+  // Collect unique ordered buckets and keys
+  const buckets = [...new Set(data.map((d) => d.bucket))].sort()
+  const keys = isGrouped
+    ? [...new Set(data.map((d) => d.key ?? ''))].filter(Boolean)
+    : []
+
+  // For each bucket sum total tokens (across all keys) to find the max bar height
+  const bucketTotals = buckets.map((b) =>
+    data.filter((d) => d.bucket === b).reduce((s, d) => s + d.total_tokens, 0),
+  )
+  const maxTotal = Math.max(...bucketTotals, 1)
+
+  function formatBucketLabel(bucket: string) {
+    const date = new Date(bucket)
+    return granularity === 'hourly'
+      ? date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  }
 
   return (
     <div className="space-y-2">
@@ -375,71 +425,95 @@ function TrendsChart({ data, granularity }: { data: UsageTrendRow[]; granularity
 
       {/* Bar chart */}
       <div className="flex items-end gap-px" style={{ height: '200px' }}>
-        {data.map((row, i) => {
-          const inputPct = maxTotal > 0 ? (row.input_tokens / maxTotal) * 100 : 0
-          const outputPct = maxTotal > 0 ? (row.output_tokens / maxTotal) * 100 : 0
-          const date = new Date(row.bucket)
-          const label =
-            granularity === 'hourly'
-              ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-
-          return (
-            <div
-              key={i}
-              className="group relative flex flex-1 flex-col items-center justify-end"
-              title={`${label}\nInput: ${formatNumber(row.input_tokens)}\nOutput: ${formatNumber(row.output_tokens)}\nTotal: ${formatNumber(row.total_tokens)}\nRequests: ${formatNumber(row.request_count)}`}
-            >
-              <div className="flex w-full flex-col items-stretch">
+        {isGrouped
+          ? buckets.map((bucket, i) => {
+              const entries = data.filter((d) => d.bucket === bucket)
+              const bucketTotal = bucketTotals[i]
+              const label = formatBucketLabel(bucket)
+              const tooltipLines = entries
+                .map((e) => `${e.key ?? ''}: ${formatNumber(e.total_tokens)}`)
+                .join('\n')
+              return (
                 <div
-                  className="w-full rounded-t-sm bg-primary/50"
-                  style={{ height: `${(outputPct / 100) * 200}px` }}
-                />
+                  key={bucket}
+                  className="group relative flex flex-1 flex-col items-stretch justify-end"
+                  title={`${label}\n${tooltipLines}`}
+                  style={{ height: '200px' }}
+                >
+                  <div className="flex w-full flex-col items-stretch justify-end" style={{ height: `${(bucketTotal / maxTotal) * 200}px` }}>
+                    {keys.map((key, ki) => {
+                      const entry = entries.find((e) => e.key === key)
+                      if (!entry) return null
+                      const segH = (entry.total_tokens / maxTotal) * 200
+                      return (
+                        <div
+                          key={key}
+                          className="w-full"
+                          style={{
+                            height: `${segH}px`,
+                            backgroundColor: CHART_COLORS[ki % CHART_COLORS.length],
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })
+          : data.map((row, i) => {
+              const inputPct = maxTotal > 0 ? (row.input_tokens / maxTotal) * 100 : 0
+              const outputPct = maxTotal > 0 ? (row.output_tokens / maxTotal) * 100 : 0
+              const label = formatBucketLabel(row.bucket)
+              return (
                 <div
-                  className="w-full bg-primary"
-                  style={{ height: `${(inputPct / 100) * 200}px` }}
-                />
-              </div>
-            </div>
-          )
-        })}
+                  key={i}
+                  className="group relative flex flex-1 flex-col items-center justify-end"
+                  title={`${label}\nInput: ${formatNumber(row.input_tokens)}\nOutput: ${formatNumber(row.output_tokens)}\nTotal: ${formatNumber(row.total_tokens)}\nRequests: ${formatNumber(row.request_count)}`}
+                >
+                  <div className="flex w-full flex-col items-stretch">
+                    <div className="w-full rounded-t-sm bg-primary/50" style={{ height: `${(outputPct / 100) * 200}px` }} />
+                    <div className="w-full bg-primary" style={{ height: `${(inputPct / 100) * 200}px` }} />
+                  </div>
+                </div>
+              )
+            })}
       </div>
 
       {/* X-axis labels */}
       <div className="flex justify-between text-xs text-muted-foreground">
-        {data.length > 0 && (
+        {buckets.length > 0 && (
           <>
-            <span>
-              {granularity === 'hourly'
-                ? new Date(data[0].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : new Date(data[0].bucket).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-            </span>
-            {data.length > 2 && (
-              <span>
-                {granularity === 'hourly'
-                  ? new Date(data[Math.floor(data.length / 2)].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : new Date(data[Math.floor(data.length / 2)].bucket).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-              </span>
-            )}
-            <span>
-              {granularity === 'hourly'
-                ? new Date(data[data.length - 1].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : new Date(data[data.length - 1].bucket).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-            </span>
+            <span>{formatBucketLabel(buckets[0])}</span>
+            {buckets.length > 2 && <span>{formatBucketLabel(buckets[Math.floor(buckets.length / 2)])}</span>}
+            <span>{formatBucketLabel(buckets[buckets.length - 1])}</span>
           </>
         )}
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 pt-2 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary" />
-          Input
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/50" />
-          Output
-        </span>
+      <div className="flex flex-wrap items-center justify-center gap-4 pt-2 text-xs text-muted-foreground">
+        {isGrouped
+          ? keys.map((key, ki) => (
+              <span key={key} className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ backgroundColor: CHART_COLORS[ki % CHART_COLORS.length] }}
+                />
+                {key}
+              </span>
+            ))
+          : (
+            <>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary" />
+                Input
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/50" />
+                Output
+              </span>
+            </>
+          )}
       </div>
     </div>
   )

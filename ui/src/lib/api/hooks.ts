@@ -224,13 +224,14 @@ export const useUsers = (params?: {
   search?: string
   sort_by?: string
   sort_dir?: string
-}) => {
+}, enabled = true) => {
   return useQuery({
     queryKey: ['users', params],
     queryFn: () => userApi.listUsers(params || {}),
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
     placeholderData: (previousData) => previousData,
+    enabled,
   })
 }
 
@@ -319,12 +320,13 @@ const usageApi = {
     return response.json()
   },
 
-  trends: async (params: { start: string; end: string; granularity: string }): Promise<UsageTrendsResponse> => {
+  trends: async (params: { start: string; end: string; granularity: string; dimension?: string }): Promise<UsageTrendsResponse> => {
     const searchParams = new URLSearchParams({
       start: params.start,
       end: params.end,
       granularity: params.granularity,
     })
+    if (params.dimension) searchParams.set('dimension', params.dimension)
     const response = await fetch(`/api/v1/usage/trends?${searchParams}`, { credentials: 'include' })
     if (!response.ok) throw new Error('Failed to fetch usage trends')
     return response.json()
@@ -348,7 +350,7 @@ export const useUsageTop = (params: { start: string; end: string; dimension: str
   })
 }
 
-export const useUsageTrends = (params: { start: string; end: string; granularity: string }) => {
+export const useUsageTrends = (params: { start: string; end: string; granularity: string; dimension?: string }) => {
   return useQuery({
     queryKey: ['usage', 'trends', params],
     queryFn: () => usageApi.trends(params),

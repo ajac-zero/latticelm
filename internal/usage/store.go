@@ -210,6 +210,7 @@ type TopRow struct {
 // TrendRow holds a single time-bucket in the trends result.
 type TrendRow struct {
 	Bucket       time.Time `json:"bucket"`
+	Key          string    `json:"key,omitempty"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
 	TotalTokens  int64     `json:"total_tokens"`
@@ -397,7 +398,14 @@ func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, l
 
 // QueryTrends returns time-bucketed token usage for charting.
 // granularity must be "hourly" or "daily".
-func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity string) ([]TrendRow, error) {
+// dimension, when non-empty, groups results by that column (model, provider, user_sub, tenant_id).
+func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity string, dimension string) ([]TrendRow, error) {
+	switch dimension {
+	case "", "model", "provider", "user_sub", "tenant_id":
+	default:
+		return nil, fmt.Errorf("invalid dimension %q", dimension)
+	}
+
 	if f.Start.IsZero() || f.End.IsZero() {
 		return nil, fmt.Errorf("start and end times are required for trends")
 	}
@@ -432,18 +440,15 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 
 	var bucketExpr string
 	if useRollups {
-		// Querying the continuous aggregate — bucket column is already the bucket.
 		bucketExpr = timeCol
 	} else {
 		if useTSDB {
-			// OSS TimescaleDB: use time_bucket on the raw hypertable.
 			interval := "1 day"
 			if granularity == "hourly" {
 				interval = "1 hour"
 			}
 			bucketExpr = fmt.Sprintf("time_bucket('%s', %s)", interval, timeCol)
 		} else {
-			// Plain PostgreSQL fallback: use date_trunc on raw table.
 			trunc := "day"
 			if granularity == "hourly" {
 				trunc = "hour"
@@ -452,11 +457,17 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 		}
 	}
 
-	// #nosec G201 -- bucket/table selection is limited to allowlisted values; filters remain parameterized.
-	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
+	selectDim, groupByDim := "", ""
+	if dimension != "" {
+		selectDim = fmt.Sprintf(", %s", dimension)
+		groupByDim = fmt.Sprintf(", %s", dimension)
+	}
+
+	// #nosec G201 -- bucket/table/dimension are limited to allowlisted values; filters remain parameterized.
+	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s%s
 		FROM %s %s
-		GROUP BY bucket
-		ORDER BY bucket ASC`, bucketExpr, countExpr, table, where)
+		GROUP BY bucket%s
+		ORDER BY bucket ASC`, bucketExpr, countExpr, selectDim, table, where, groupByDim)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -467,7 +478,13 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 	var results []TrendRow
 	for rows.Next() {
 		var r TrendRow
-		if err := rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount); err != nil {
+		var err error
+		if dimension != "" {
+			err = rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount, &r.Key)
+		} else {
+			err = rows.Scan(&r.Bucket, &r.InputTokens, &r.OutputTokens, &r.TotalTokens, &r.RequestCount)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("scan trend row: %w", err)
 		}
 		results = append(results, r)

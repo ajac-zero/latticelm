@@ -249,6 +249,7 @@ export interface UsageTopResponse {
 
 export interface UsageTrendRow {
   bucket: string
+  key?: string
   input_tokens: number
   output_tokens: number
   total_tokens: number
