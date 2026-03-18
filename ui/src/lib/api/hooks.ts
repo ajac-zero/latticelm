@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
-import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, BulkUpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail } from './types'
+import type { SystemInfo, HealthCheckResponse, ConfigResponse, ProviderInfo, ListUsersResponse, UserDetail, UpdateUserRequest, BulkUpdateUserRequest, UsageSummaryResponse, UsageTopResponse, UsageTrendsResponse, ListConversationsResponse, ConversationDetail, ProviderEntry, ProviderEntryRequest, ConfigModelEntry } from './types'
 
 export const useSystemInfo = (enabled = true) => {
   return useQuery({
@@ -47,6 +47,95 @@ export const useModels = () => {
       })
       const data = await response.json()
       return data.data || []
+    },
+  })
+}
+
+// Provider CRUD
+export const useConfigProviders = (enabled = true) => {
+  return useQuery({
+    queryKey: ['config', 'providers'],
+    queryFn: () => apiClient.get<ProviderInfo[]>('/providers'),
+    enabled,
+  })
+}
+
+export const useCreateProvider = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: ProviderEntryRequest) => apiClient.post<{ name: string }>('/providers', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'providers'] })
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+}
+
+export const useUpdateProvider = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: ProviderEntry }) =>
+      apiClient.put<{ name: string }>(`/providers/${encodeURIComponent(name)}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'providers'] })
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+}
+
+export const useDeleteProvider = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => apiClient.delete<void>(`/providers/${encodeURIComponent(name)}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'providers'] })
+      queryClient.invalidateQueries({ queryKey: ['providers'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+}
+
+// Model CRUD
+export const useConfigModels = (enabled = true) => {
+  return useQuery({
+    queryKey: ['config', 'models'],
+    queryFn: () => apiClient.get<ConfigModelEntry[]>('/config/models'),
+    enabled,
+  })
+}
+
+export const useCreateModel = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: ConfigModelEntry) => apiClient.post<ConfigModelEntry>('/config/models', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'models'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+}
+
+export const useUpdateModel = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: Omit<ConfigModelEntry, 'name'> }) =>
+      apiClient.put<ConfigModelEntry>(`/config/models/${encodeURIComponent(name)}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'models'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+}
+
+export const useDeleteModel = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => apiClient.delete<void>(`/config/models/${encodeURIComponent(name)}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'models'] })
+      queryClient.invalidateQueries({ queryKey: ['config'] })
     },
   })
 }

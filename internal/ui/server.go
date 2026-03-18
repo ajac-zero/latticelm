@@ -28,23 +28,25 @@ type BuildInfo struct {
 
 // Server hosts the admin API and UI.
 type Server struct {
-	registry  ProviderRegistry
-	convStore conversation.Store
-	cfg       *config.Config
-	logger    *slog.Logger
-	startTime time.Time
-	buildInfo BuildInfo
+	registry    ProviderRegistry
+	convStore   conversation.Store
+	cfg         *config.Config
+	configStore *config.Store
+	logger      *slog.Logger
+	startTime   time.Time
+	buildInfo   BuildInfo
 }
 
 // New creates a Server instance.
-func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, logger *slog.Logger, buildInfo BuildInfo) *Server {
+func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, configStore *config.Store, logger *slog.Logger, buildInfo BuildInfo) *Server {
 	return &Server{
-		registry:  registry,
-		convStore: convStore,
-		cfg:       cfg,
-		logger:    logger,
-		startTime: time.Now(),
-		buildInfo: buildInfo,
+		registry:    registry,
+		convStore:   convStore,
+		cfg:         cfg,
+		configStore: configStore,
+		logger:      logger,
+		startTime:   time.Now(),
+		buildInfo:   buildInfo,
 	}
 }
 

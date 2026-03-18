@@ -128,6 +128,25 @@ export interface ProviderInfo {
   status: string
 }
 
+export interface ProviderEntry {
+  type: string
+  api_key: string
+  endpoint?: string
+  api_version?: string
+  project?: string
+  location?: string
+}
+
+export interface ProviderEntryRequest extends ProviderEntry {
+  name: string
+}
+
+export interface ConfigModelEntry {
+  name: string
+  provider: string
+  provider_model_id?: string
+}
+
 export interface User {
   email: string
   name?: string
