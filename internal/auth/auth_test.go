@@ -1325,24 +1325,23 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 	server := newMockJWKSServer(testPublicKey, testKID)
 	defer server.close()
 
-	// New() normalises the issuer by trimming trailing slashes, so a config
-	// with a trailing slash should work transparently.
+	// Issuer is preserved as-is; the token iss must match exactly.
+	issuerWithSlash := server.server.URL + "/"
 	cfg := Config{
 		Enabled:  true,
-		Issuer:   server.server.URL + "/", // trailing slash
+		Issuer:   issuerWithSlash,
 		Audience: testAudience,
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	assert.Len(t, m.keys, 1)
-	// Issuer should have been normalised.
-	assert.Equal(t, server.server.URL, m.cfg.Issuer)
+	assert.Equal(t, issuerWithSlash, m.cfg.Issuer)
 
-	// Token iss without trailing slash must be accepted.
+	// Token iss with trailing slash must be accepted.
 	claims := jwt.MapClaims{
 		"sub": "user123",
-		"iss": server.server.URL,
+		"iss": issuerWithSlash,
 		"aud": testAudience,
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
@@ -1353,6 +1352,20 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 	validatedClaims, err := m.validateToken(token)
 	require.NoError(t, err)
 	assert.Equal(t, "user123", validatedClaims["sub"])
+
+	// Token iss WITHOUT trailing slash must be rejected.
+	claimsNoSlash := jwt.MapClaims{
+		"sub": "user456",
+		"iss": server.server.URL,
+		"aud": testAudience,
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	}
+	tokenNoSlash, err := generateTestJWT(testPrivateKey, claimsNoSlash, testKID)
+	require.NoError(t, err)
+
+	_, err = m.validateToken(tokenNoSlash)
+	assert.Error(t, err)
 }
 
 // ---------------------------------------------------------------------------

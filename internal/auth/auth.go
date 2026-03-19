@@ -82,9 +82,6 @@ func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 		return nil, fmt.Errorf("auth enabled but issuer not configured")
 	}
 
-	// Normalise issuer to avoid trailing-slash mismatches with token iss claims.
-	cfg.Issuer = strings.TrimSuffix(cfg.Issuer, "/")
-
 	m := &Middleware{
 		cfg:    cfg,
 		keys:   make(map[string]interface{}),
@@ -269,8 +266,8 @@ func (m *Middleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 	}
 
 	parseOpts := []jwt.ParserOption{
-		jwt.WithIssuer(m.cfg.Issuer),
 		jwt.WithExpirationRequired(),
+		jwt.WithIssuer(m.cfg.Issuer),
 	}
 	if m.cfg.Audience != "" {
 		parseOpts = append(parseOpts, jwt.WithAudience(m.cfg.Audience))
