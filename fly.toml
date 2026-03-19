@@ -6,8 +6,6 @@
 app = 'latticelm'
 primary_region = 'dfw'
 
-[build]
-
 [http_service]
   internal_port = 8080
   force_https = true
@@ -20,7 +18,3 @@ primary_region = 'dfw'
   memory = '1gb'
   cpus = 1
   memory_mb = 1024
-
-[[files]]
-  guest_path = "/app/config/config.yaml"
-  secret_name = "APP_CONFIG"

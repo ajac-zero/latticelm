@@ -82,9 +82,6 @@ func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 		return nil, fmt.Errorf("auth enabled but issuer not configured")
 	}
 
-	// Normalise issuer to avoid trailing-slash mismatches with token iss claims.
-	cfg.Issuer = strings.TrimSuffix(cfg.Issuer, "/")
-
 	m := &Middleware{
 		cfg:    cfg,
 		keys:   make(map[string]interface{}),
