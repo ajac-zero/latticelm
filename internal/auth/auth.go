@@ -266,8 +266,8 @@ func (m *Middleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 	}
 
 	parseOpts := []jwt.ParserOption{
-		jwt.WithExpirationRequired(),
 		jwt.WithIssuer(m.cfg.Issuer),
+		jwt.WithExpirationRequired(),
 	}
 	if m.cfg.Audience != "" {
 		parseOpts = append(parseOpts, jwt.WithAudience(m.cfg.Audience))
