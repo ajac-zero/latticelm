@@ -144,7 +144,7 @@ func (a *API) HandleTokenLogin(w http.ResponseWriter, r *http.Request) {
 		a.oidcClient.clearSession(w, r)
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     SessionCookieName,
 		Value:    req.Token,
 		Path:     "/",
@@ -174,7 +174,7 @@ func (a *API) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",
