@@ -251,22 +251,22 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Host, "localhost") {
 		cookieDomain = "localhost"
 	}
-	http.SetCookie(w, &http.Cookie{ // #nosec G124
+	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookieName,
 		Domain:   cookieDomain,
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.SetCookie(w, &http.Cookie{ // #nosec G124
+	http.SetCookie(w, &http.Cookie{
 		Name:     oidcVerifierCookieName,
 		Domain:   cookieDomain,
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 
