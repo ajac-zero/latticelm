@@ -158,7 +158,7 @@ func (c *OIDCClient) prepareAuthorizationURL(w http.ResponseWriter, r *http.Requ
 		cookieDomain = "localhost"
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     oidcStateCookieName,
 		Value:    state,
 		Domain:   cookieDomain,
@@ -169,7 +169,7 @@ func (c *OIDCClient) prepareAuthorizationURL(w http.ResponseWriter, r *http.Requ
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     oidcVerifierCookieName,
 		Value:    codeVerifier,
 		Domain:   cookieDomain,
@@ -251,8 +251,24 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Host, "localhost") {
 		cookieDomain = "localhost"
 	}
-	http.SetCookie(w, &http.Cookie{Name: oidcStateCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
-	http.SetCookie(w, &http.Cookie{Name: oidcVerifierCookieName, Domain: cookieDomain, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookieName,
+		Domain:   cookieDomain,
+		MaxAge:   -1,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcVerifierCookieName,
+		Domain:   cookieDomain,
+		MaxAge:   -1,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// Exchange code for tokens
 	tokens, err := c.exchangeCode(ctx, code, verifierCookie.Value)
@@ -337,7 +353,7 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	// cookieDomain already declared above when clearing temporary cookies
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     OIDCSessionCookieName,
 		Value:    sessionID,
 		Domain:   cookieDomain,
@@ -402,7 +418,7 @@ func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) {
 		cookieDomain = "localhost"
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     OIDCSessionCookieName,
 		Value:    "",
 		Domain:   cookieDomain,

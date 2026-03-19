@@ -126,7 +126,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		Messages: oaiMessages,
 	}
 	if req.MaxOutputTokens != nil {
-		params.MaxTokens = openai.Int(int64(*req.MaxOutputTokens))
+		params.MaxCompletionTokens = openai.Int(int64(*req.MaxOutputTokens))
 	}
 	if req.Temperature != nil {
 		params.Temperature = openai.Float(*req.Temperature)
@@ -259,7 +259,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			Messages: oaiMessages,
 		}
 		if req.MaxOutputTokens != nil {
-			params.MaxTokens = openai.Int(int64(*req.MaxOutputTokens))
+			params.MaxCompletionTokens = openai.Int(int64(*req.MaxOutputTokens))
 		}
 		if req.Temperature != nil {
 			params.Temperature = openai.Float(*req.Temperature)
