@@ -15,8 +15,8 @@ JWT authentication testing script for latticelm gateway.
 Tests OIDC provider token exchange, JWT validation, and gateway API access.
 
 Usage:
-    python test_jwt.py
-    python test_jwt.py --auth-url https://auth.example.com --client-id xxx --client-secret xxx
+    python test_jwt.py --token-url https://provider.example.com/oauth/token --client-id xxx --client-secret xxx
+    python test_jwt.py --token-url https://pocketid.example.com/api/oidc/token --client-id xxx --client-secret xxx
     python test_jwt.py --gateway-url https://gateway.example.com --token <jwt>
 """
 
@@ -25,7 +25,7 @@ import random
 import sys
 from datetime import datetime
 from typing import Annotated, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import jwt
 import requests
@@ -40,17 +40,11 @@ console = Console()
 
 
 def get_token(
-    auth_url: str,
+    token_url: str,
     client_id: str,
     client_secret: str,
 ) -> Optional[str]:
     """Exchange client credentials for an access token."""
-    # Authentik token endpoint is always at /application/o/token/ under the base domain.
-    # Extract the base domain from the issuer URL.
-    parsed = urlparse(auth_url)
-    base_url = f"{parsed.scheme}://{parsed.netloc}"
-    token_url = base_url + "/application/o/token/"
-    
     try:
         console.print(f"[dim]Requesting token from: {token_url}[/dim]")
         resp = requests.post(
@@ -87,7 +81,7 @@ def format_timestamp(ts: int) -> str:
         return str(ts)
 
 
-def display_token_info(token: str, issuer_configured: str):
+def display_token_info(token: str, issuer_configured: Optional[str] = None):
     """Display decoded JWT claims and validation status."""
     claims = decode_token_unverified(token)
     
@@ -109,23 +103,19 @@ def display_token_info(token: str, issuer_configured: str):
     
     console.print(table)
     
-    # Validate issuer (with and without trailing slash)
+    # Issuer info
     iss = claims.get("iss", "")
-    iss_normalized = iss.rstrip("/")
-    issuer_normalized = issuer_configured.rstrip("/")
-    
-    console.print("\n[bold cyan]Issuer Validation[/bold cyan]")
+    console.print("\n[bold cyan]Issuer[/bold cyan]")
     iss_table = Table(show_header=True, header_style="bold magenta")
     iss_table.add_column("Field", style="cyan")
     iss_table.add_column("Value", style="green")
     iss_table.add_row("Token iss claim", iss)
-    iss_table.add_row("Configured issuer", issuer_configured)
-    iss_table.add_row("iss (normalized)", iss_normalized)
-    iss_table.add_row("Configured (normalized)", issuer_normalized)
-    iss_table.add_row(
-        "Match", 
-        "[green]✓[/green]" if iss_normalized == issuer_normalized else "[red]✗[/red]"
-    )
+    if issuer_configured is not None:
+        iss_table.add_row("Configured issuer", issuer_configured)
+        iss_table.add_row(
+            "Exact match",
+            "[green]✓[/green]" if iss == issuer_configured else "[red]✗[/red]"
+        )
     console.print(iss_table)
     
     # Check expiration
@@ -194,17 +184,21 @@ def test_gateway_endpoint(
 
 @app.command()
 def main(
-    auth_url: Annotated[
-        str,
-        typer.Option(help="OIDC provider URL"),
-    ] = "https://auth.ia-innovacion.work/application/o/lattice-lm/",
+    token_url: Annotated[
+        Optional[str],
+        typer.Option(help="OAuth2 token endpoint URL (e.g. https://provider.example.com/oauth/token)"),
+    ] = None,
+    issuer: Annotated[
+        Optional[str],
+        typer.Option(help="Expected issuer for display validation (optional)"),
+    ] = None,
     client_id: Annotated[
         Optional[str],
         typer.Option(help="OAuth2 client ID"),
     ] = None,
     client_secret: Annotated[
         Optional[str],
-        typer.Option(help="OAuth2 client secret (read from AUTH_CLIENT_SECRET env var if not provided)"),
+        typer.Option(help="OAuth2 client secret"),
     ] = None,
     gateway_url: Annotated[
         str,
@@ -224,7 +218,7 @@ def main(
     # Display config
     console.print(Panel.fit(
         "[bold cyan]JWT Authentication Test[/bold cyan]\n"
-        f"Auth URL: [green]{auth_url}[/green]\n"
+        f"Token URL: [green]{token_url or '[not provided]'}[/green]\n"
         f"Gateway URL: [green]{gateway_url}[/green]\n"
         f"Client ID: [yellow]{'*' * 8 if client_id else '[not provided]'}[/yellow]",
         title="Config",
@@ -233,18 +227,21 @@ def main(
     
     # Get token if not provided
     if not token:
+        if not token_url:
+            console.print("[red]Error: --token-url required for token exchange[/red]")
+            raise typer.Exit(1)
         if not client_id or not client_secret:
             console.print("[red]Error: --client-id and --client-secret required for token exchange[/red]")
             raise typer.Exit(1)
         
-        token = get_token(auth_url, client_id, client_secret)
+        token = get_token(token_url, client_id, client_secret)
         if not token:
             raise typer.Exit(1)
         
         console.print("\n[green]✓ Token obtained[/green]")
     
     # Display token info
-    display_token_info(token, auth_url)
+    display_token_info(token, issuer)
     
     # Test gateway endpoints
     if skip_gateway_test:
