@@ -59,7 +59,7 @@ export interface ConfigResponse {
   auth?: {
     enabled: boolean
     issuer?: string
-    audience?: string
+    audiences?: string[]
   }
   conversations: {
     Enabled?: boolean

@@ -259,9 +259,9 @@ func TestNew(t *testing.T) {
 				server = tt.setupServer()
 				defer server.close()
 				tt.config = Config{
-					Enabled:  true,
-					Issuer:   server.server.URL,
-					Audience: testAudience,
+					Enabled:   true,
+					Issuer:    server.server.URL,
+					Audiences: []string{testAudience},
 				}
 			}
 
@@ -289,7 +289,7 @@ func TestMiddleware_Handler(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 
 	var logBuf bytes.Buffer
@@ -606,7 +606,7 @@ func TestMiddleware_Handler_SessionCookie(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -787,7 +787,7 @@ func TestValidateToken(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1008,9 +1008,9 @@ func TestValidateToken_NoAudienceConfigured(t *testing.T) {
 	defer server.close()
 
 	cfg := Config{
-		Enabled:  true,
-		Issuer:   server.server.URL,
-		Audience: "", // No audience required
+		Enabled:   true,
+		Issuer:    server.server.URL,
+		Audiences: []string{}, // No audience required
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1211,7 +1211,7 @@ func TestRefreshJWKS(t *testing.T) {
 			cfg := Config{
 				Enabled:  true,
 				Issuer:   server.server.URL,
-				Audience: testAudience,
+				Audiences: []string{testAudience},
 			}
 
 			m := &Middleware{
@@ -1244,7 +1244,7 @@ func TestRefreshJWKS_Concurrency(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1330,7 +1330,7 @@ func TestMiddleware_IssuerWithTrailingSlash(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   issuerWithSlash,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1379,7 +1379,7 @@ func TestValidateToken_ES256(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1406,7 +1406,7 @@ func TestValidateToken_UnsupportedAlgorithm(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1435,7 +1435,7 @@ func TestValidateToken_NotBefore(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1463,7 +1463,7 @@ func TestValidateToken_ClockSkew_NBF(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
 		Issuer:    server.server.URL,
-		Audience:  testAudience,
+		Audiences: []string{testAudience},
 		ClockSkew: 30 * time.Second,
 	}
 	m, err := New(cfg, slog.Default())
@@ -1493,7 +1493,7 @@ func TestValidateToken_ClockSkew_Expiry(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
 		Issuer:    server.server.URL,
-		Audience:  testAudience,
+		Audiences: []string{testAudience},
 		ClockSkew: 30 * time.Second,
 	}
 	m, err := New(cfg, slog.Default())
@@ -1522,7 +1522,7 @@ func TestValidateToken_ClockSkew_ExpiredBeyondLeeway(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
 		Issuer:    server.server.URL,
-		Audience:  testAudience,
+		Audiences: []string{testAudience},
 		ClockSkew: 30 * time.Second,
 	}
 	m, err := New(cfg, slog.Default())
@@ -1552,7 +1552,7 @@ func TestStaleKeys_IssuerOutage(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 		// StaleTTL=0: serve stale keys indefinitely during outages.
 	}
 	m, err := New(cfg, slog.Default())
@@ -1595,7 +1595,7 @@ func TestStaleTTL_EnforcedOnExpiry(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 		StaleTTL: 50 * time.Millisecond,
 	}
 	m, err := New(cfg, slog.Default())
@@ -1633,7 +1633,7 @@ func TestRefresh_RateLimiting(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
@@ -1674,7 +1674,7 @@ func TestRefreshJWKS_ECKeys(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 
 	m := &Middleware{
@@ -1726,7 +1726,7 @@ func TestRefreshJWKS_MixedRSAandEC(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Issuer:   server.server.URL,
-		Audience: testAudience,
+		Audiences: []string{testAudience},
 	}
 
 	m := &Middleware{
@@ -1745,4 +1745,62 @@ func TestRefreshJWKS_MixedRSAandEC(t *testing.T) {
 	_, ecOK := m.keys[testECKID].(*ecdsa.PublicKey)
 	assert.True(t, rsaOK, "RSA key should be *rsa.PublicKey")
 	assert.True(t, ecOK, "EC key should be *ecdsa.PublicKey")
+}
+
+func TestValidateToken_MultipleAudiences(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	// Configure with two audiences
+	cfg := Config{
+		Enabled:   true,
+		Issuer:    server.server.URL,
+		Audiences: []string{"aud1", "aud2"},
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// Token with first audience should be valid
+	claims1 := jwt.MapClaims{
+		"sub": "user123",
+		"iss": server.server.URL,
+		"aud": "aud1",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Add(-time.Hour).Unix(),
+	}
+	token1, err := generateTestJWT(testPrivateKey, claims1, testKID)
+	require.NoError(t, err)
+
+	validated1, err := m.validateToken(token1)
+	require.NoError(t, err)
+	assert.Equal(t, "user123", validated1["sub"])
+
+	// Token with second audience should be valid
+	claims2 := jwt.MapClaims{
+		"sub": "user456",
+		"iss": server.server.URL,
+		"aud": "aud2",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Add(-time.Hour).Unix(),
+	}
+	token2, err := generateTestJWT(testPrivateKey, claims2, testKID)
+	require.NoError(t, err)
+
+	validated2, err := m.validateToken(token2)
+	require.NoError(t, err)
+	assert.Equal(t, "user456", validated2["sub"])
+
+	// Token with wrong audience should fail
+	claimsWrong := jwt.MapClaims{
+		"sub": "user789",
+		"iss": server.server.URL,
+		"aud": "wrong-aud",
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Add(-time.Hour).Unix(),
+	}
+	tokenWrong, err := generateTestJWT(testPrivateKey, claimsWrong, testKID)
+	require.NoError(t, err)
+
+	_, err = m.validateToken(tokenWrong)
+	assert.Error(t, err, "token with wrong audience should fail")
 }

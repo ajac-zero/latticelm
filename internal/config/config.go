@@ -107,13 +107,13 @@ type UsageConfig struct {
 
 // AuthConfig holds OIDC authentication settings.
 type AuthConfig struct {
-	Enabled      bool   `json:"enabled"`
-	Issuer       string `json:"issuer"`
-	Audience     string `json:"audience"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	RedirectURI  string `json:"redirect_uri"`
-	AdminEmail   string `json:"admin_email"`
+	Enabled      bool     `json:"enabled"`
+	Issuer       string   `json:"issuer"`
+	Audiences    []string `json:"audiences"`
+	ClientID     string   `json:"client_id"`
+	ClientSecret string   `json:"client_secret"`
+	RedirectURI  string   `json:"redirect_uri"`
+	AdminEmail   string   `json:"admin_email"`
 }
 
 // UIConfig controls the web UI.
@@ -191,8 +191,8 @@ func LoadFromEnv() (*Config, error) {
 	if err := applyEnvOverrides(&cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Auth.Audience == "" && cfg.Auth.ClientID != "" {
-		cfg.Auth.Audience = cfg.Auth.ClientID
+	if len(cfg.Auth.Audiences) == 0 && cfg.Auth.ClientID != "" {
+		cfg.Auth.Audiences = []string{cfg.Auth.ClientID}
 	}
 	return &cfg, nil
 }

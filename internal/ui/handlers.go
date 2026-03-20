@@ -101,9 +101,9 @@ type SanitizedProvider struct {
 
 // SanitizedAuthConfig is auth config with secrets masked.
 type SanitizedAuthConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Issuer   string `json:"issuer"`
-	Audience string `json:"audience"`
+	Enabled   bool     `json:"enabled"`
+	Issuer    string   `json:"issuer"`
+	Audiences []string `json:"audiences"`
 }
 
 // ProviderInfo contains provider information.
@@ -242,9 +242,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Providers: sanitizedProviders,
 		Models:    s.cfg.Models,
 		Auth: SanitizedAuthConfig{
-			Enabled:  s.cfg.Auth.Enabled,
-			Issuer:   s.cfg.Auth.Issuer,
-			Audience: s.cfg.Auth.Audience,
+			Enabled:   s.cfg.Auth.Enabled,
+			Issuer:    s.cfg.Auth.Issuer,
+			Audiences: s.cfg.Auth.Audiences,
 		},
 		Conversations: convConfig,
 		Logging:       s.cfg.Logging,

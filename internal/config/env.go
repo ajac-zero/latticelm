@@ -31,7 +31,7 @@ func applyEnvOverrides(cfg *Config) error {
 		return err
 	}
 	setStr(&cfg.Auth.Issuer, "AUTH_ISSUER")
-	setStr(&cfg.Auth.Audience, "AUTH_AUDIENCE")
+	setStrSlice(&cfg.Auth.Audiences, "AUTH_AUDIENCE")
 	setStr(&cfg.Auth.ClientID, "AUTH_CLIENT_ID")
 	setStr(&cfg.Auth.ClientSecret, "AUTH_CLIENT_SECRET")
 	setStr(&cfg.Auth.RedirectURI, "AUTH_REDIRECT_URI")
