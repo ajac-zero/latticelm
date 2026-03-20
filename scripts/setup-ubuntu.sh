@@ -67,10 +67,6 @@ else
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
-# ---------- SQLite dev headers (CGO dependency for go-sqlite3) ----------
-echo "==> Installing SQLite development libraries..."
-apt-get install -y libsqlite3-dev
-
 # ---------- Optional Go dev tools ----------
 echo "==> Installing Go linter and security scanner..."
 GOBIN="/usr/local/go/bin"

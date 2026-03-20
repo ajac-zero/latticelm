@@ -334,14 +334,14 @@ func main() {
 
 		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer migrateCancel()
-		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx", usage.AnalyticsModePGX)
+		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB)
 		if err != nil {
 			logger.Error("usage migration failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
 		logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
 
-		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval, usage.AnalyticsModePGX)
+		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
 		logger.Info("token usage tracking enabled",
 			slog.Int("buffer_size", cfg.Usage.BufferSize),
 			slog.String("flush_interval", cfg.Usage.FlushInterval),
