@@ -33,7 +33,7 @@ import (
 type Config struct {
 	Enabled   bool
 	Issuer    string        // e.g., "https://accounts.google.com"
-	Audience  string        // e.g., your client ID
+	Audiences []string      // e.g., your client ID(s)
 	ClockSkew time.Duration // allowance for clock drift; default 0
 	StaleTTL  time.Duration // stale-key acceptance window; 0 = unlimited
 }
@@ -269,8 +269,8 @@ func (m *Middleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 		jwt.WithIssuer(m.cfg.Issuer),
 		jwt.WithExpirationRequired(),
 	}
-	if m.cfg.Audience != "" {
-		parseOpts = append(parseOpts, jwt.WithAudience(m.cfg.Audience))
+	if len(m.cfg.Audiences) > 0 {
+		parseOpts = append(parseOpts, jwt.WithAudience(m.cfg.Audiences...))
 	}
 	if m.cfg.ClockSkew > 0 {
 		parseOpts = append(parseOpts, jwt.WithLeeway(m.cfg.ClockSkew))

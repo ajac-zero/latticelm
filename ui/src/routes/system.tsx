@@ -197,7 +197,7 @@ function StatusTab() {
               {config.auth?.enabled ? (
                 <>
                   <InfoRow label="Issuer" value={config.auth.issuer || 'Not configured'} />
-                  <InfoRow label="Audience" value={config.auth.audience || 'Not configured'} />
+                  <InfoRow label="Audiences" value={config.auth.audiences?.length ? config.auth.audiences.join(', ') : 'Not configured'} />
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">Authentication is currently disabled</p>

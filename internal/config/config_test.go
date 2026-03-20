@@ -59,22 +59,31 @@ func TestLoadFromEnv(t *testing.T) {
 			},
 		},
 		{
-			name: "audience defaults to client_id when not set",
+			name: "audiences defaults to client_id when not set",
 			env: map[string]string{
 				"AUTH_CLIENT_ID": "my-client-id",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "my-client-id", cfg.Auth.Audience)
+				assert.Equal(t, []string{"my-client-id"}, cfg.Auth.Audiences)
 			},
 		},
 		{
-			name: "explicit audience takes precedence over client_id",
+			name: "explicit audiences take precedence over client_id",
 			env: map[string]string{
 				"AUTH_CLIENT_ID": "my-client-id",
 				"AUTH_AUDIENCE":  "explicit-audience",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "explicit-audience", cfg.Auth.Audience)
+				assert.Equal(t, []string{"explicit-audience"}, cfg.Auth.Audiences)
+			},
+		},
+		{
+			name: "multiple audiences are parsed correctly",
+			env: map[string]string{
+				"AUTH_AUDIENCE": "audience1,audience2",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, []string{"audience1", "audience2"}, cfg.Auth.Audiences)
 			},
 		},
 		{

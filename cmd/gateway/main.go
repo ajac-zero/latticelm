@@ -126,9 +126,9 @@ func main() {
 
 	// Initialize authentication middleware
 	authConfig := auth.Config{
-		Enabled:  cfg.Auth.Enabled,
-		Issuer:   cfg.Auth.Issuer,
-		Audience: cfg.Auth.Audience,
+		Enabled:   cfg.Auth.Enabled,
+		Issuer:    cfg.Auth.Issuer,
+		Audiences: cfg.Auth.Audiences,
 	}
 	authMiddleware, err := auth.New(authConfig, logger)
 	if err != nil {
