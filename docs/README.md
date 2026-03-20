@@ -59,7 +59,6 @@ Production-grade Kubernetes deployment with high availability, monitoring, and s
 - Horizontal Pod Autoscaling and PodDisruptionBudgets
 - Security best practices (RBAC, NetworkPolicies, Pod Security)
 - Cloud-specific guides (AWS EKS, GCP GKE, Azure AKS)
-- Storage options (Redis, PostgreSQL, managed services)
 - Rolling updates and rollback strategies
 
 For more documentation, see:

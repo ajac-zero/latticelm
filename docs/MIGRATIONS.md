@@ -31,20 +31,16 @@ order.
 
 1. Create a new file in `internal/conversation/migrations/` with the next
    sequential version number, e.g. `002_add_index_on_tenant_id.sql`.
-2. Write valid DDL that works on all supported databases (SQLite, PostgreSQL,
-   MySQL). Prefer `IF NOT EXISTS` / `IF EXISTS` guards where supported.
+2. Write valid DDL for PostgreSQL. Prefer `IF NOT EXISTS` / `IF EXISTS` guards.
 3. Increment `expectedSchemaVersion` in `internal/conversation/migrate.go` to
    match the new highest version number.
 4. Run `go test ./internal/conversation/...` to verify the migration applies
-   cleanly on an in-memory SQLite database.
+   cleanly.
 
 ## Applying Migrations in Production
 
 Migrations run automatically when the gateway starts. No manual steps are
 required under normal circumstances.
-
-For databases that do not support DDL inside transactions (e.g. some MySQL DDL
-statements), test the migration in a staging environment before deploying.
 
 ### Rollback
 

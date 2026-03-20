@@ -70,31 +70,18 @@ docker run -d \
 Create a `.env` file with your API keys:
 
 ```bash
-# Required: At least one provider
-OPENAI_API_KEY=sk-your-openai-key
-ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-GOOGLE_API_KEY=your-google-key
+# Required
+DATABASE_URL=postgres://latticelm:latticelm@postgres:5432/latticelm?sslmode=disable
+ENCRYPTION_KEY=  # generate with: openssl rand -base64 32
 
-# Optional: Server settings
+# Provider API keys (add via Admin UI after first start)
+# Or set environment variables for auto-detection
+
+# Optional
 SERVER_ADDRESS=:8080
-LOGGING_LEVEL=info
-LOGGING_FORMAT=json
-
-# Optional: Features
-ADMIN_ENABLED=true
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_REQUESTS_PER_SECOND=10
-RATE_LIMIT_BURST=20
-
-# Optional: Auth
-AUTH_ENABLED=false
-AUTH_ISSUER=https://accounts.google.com
-AUTH_AUDIENCE=your-client-id.apps.googleusercontent.com
-
-# Optional: Observability
-OBSERVABILITY_ENABLED=false
-OBSERVABILITY_METRICS_ENABLED=false
-OBSERVABILITY_TRACING_ENABLED=false
+LOG_FORMAT=json
+LOG_LEVEL=info
+UI_ENABLED=true
 ```
 
 Run with environment file:
@@ -127,19 +114,7 @@ docker run -d \
 
 ### Persistent Storage
 
-For persistent conversation storage with SQLite:
-
-```bash
-docker run -d \
-  --name llm-gateway \
-  -p 8080:8080 \
-  -v llm-gateway-data:/app/data \
-  -e OPENAI_API_KEY="your-key" \
-  -e CONVERSATIONS_STORE=sql \
-  -e CONVERSATIONS_DRIVER=sqlite3 \
-  -e CONVERSATIONS_DSN=/app/data/conversations.db \
-  ghcr.io/yourusername/llm-gateway:latest
-```
+All data is stored in PostgreSQL via the `DATABASE_URL` connection. No additional storage configuration is needed.
 
 ## Docker Compose
 
@@ -372,26 +347,6 @@ docker port llm-gateway
 **Test provider connectivity:**
 ```bash
 docker exec llm-gateway wget -O- https://api.openai.com
-```
-
-### Database Locked (SQLite)
-
-If using SQLite with multiple containers:
-```bash
-# SQLite doesn't support concurrent writes
-# Use Redis or PostgreSQL instead:
-
-docker run -d \
-  --name redis \
-  redis:7-alpine
-
-docker run -d \
-  --name llm-gateway \
-  -p 8080:8080 \
-  -e CONVERSATIONS_STORE=redis \
-  -e CONVERSATIONS_DSN=redis://redis:6379/0 \
-  --link redis \
-  ghcr.io/yourusername/llm-gateway:latest
 ```
 
 ### Image Pull Failures

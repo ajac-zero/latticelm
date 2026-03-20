@@ -207,45 +207,11 @@ func TestBuildRouteMuxSeparatesSecurityBoundaries(t *testing.T) {
 	}
 }
 
-func TestInitConversationStore_BadDSN_FailsFast(t *testing.T) {
-	cfg := config.ConversationConfig{
-		Store:  "sql",
-		Driver: "sqlite3",
-		// Path in a non-existent directory; sqlite3 cannot create the file.
-		DSN: "/nonexistent_dir_for_latticelm_test/bad.db",
-	}
+func TestInitConversationStore_MissingDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	cfg := config.ConversationConfig{}
 	store, _, err := initConversationStore(cfg, slog.Default())
-	require.Error(t, err, "expected error for bad DSN")
+	require.Error(t, err, "expected error when DATABASE_URL is not set")
 	assert.Nil(t, store, "store must be nil on failure")
-	assert.Contains(t, err.Error(), "ping database", "error should mention ping failure")
-}
-
-func TestInitConversationStore_DefaultPoolSettings(t *testing.T) {
-	cfg := config.ConversationConfig{
-		Store:  "sql",
-		Driver: "sqlite3",
-		DSN:    ":memory:",
-	}
-	store, backend, err := initConversationStore(cfg, slog.Default())
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	assert.Equal(t, "sql", backend)
-	_ = store.Close()
-}
-
-func TestInitConversationStore_CustomPoolSettings(t *testing.T) {
-	cfg := config.ConversationConfig{
-		Store:           "sql",
-		Driver:          "sqlite3",
-		DSN:             ":memory:",
-		MaxOpenConns:    10,
-		MaxIdleConns:    2,
-		ConnMaxLifetime: "10m",
-		ConnMaxIdleTime: "2m",
-	}
-	store, backend, err := initConversationStore(cfg, slog.Default())
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	assert.Equal(t, "sql", backend)
-	_ = store.Close()
+	assert.Contains(t, err.Error(), "DATABASE_URL", "error should mention DATABASE_URL")
 }

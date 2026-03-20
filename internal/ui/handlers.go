@@ -201,11 +201,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sanitize DSN in conversations config
 	convConfig := s.cfg.Conversations
-	if convConfig.DSN != "" {
-		convConfig.DSN = maskSecret(convConfig.DSN)
-	}
 
 	// Sanitize rate limit config (mask Redis credentials)
 	sanitizedRL := SanitizedRateLimitConfig{

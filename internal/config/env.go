@@ -97,8 +97,6 @@ func applyEnvOverrides(cfg *Config) error {
 	if err = setBool(&cfg.Usage.Enabled, "USAGE_ENABLED"); err != nil {
 		return err
 	}
-	setStr(&cfg.Usage.AnalyticsMode, "USAGE_ANALYTICS_MODE")
-	setStr(&cfg.Usage.DSN, "USAGE_DSN")
 	if err = setInt(&cfg.Usage.BufferSize, "USAGE_BUFFER_SIZE"); err != nil {
 		return err
 	}
@@ -111,11 +109,8 @@ func applyEnvOverrides(cfg *Config) error {
 	if err = setBool(&cfg.Conversations.StoreByDefault, "CONVERSATIONS_STORE_BY_DEFAULT"); err != nil {
 		return err
 	}
-	setStr(&cfg.Conversations.Store, "CONVERSATIONS_STORE")
 	setStr(&cfg.Conversations.TTL, "CONVERSATIONS_TTL")
 	setStr(&cfg.Conversations.MaxTTL, "CONVERSATIONS_MAX_TTL")
-	setStr(&cfg.Conversations.DSN, "CONVERSATIONS_DSN")
-	setStr(&cfg.Conversations.Driver, "CONVERSATIONS_DRIVER")
 	if err = setInt(&cfg.Conversations.MaxOpenConns, "CONVERSATIONS_MAX_OPEN_CONNS"); err != nil {
 		return err
 	}

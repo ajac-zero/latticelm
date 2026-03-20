@@ -14,11 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ajac-zero/latticelm/internal/auth"
@@ -150,15 +147,11 @@ func main() {
 	}
 	adminAuthMiddleware := auth.NewAdmin(adminAuthConfig)
 
-	// Initialize user store (requires same database as conversations)
+	// Initialize user store (requires DATABASE_URL)
 	var userStore *users.Store
-	if cfg.Conversations.IsEnabled() && cfg.Conversations.Store == "sql" {
-		// Reuse the conversation database for user management
-		driver := cfg.Conversations.Driver
-		if driver == "" {
-			driver = "sqlite3"
-		}
-		db, err := sql.Open(driver, cfg.Conversations.DSN)
+	dbURL := os.Getenv("DATABASE_URL")
+	if cfg.Conversations.IsEnabled() && dbURL != "" {
+		db, err := sql.Open("pgx", dbURL)
 		if err != nil {
 			logger.Error("failed to open database for user store", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -167,18 +160,17 @@ func main() {
 		// Run user migrations
 		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer migrateCancel()
-		userSchemaVersion, err := users.Migrate(migrateCtx, db, driver)
+		userSchemaVersion, err := users.Migrate(migrateCtx, db, "pgx")
 		if err != nil {
 			logger.Error("user migration failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
 		logger.Info("user schema ready", slog.Int("version", userSchemaVersion))
 
-		userStore = users.NewStore(db, driver)
+		userStore = users.NewStore(db, "pgx")
 		logger.Info("user store initialized")
 	} else if cfg.Auth.Enabled && cfg.UI.Enabled {
-		// Auth is enabled but no SQL database configured
-		logger.Warn("auth enabled but no SQL database configured for user management")
+		logger.Warn("auth enabled but DATABASE_URL not configured for user management")
 		logger.Warn("user roles will not be persisted; all authenticated users will have basic access")
 	}
 
@@ -186,8 +178,8 @@ func main() {
 	var oidcClient *auth.OIDCClient
 	if cfg.Auth.Enabled && cfg.UI.Enabled && cfg.Auth.ClientID != "" {
 		if userStore == nil {
-			logger.Error("OIDC authentication requires a SQL database for user management")
-			logger.Error("please configure conversations.store=sql with a valid DSN")
+			logger.Error("OIDC authentication requires a database for user management")
+			logger.Error("please set DATABASE_URL and enable conversations")
 			os.Exit(1)
 		}
 		sessionStore := auth.NewSessionStore(24 * time.Hour)
@@ -309,14 +301,9 @@ func main() {
 	// Initialize token usage tracking
 	var usageStore usage.Backend
 	if cfg.Usage.Enabled {
-		if cfg.Usage.DSN == "" {
-			logger.Error("usage tracking requires a dsn configuration")
-			os.Exit(1)
-		}
-
-		analyticsMode, err := usage.ParseAnalyticsMode(cfg.Usage.AnalyticsMode)
-		if err != nil {
-			logger.Error("invalid usage analytics mode", slog.String("error", err.Error()))
+		usageDBURL := os.Getenv("DATABASE_URL")
+		if usageDBURL == "" {
+			logger.Error("usage tracking requires DATABASE_URL")
 			os.Exit(1)
 		}
 
@@ -327,73 +314,38 @@ func main() {
 			}
 		}
 
-		if analyticsMode == usage.AnalyticsModeClickHouse {
-			usageDB, err := sql.Open("clickhouse", cfg.Usage.DSN)
-			if err != nil {
-				logger.Error("failed to open clickhouse usage database", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-
-			pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer pingCancel()
-			if err := usageDB.PingContext(pingCtx); err != nil {
-				_ = usageDB.Close()
-				logger.Error("failed to ping clickhouse usage database", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-
-			usageDB.SetMaxOpenConns(10)
-			usageDB.SetMaxIdleConns(5)
-			usageDB.SetConnMaxLifetime(5 * time.Minute)
-
-			migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer migrateCancel()
-			usageSchemaVersion, err := usage.MigrateClickHouse(migrateCtx, usageDB)
-			if err != nil {
-				logger.Error("clickhouse usage migration failed", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-			logger.Info("clickhouse usage schema ready", slog.Int("version", usageSchemaVersion))
-
-			usageStore = usage.NewClickHouseStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval)
-			logger.Info("token usage tracking enabled (clickhouse)",
-				slog.Int("buffer_size", cfg.Usage.BufferSize),
-				slog.String("flush_interval", cfg.Usage.FlushInterval),
-			)
-		} else {
-			usageDB, err := sql.Open("pgx", cfg.Usage.DSN)
-			if err != nil {
-				logger.Error("failed to open usage database", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-
-			pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer pingCancel()
-			if err := usageDB.PingContext(pingCtx); err != nil {
-				_ = usageDB.Close()
-				logger.Error("failed to ping usage database", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-
-			usageDB.SetMaxOpenConns(10)
-			usageDB.SetMaxIdleConns(5)
-			usageDB.SetConnMaxLifetime(5 * time.Minute)
-
-			migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer migrateCancel()
-			usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx", analyticsMode)
-			if err != nil {
-				logger.Error("usage migration failed", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-			logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
-
-			usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval, analyticsMode)
-			logger.Info("token usage tracking enabled",
-				slog.Int("buffer_size", cfg.Usage.BufferSize),
-				slog.String("flush_interval", cfg.Usage.FlushInterval),
-			)
+		usageDB, err := sql.Open("pgx", usageDBURL)
+		if err != nil {
+			logger.Error("failed to open usage database", slog.String("error", err.Error()))
+			os.Exit(1)
 		}
+
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer pingCancel()
+		if err := usageDB.PingContext(pingCtx); err != nil {
+			_ = usageDB.Close()
+			logger.Error("failed to ping usage database", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		usageDB.SetMaxOpenConns(10)
+		usageDB.SetMaxIdleConns(5)
+		usageDB.SetConnMaxLifetime(5 * time.Minute)
+
+		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer migrateCancel()
+		usageSchemaVersion, err := usage.Migrate(migrateCtx, usageDB, "pgx", usage.AnalyticsModePGX)
+		if err != nil {
+			logger.Error("usage migration failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		logger.Info("usage schema ready", slog.Int("version", usageSchemaVersion))
+
+		usageStore = usage.NewStore(usageDB, logger, cfg.Usage.BufferSize, flushInterval, usage.AnalyticsModePGX)
+		logger.Info("token usage tracking enabled",
+			slog.Int("buffer_size", cfg.Usage.BufferSize),
+			slog.String("flush_interval", cfg.Usage.FlushInterval),
+		)
 	}
 
 	publicMux := http.NewServeMux()
@@ -742,6 +694,11 @@ func loadConfig() (*config.Store, *config.Config, error) {
 }
 
 func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (conversation.Store, string, error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return nil, "", fmt.Errorf("conversations enabled but DATABASE_URL is not set")
+	}
+
 	var ttl time.Duration
 	if cfg.TTL != "" {
 		parsed, err := time.ParseDuration(cfg.TTL)
@@ -766,90 +723,57 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		}
 	}
 
-	switch cfg.Store {
-	case "sql":
-		driver := cfg.Driver
-		if driver == "" {
-			driver = "sqlite3"
-		}
-		db, err := sql.Open(driver, cfg.DSN)
-		if err != nil {
-			return nil, "", fmt.Errorf("open database: %w", err)
-		}
-
-		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer pingCancel()
-		if err := db.PingContext(pingCtx); err != nil {
-			_ = db.Close()
-			return nil, "", fmt.Errorf("ping database: %w", err)
-		}
-
-		maxOpenConns := cfg.MaxOpenConns
-		if maxOpenConns == 0 {
-			maxOpenConns = 25
-		}
-		maxIdleConns := cfg.MaxIdleConns
-		if maxIdleConns == 0 {
-			maxIdleConns = 5
-		}
-		connMaxLifetime := 5 * time.Minute
-		if cfg.ConnMaxLifetime != "" {
-			if d, parseErr := time.ParseDuration(cfg.ConnMaxLifetime); parseErr == nil {
-				connMaxLifetime = d
-			}
-		}
-		connMaxIdleTime := 1 * time.Minute
-		if cfg.ConnMaxIdleTime != "" {
-			if d, parseErr := time.ParseDuration(cfg.ConnMaxIdleTime); parseErr == nil {
-				connMaxIdleTime = d
-			}
-		}
-		db.SetMaxOpenConns(maxOpenConns)
-		db.SetMaxIdleConns(maxIdleConns)
-		db.SetConnMaxLifetime(connMaxLifetime)
-		db.SetConnMaxIdleTime(connMaxIdleTime)
-
-		store, err := conversation.NewSQLStore(db, driver, ttl)
-		if err != nil {
-			_ = db.Close()
-			return nil, "", fmt.Errorf("init sql store: %w", err)
-		}
-		logger.Info("conversation store initialized",
-			slog.String("backend", "sql"),
-			slog.String("driver", driver),
-			slog.Duration("ttl", ttl),
-			slog.Int("max_open_conns", maxOpenConns),
-			slog.Int("max_idle_conns", maxIdleConns),
-			slog.Duration("conn_max_lifetime", connMaxLifetime),
-			slog.Duration("conn_max_idle_time", connMaxIdleTime),
-		)
-		return store, "sql", nil
-	case "redis":
-		opts, err := redis.ParseURL(cfg.DSN)
-		if err != nil {
-			return nil, "", fmt.Errorf("parse redis dsn: %w", err)
-		}
-		client := redis.NewClient(opts)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := client.Ping(ctx).Err(); err != nil {
-			return nil, "", fmt.Errorf("connect to redis: %w", err)
-		}
-
-		logger.Info("conversation store initialized",
-			slog.String("backend", "redis"),
-			slog.Duration("ttl", ttl),
-		)
-		return conversation.NewRedisStore(client, ttl), "redis", nil
-	default:
-		logger.Info("conversation store initialized",
-			slog.String("backend", "memory"),
-			slog.Duration("ttl", ttl),
-		)
-		return conversation.NewMemoryStore(ttl), "memory", nil
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, "", fmt.Errorf("open database: %w", err)
 	}
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		_ = db.Close()
+		return nil, "", fmt.Errorf("ping database: %w", err)
+	}
+
+	maxOpenConns := cfg.MaxOpenConns
+	if maxOpenConns == 0 {
+		maxOpenConns = 25
+	}
+	maxIdleConns := cfg.MaxIdleConns
+	if maxIdleConns == 0 {
+		maxIdleConns = 5
+	}
+	connMaxLifetime := 5 * time.Minute
+	if cfg.ConnMaxLifetime != "" {
+		if d, parseErr := time.ParseDuration(cfg.ConnMaxLifetime); parseErr == nil {
+			connMaxLifetime = d
+		}
+	}
+	connMaxIdleTime := 1 * time.Minute
+	if cfg.ConnMaxIdleTime != "" {
+		if d, parseErr := time.ParseDuration(cfg.ConnMaxIdleTime); parseErr == nil {
+			connMaxIdleTime = d
+		}
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
+
+	store, err := conversation.NewSQLStore(db, "pgx", ttl)
+	if err != nil {
+		_ = db.Close()
+		return nil, "", fmt.Errorf("init sql store: %w", err)
+	}
+	logger.Info("conversation store initialized",
+		slog.String("backend", "postgresql"),
+		slog.Duration("ttl", ttl),
+		slog.Int("max_open_conns", maxOpenConns),
+		slog.Int("max_idle_conns", maxIdleConns),
+		slog.Duration("conn_max_lifetime", connMaxLifetime),
+		slog.Duration("conn_max_idle_time", connMaxIdleTime),
+	)
+	return store, "sql", nil
 }
 
 type responseWriter struct {

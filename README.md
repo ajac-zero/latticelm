@@ -79,7 +79,7 @@ latticelm (unified API)
 
 ### Configuration
 - **Easy setup** - YAML configuration with environment variable overrides
-- **Flexible storage** - In-memory, SQLite, MySQL, PostgreSQL, or Redis for conversations
+- **Postgres + Redis** - PostgreSQL for data, Redis for rate limiting
 
 ## Use Cases
 
@@ -436,10 +436,8 @@ observability:
 
 # Conversation storage
 conversations:
-  store: "sql"  # memory, sql, or redis
+  enabled: true
   ttl: "1h"
-  driver: "sqlite3"
-  dsn: "conversations.db"
 
 # Web UI
 ui:
@@ -482,31 +480,17 @@ The gateway implements efficient conversation tracking using `previous_response_
 - 🧠 **Server-side context** - Gateway maintains conversation state
 - ⏰ **Auto-expire** - Conversations expire after configurable TTL (default: 1 hour)
 
-### Storage Options
+### Storage
 
-Choose from multiple storage backends:
+Conversations are stored in PostgreSQL (the same database used for gateway configuration):
 
 ```yaml
 conversations:
-  store: "memory"  # "memory", "sql", or "redis"
+  enabled: true
   ttl: "1h"        # Conversation expiration
-
-  # SQLite (default for sql)
-  driver: "sqlite3"
-  dsn: "conversations.db"
-
-  # MySQL
-  # driver: "mysql"
-  # dsn: "user:password@tcp(localhost:3306)/dbname?parseTime=true"
-
-  # PostgreSQL
-  # driver: "pgx"
-  # dsn: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
-
-  # Redis
-  # store: "redis"
-  # dsn: "redis://:password@localhost:6379/0"
 ```
+
+No additional DSN is needed — the gateway reuses the `DATABASE_URL` connection.
 
 ## Observability
 

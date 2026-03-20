@@ -130,15 +130,11 @@ func TestLoadFromEnv(t *testing.T) {
 			name: "usage fields",
 			env: map[string]string{
 				"USAGE_ENABLED":        "true",
-				"USAGE_ANALYTICS_MODE": "timescaledb",
-				"USAGE_DSN":            "postgres://user:pass@host/db",
 				"USAGE_BUFFER_SIZE":    "2000",
 				"USAGE_FLUSH_INTERVAL": "10s",
 			},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.True(t, cfg.Usage.Enabled)
-				assert.Equal(t, "timescaledb", cfg.Usage.AnalyticsMode)
-				assert.Equal(t, "postgres://user:pass@host/db", cfg.Usage.DSN)
 				assert.Equal(t, 2000, cfg.Usage.BufferSize)
 				assert.Equal(t, "10s", cfg.Usage.FlushInterval)
 			},
@@ -148,11 +144,8 @@ func TestLoadFromEnv(t *testing.T) {
 			env: map[string]string{
 				"CONVERSATIONS_ENABLED":          "true",
 				"CONVERSATIONS_STORE_BY_DEFAULT": "true",
-				"CONVERSATIONS_STORE":            "sql",
 				"CONVERSATIONS_TTL":              "2h",
 				"CONVERSATIONS_MAX_TTL":          "24h",
-				"CONVERSATIONS_DSN":              "postgres://user:pass@host/db",
-				"CONVERSATIONS_DRIVER":           "pgx",
 				"CONVERSATIONS_MAX_OPEN_CONNS":   "30",
 				"CONVERSATIONS_MAX_IDLE_CONNS":   "10",
 				"CONVERSATIONS_CONN_MAX_LIFETIME": "10m",
@@ -162,11 +155,8 @@ func TestLoadFromEnv(t *testing.T) {
 				require.NotNil(t, cfg.Conversations.Enabled)
 				assert.True(t, *cfg.Conversations.Enabled)
 				assert.True(t, cfg.Conversations.StoreByDefault)
-				assert.Equal(t, "sql", cfg.Conversations.Store)
 				assert.Equal(t, "2h", cfg.Conversations.TTL)
 				assert.Equal(t, "24h", cfg.Conversations.MaxTTL)
-				assert.Equal(t, "postgres://user:pass@host/db", cfg.Conversations.DSN)
-				assert.Equal(t, "pgx", cfg.Conversations.Driver)
 				assert.Equal(t, 30, cfg.Conversations.MaxOpenConns)
 				assert.Equal(t, 10, cfg.Conversations.MaxIdleConns)
 				assert.Equal(t, "10m", cfg.Conversations.ConnMaxLifetime)
