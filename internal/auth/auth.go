@@ -31,11 +31,12 @@ import (
 //     remain accepted. Set a non-zero value (e.g., 15 m) to bound that window at the
 //     cost of hard failures for active tokens if the IdP outage is prolonged.
 type Config struct {
-	Enabled   bool
-	Issuer    string        // e.g., "https://accounts.google.com"
-	Audiences []string      // e.g., your client ID(s)
-	ClockSkew time.Duration // allowance for clock drift; default 0
-	StaleTTL  time.Duration // stale-key acceptance window; 0 = unlimited
+	Enabled      bool
+	Issuer       string        // e.g., "https://accounts.google.com"
+	DiscoveryURL string        // optional; overrides the derived {Issuer}/.well-known/openid-configuration URL
+	Audiences    []string      // e.g., your client ID(s)
+	ClockSkew    time.Duration // allowance for clock drift; default 0
+	StaleTTL     time.Duration // stale-key acceptance window; 0 = unlimited
 }
 
 // AdminConfig holds authorization settings for admin-only routes.
@@ -440,7 +441,10 @@ func (m *Middleware) refreshJWKS() error {
 
 // discoverJWKSURL retrieves the JWKS URI from the OIDC discovery document.
 func (m *Middleware) discoverJWKSURL() (string, error) {
-	discoveryURL := strings.TrimSuffix(m.cfg.Issuer, "/") + "/.well-known/openid-configuration"
+	discoveryURL := m.cfg.DiscoveryURL
+	if discoveryURL == "" {
+		discoveryURL = strings.TrimSuffix(m.cfg.Issuer, "/") + "/.well-known/openid-configuration"
+	}
 
 	resp, err := m.client.Get(discoveryURL)
 	if err != nil {

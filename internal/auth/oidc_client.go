@@ -29,6 +29,7 @@ const (
 // OIDCClientConfig holds OIDC client configuration.
 type OIDCClientConfig struct {
 	Issuer       string
+	DiscoveryURL string // optional; overrides the derived {Issuer}/.well-known/openid-configuration URL
 	ClientID     string
 	ClientSecret string
 	RedirectURI  string
@@ -69,7 +70,10 @@ func NewOIDCClient(cfg OIDCClientConfig, sessionStore *SessionStore, userStore *
 
 // discover fetches OIDC provider configuration.
 func (c *OIDCClient) discover() error {
-	discoveryURL := strings.TrimSuffix(c.cfg.Issuer, "/") + "/.well-known/openid-configuration"
+	discoveryURL := c.cfg.DiscoveryURL
+	if discoveryURL == "" {
+		discoveryURL = strings.TrimSuffix(c.cfg.Issuer, "/") + "/.well-known/openid-configuration"
+	}
 
 	resp, err := c.client.Get(discoveryURL)
 	if err != nil {
