@@ -109,6 +109,7 @@ type UsageConfig struct {
 type AuthConfig struct {
 	Enabled      bool     `json:"enabled"`
 	Issuer       string   `json:"issuer"`
+	DiscoveryURL string   `json:"discovery_url"` // optional; overrides the derived {issuer}/.well-known/openid-configuration URL
 	Audiences    []string `json:"audiences"`
 	ClientID     string   `json:"client_id"`
 	ClientSecret string   `json:"client_secret"`

@@ -126,9 +126,10 @@ func main() {
 
 	// Initialize authentication middleware
 	authConfig := auth.Config{
-		Enabled:   cfg.Auth.Enabled,
-		Issuer:    cfg.Auth.Issuer,
-		Audiences: cfg.Auth.Audiences,
+		Enabled:      cfg.Auth.Enabled,
+		Issuer:       cfg.Auth.Issuer,
+		DiscoveryURL: cfg.Auth.DiscoveryURL,
+		Audiences:    cfg.Auth.Audiences,
 	}
 	authMiddleware, err := auth.New(authConfig, logger)
 	if err != nil {
@@ -192,6 +193,7 @@ func main() {
 		sessionStore := auth.NewSessionStore(24 * time.Hour)
 		oidcClientConfig := auth.OIDCClientConfig{
 			Issuer:       cfg.Auth.Issuer,
+			DiscoveryURL: cfg.Auth.DiscoveryURL,
 			ClientID:     cfg.Auth.ClientID,
 			ClientSecret: cfg.Auth.ClientSecret,
 			RedirectURI:  cfg.Auth.RedirectURI,
