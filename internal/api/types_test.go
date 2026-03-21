@@ -609,7 +609,7 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple function_call items produce multiple assistant messages",
+			name: "sequential function_call items produce separate assistant messages",
 			request: ResponseRequest{
 				Input: InputUnion{
 					Items: []InputItem{
@@ -648,6 +648,48 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 				assert.Equal(t, "call_2", msgs[2].ToolCalls[0].ID)
 				assert.Equal(t, "tool", msgs[3].Role)
 				assert.Equal(t, "call_2", msgs[3].CallID)
+			},
+		},
+		{
+			name: "parallel function_call items are merged into one assistant message",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type:      "function_call",
+							CallID:    "call_1",
+							Name:      "tool_a",
+							Arguments: `{"x":1}`,
+						},
+						{
+							Type:      "function_call",
+							CallID:    "call_2",
+							Name:      "tool_b",
+							Arguments: `{"y":2}`,
+						},
+						{
+							Type:   "function_call_output",
+							CallID: "call_1",
+							Output: `"result_a"`,
+						},
+						{
+							Type:   "function_call_output",
+							CallID: "call_2",
+							Output: `"result_b"`,
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 3)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].ToolCalls, 2)
+				assert.Equal(t, "call_1", msgs[0].ToolCalls[0].ID)
+				assert.Equal(t, "call_2", msgs[0].ToolCalls[1].ID)
+				assert.Equal(t, "tool", msgs[1].Role)
+				assert.Equal(t, "call_1", msgs[1].CallID)
+				assert.Equal(t, "tool", msgs[2].Role)
+				assert.Equal(t, "call_2", msgs[2].CallID)
 			},
 		},
 		{

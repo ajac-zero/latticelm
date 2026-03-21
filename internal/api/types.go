@@ -165,17 +165,22 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 			msgs = append(msgs, msg)
 		case "function_call":
 			// function_call items represent the assistant's tool invocation.
-			// Convert them to assistant messages with ToolCalls so that
-			// subsequent function_call_output (tool) messages are valid.
-			// call_id is the identifier that links to function_call_output.call_id.
-			msgs = append(msgs, Message{
-				Role: "assistant",
-				ToolCalls: []ToolCall{{
-					ID:        item.CallID,
-					Name:      item.Name,
-					Arguments: item.Arguments,
-				}},
-			})
+			// Consecutive function_call items (parallel tool calls) must be merged
+			// into a single assistant message, since OpenAI requires all tool_call_ids
+			// in one assistant turn to each have a corresponding tool response.
+			tc := ToolCall{
+				ID:        item.CallID,
+				Name:      item.Name,
+				Arguments: item.Arguments,
+			}
+			if n := len(msgs); n > 0 && msgs[n-1].Role == "assistant" && len(msgs[n-1].ToolCalls) > 0 && len(msgs[n-1].Content) == 0 {
+				msgs[n-1].ToolCalls = append(msgs[n-1].ToolCalls, tc)
+			} else {
+				msgs = append(msgs, Message{
+					Role:      "assistant",
+					ToolCalls: []ToolCall{tc},
+				})
+			}
 		case "function_call_output":
 			msgs = append(msgs, Message{
 				Role:    "tool",
