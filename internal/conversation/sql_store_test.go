@@ -4,46 +4,64 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ajac-zero/latticelm/internal/api"
 )
 
-func setupSQLiteDB(t *testing.T) *sql.DB {
+func setupPostgresDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set TEST_DATABASE_URL to run PostgreSQL conversation store tests")
+	}
+
+	db, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
-	db.SetMaxOpenConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, db.PingContext(ctx))
+
+	_, err = db.Exec(`DROP TABLE IF EXISTS conversations`)
+	require.NoError(t, err)
+	_, err = db.Exec(`DROP TABLE IF EXISTS schema_migrations`)
+	require.NoError(t, err)
+
 	return db
 }
 
 func TestNewSQLStore(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
 	defer store.Close()
 
 	// Verify table was created
-	var tableName string
-	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'").Scan(&tableName)
+	var tableName sql.NullString
+	err = db.QueryRow(`SELECT to_regclass('public.conversations')`).Scan(&tableName)
 	require.NoError(t, err)
-	assert.Equal(t, "conversations", tableName)
+	assert.True(t, tableName.Valid)
 }
 
 func TestSQLStore_Create(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -60,10 +78,10 @@ func TestSQLStore_Create(t *testing.T) {
 }
 
 func TestSQLStore_Get(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -90,10 +108,10 @@ func TestSQLStore_Get(t *testing.T) {
 }
 
 func TestSQLStore_Append(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -115,10 +133,10 @@ func TestSQLStore_Append(t *testing.T) {
 }
 
 func TestSQLStore_Delete(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -145,10 +163,10 @@ func TestSQLStore_Delete(t *testing.T) {
 }
 
 func TestSQLStore_Size(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -175,11 +193,11 @@ func TestSQLStore_Size(t *testing.T) {
 }
 
 func TestSQLStore_Cleanup(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
 	// Use very short TTL for testing
-	store, err := NewSQLStore(db, "sqlite3", 100*time.Millisecond)
+	store, err := NewSQLStore(db, "pgx", 100*time.Millisecond)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -200,10 +218,10 @@ func TestSQLStore_Cleanup(t *testing.T) {
 }
 
 func TestSQLStore_ConcurrentAccess(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -244,10 +262,10 @@ func TestSQLStore_ConcurrentAccess(t *testing.T) {
 }
 
 func TestSQLStore_ContextCancellation(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -257,17 +275,16 @@ func TestSQLStore_ContextCancellation(t *testing.T) {
 
 	messages := CreateTestMessages(1)
 
-	// Operations with cancelled context should fail or return quickly
+	// Operations with cancelled context should fail quickly.
 	_, err = store.Create(ctx, "cancelled", "model-1", messages, OwnerInfo{})
-	// Error handling depends on driver, but context should be respected
-	_ = err
+	assert.Error(t, err)
 }
 
 func TestSQLStore_JSONEncoding(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -303,10 +320,10 @@ func TestSQLStore_JSONEncoding(t *testing.T) {
 }
 
 func TestSQLStore_EmptyMessages(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -328,10 +345,10 @@ func TestSQLStore_EmptyMessages(t *testing.T) {
 }
 
 func TestSQLStore_UpdateExisting(t *testing.T) {
-	db := setupSQLiteDB(t)
+	db := setupPostgresDB(t)
 	defer db.Close()
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 

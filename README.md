@@ -5,6 +5,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Supported Architecture](#supported-architecture)
 - [Supported Providers](#supported-providers)
 - [Key Features](#key-features)
 - [Status](#status)
@@ -34,6 +35,16 @@
 ## Overview
 
 A production-ready LLM proxy gateway written in Go that provides a unified API interface for multiple LLM providers. Similar to LiteLLM, but built natively in Go using each provider's official SDK with enterprise features including rate limiting, circuit breakers, observability, and authentication.
+
+## Supported Architecture
+
+latticelm currently supports one deployment architecture:
+
+- **Gateway + PostgreSQL + Redis**
+- **PostgreSQL** stores providers/models config, users, conversations, and usage data
+- **Redis** is used for distributed rate limiting
+
+There are no alternative storage/runtime backend modes in the pre-release product contract.
 
 ## Supported Providers
 
@@ -118,9 +129,7 @@ latticelm (unified API)
 
 ### Prerequisites
 
-- Go 1.21+ (for building from source)
-- Docker (optional, for containerized deployment)
-- Node.js 18+ (optional, for Web UI development)
+- Docker with Compose (`docker compose`)
 
 ### Running Locally
 
@@ -129,20 +138,20 @@ latticelm (unified API)
 git clone https://github.com/yourusername/latticelm.git
 cd latticelm
 
-# 2. Set API keys
-export OPENAI_API_KEY="your-key"
-export ANTHROPIC_API_KEY="your-key"
-export GOOGLE_API_KEY="your-key"
+# 2. Create env file
+cp .env.example .env
 
-# 3. Copy and configure settings (optional)
-cp config.example.yaml config.yaml
-# Edit config.yaml to customize settings
+# 3. Set required bootstrap values in .env
+# - ENCRYPTION_KEY (openssl rand -base64 32)
+# - DATABASE_URL=postgres://latticelm:latticelm@postgres:5432/latticelm?sslmode=disable
+# - RATE_LIMIT_REDIS_URL=redis://redis:6379/0
 
-# 4. Build (includes Web UI)
-make build-all
+# 4. Start the canonical stack (gateway + postgres + redis)
+docker compose up -d --build
 
-# 5. Run
-./bin/llm-gateway
+# 5. Verify health
+curl http://localhost:8080/health
+curl http://localhost:8080/ready
 
 # Gateway starts on http://localhost:8080
 # Web UI available at http://localhost:8080/
@@ -657,47 +666,13 @@ Frontend dev server runs on `http://localhost:5173` and proxies API requests to 
 
 ### Docker
 
-**See the [Docker Deployment Guide](./docs/DOCKER_DEPLOYMENT.md)** for complete instructions on using pre-built images.
-
-Build and run with Docker:
+The canonical deployment path is Docker Compose with PostgreSQL + Redis + gateway.
 
 ```bash
-# Build Docker image (includes Web UI automatically)
-docker build -t llm-gateway:latest .
-
-# Run container
-docker run -d \
-  --name llm-gateway \
-  -p 8080:8080 \
-  -e GOOGLE_API_KEY="your-key" \
-  -e ANTHROPIC_API_KEY="your-key" \
-  -e OPENAI_API_KEY="your-key" \
-  llm-gateway:latest
-
-# Check status
-docker logs llm-gateway
-```
-
-The Docker build uses a multi-stage process that automatically builds the frontend, so you don't need Node.js installed locally.
-
-**Using Docker Compose:**
-
-```yaml
-version: '3.8'
-services:
-  llm-gateway:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-    restart: unless-stopped
-```
-
-```bash
-docker-compose up -d
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+docker compose logs -f gateway
 ```
 
 The Docker image:
@@ -727,7 +702,7 @@ Features included:
 - **Auto-scaling** - HorizontalPodAutoscaler (3-20 replicas)
 - **Security** - Non-root, read-only filesystem, network policies
 - **Monitoring** - ServiceMonitor and PrometheusRule for Prometheus Operator
-- **Storage** - Redis StatefulSet for conversation persistence
+- **Storage** - PostgreSQL for persisted data and Redis for distributed rate limiting
 - **Ingress** - TLS with cert-manager integration
 
 See **[k8s/README.md](./k8s/README.md)** for complete deployment guide including:
@@ -814,7 +789,7 @@ The readiness endpoint verifies:
 - ✅ Streaming responses (Server-Sent Events)
 - ✅ OAuth2/OIDC authentication
 - ✅ Conversation tracking with `previous_response_id`
-- ✅ Persistent conversation storage (SQL and Redis)
+- ✅ Persistent conversation storage (PostgreSQL)
 - ✅ Circuit breakers for fault tolerance
 - ✅ Rate limiting
 - ✅ Observability (Prometheus metrics and OpenTelemetry tracing)
@@ -833,7 +808,7 @@ The readiness endpoint verifies:
 
 Comprehensive guides and documentation are available in the `/docs` directory:
 
-- **[Docker Deployment Guide](./docs/DOCKER_DEPLOYMENT.md)** - Deploy with pre-built images or build from source
+- **[Docker Deployment Guide](./docs/DOCKER_DEPLOYMENT.md)** - Canonical Docker Compose deployment (gateway + PostgreSQL + Redis)
 - **[Kubernetes Deployment Guide](./k8s/README.md)** - Production deployment with Kubernetes
 - **[Web UI Documentation](./docs/ADMIN_UI.md)** - Using the web dashboard
 - **[Configuration Reference](./config.example.yaml)** - All configuration options explained

@@ -53,9 +53,7 @@ Returns `204 No Content` on success, `404` if the conversation does not exist.
 
 ## TTL & Automatic Expiry
 
-All backends support automatic cleanup of expired conversations:
-
-- **SQL**: background goroutine runs at `min(ttl/10, 1 minute)` intervals.
+Conversation cleanup runs in the PostgreSQL store on a background interval of `min(ttl/10, 1 minute)`.
 
 ## Operational Guidance
 
@@ -68,5 +66,5 @@ All backends support automatic cleanup of expired conversations:
    redaction is not currently supported.
 4. **Audit**: enable structured logging (`logging.format: "json"`) to capture
    `stored` flags on every request for compliance auditing.
-5. **Encryption at rest**: for SQL/Redis backends, configure TLS and
-   disk-level encryption on the backing data store.
+5. **Encryption at rest**: configure TLS and disk-level encryption for
+   PostgreSQL and Redis in your deployment environment.

@@ -10,6 +10,7 @@ env:
   TRIVY_VERSION: '0.63.0'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  TEST_DATABASE_URL: postgres://latticelm:latticelm@localhost:5432/latticelm?sslmode=disable
 
 jobs:
   security-gate:
@@ -53,6 +54,20 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: latticelm
+          POSTGRES_PASSWORD: latticelm
+          POSTGRES_DB: latticelm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U latticelm -d latticelm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     permissions:
       contents: read
@@ -70,6 +85,8 @@ jobs:
       run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run tests
+      env:
+        TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       run: go test -v -race ./...
 
   release:
@@ -196,18 +213,15 @@ jobs:
 
           ## Installation
 
+          ### Docker Compose (Canonical)
+          ```bash
+          cp .env.example .env
+          docker compose up -d --build
+          ```
+
           ### Kubernetes
           ```bash
           kubectl apply -k k8s/
-          ```
-
-          ### Docker
-          ```bash
-          docker run -p 8080:8080 \
-            -e GOOGLE_API_KEY=your-key \
-            -e ANTHROPIC_API_KEY=your-key \
-            -e OPENAI_API_KEY=your-key \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           ```
         files: |
           sbom.spdx.json

@@ -5,14 +5,13 @@ Welcome to the latticelm documentation. This directory contains detailed guides 
 ## User Guides
 
 ### [Docker Deployment Guide](./DOCKER_DEPLOYMENT.md)
-Complete guide to deploying the LLM Gateway using Docker with pre-built images or building from source.
+Canonical guide for the supported stack: gateway + PostgreSQL + Redis via Docker Compose.
 
 **Topics covered:**
-- Using pre-built container images from CI/CD
-- Configuration with environment variables and config files
-- Docker Compose setup with Redis and monitoring
+- Docker Compose setup for gateway + PostgreSQL + Redis
+- Required environment/bootstrap settings
+- Operations for logs, restart, updates, and monitoring profile
 - Production considerations (security, resources, networking)
-- Multi-platform builds
 - Troubleshooting and debugging
 
 ### [Admin Web UI](./ADMIN_UI.md)
