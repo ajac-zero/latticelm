@@ -578,6 +578,79 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 			},
 		},
 		{
+			name: "function_call item converts to assistant message with tool calls",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type:      "function_call",
+							CallID:    "call_123",
+							Name:      "get_weather",
+							Arguments: `{"location":"Seattle"}`,
+						},
+						{
+							Type:   "function_call_output",
+							CallID: "call_123",
+							Name:   "get_weather",
+							Output: `{"temp": 55}`,
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 2)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].ToolCalls, 1)
+				assert.Equal(t, "call_123", msgs[0].ToolCalls[0].ID)
+				assert.Equal(t, "get_weather", msgs[0].ToolCalls[0].Name)
+				assert.Equal(t, `{"location":"Seattle"}`, msgs[0].ToolCalls[0].Arguments)
+				assert.Equal(t, "tool", msgs[1].Role)
+				assert.Equal(t, "call_123", msgs[1].CallID)
+			},
+		},
+		{
+			name: "multiple function_call items produce multiple assistant messages",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type:      "function_call",
+							CallID:    "call_1",
+							Name:      "tool_a",
+							Arguments: `{"x":1}`,
+						},
+						{
+							Type:   "function_call_output",
+							CallID: "call_1",
+							Output: `"result_a"`,
+						},
+						{
+							Type:      "function_call",
+							CallID:    "call_2",
+							Name:      "tool_b",
+							Arguments: `{"y":2}`,
+						},
+						{
+							Type:   "function_call_output",
+							CallID: "call_2",
+							Output: `"result_b"`,
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 4)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				assert.Equal(t, "call_1", msgs[0].ToolCalls[0].ID)
+				assert.Equal(t, "tool", msgs[1].Role)
+				assert.Equal(t, "call_1", msgs[1].CallID)
+				assert.Equal(t, "assistant", msgs[2].Role)
+				assert.Equal(t, "call_2", msgs[2].ToolCalls[0].ID)
+				assert.Equal(t, "tool", msgs[3].Role)
+				assert.Equal(t, "call_2", msgs[3].CallID)
+			},
+		},
+		{
 			name: "content blocks with unknown types ignored",
 			request: ResponseRequest{
 				Input: InputUnion{
