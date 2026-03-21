@@ -163,6 +163,19 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 				}
 			}
 			msgs = append(msgs, msg)
+		case "function_call":
+			// function_call items represent the assistant's tool invocation.
+			// Convert them to assistant messages with ToolCalls so that
+			// subsequent function_call_output (tool) messages are valid.
+			// call_id is the identifier that links to function_call_output.call_id.
+			msgs = append(msgs, Message{
+				Role: "assistant",
+				ToolCalls: []ToolCall{{
+					ID:        item.CallID,
+					Name:      item.Name,
+					Arguments: item.Arguments,
+				}},
+			})
 		case "function_call_output":
 			msgs = append(msgs, Message{
 				Role:    "tool",
