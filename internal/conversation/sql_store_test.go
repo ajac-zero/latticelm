@@ -4,45 +4,51 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/ajac-zero/latticelm/internal/api"
 )
 
 func setupPostgresDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("DATABASE_URL")
-	}
-	if dsn == "" {
-		t.Skip("set TEST_DATABASE_URL to run PostgreSQL conversation store tests")
-	}
+	ctx := context.Background()
 
-	db, err := sql.Open("pgx", dsn)
+	pgCtr, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("test"),
+		postgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second),
+		),
+	)
+	testcontainers.CleanupContainer(t, pgCtr)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	connStr, err := pgCtr.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
+	db, err := sql.Open("pgx", connStr)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { db.Close() })
+
 	require.NoError(t, db.PingContext(ctx))
-
-	_, err = db.Exec(`DROP TABLE IF EXISTS conversations`)
-	require.NoError(t, err)
-	_, err = db.Exec(`DROP TABLE IF EXISTS schema_migrations`)
-	require.NoError(t, err)
 
 	return db
 }
 
 func TestNewSQLStore(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -59,7 +65,6 @@ func TestNewSQLStore(t *testing.T) {
 
 func TestSQLStore_Create(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -79,7 +84,6 @@ func TestSQLStore_Create(t *testing.T) {
 
 func TestSQLStore_Get(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -109,7 +113,6 @@ func TestSQLStore_Get(t *testing.T) {
 
 func TestSQLStore_Append(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -134,7 +137,6 @@ func TestSQLStore_Append(t *testing.T) {
 
 func TestSQLStore_Delete(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -164,7 +166,6 @@ func TestSQLStore_Delete(t *testing.T) {
 
 func TestSQLStore_Size(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -194,7 +195,6 @@ func TestSQLStore_Size(t *testing.T) {
 
 func TestSQLStore_Cleanup(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	// Use very short TTL for testing
 	store, err := NewSQLStore(db, "pgx", 100*time.Millisecond)
@@ -219,7 +219,6 @@ func TestSQLStore_Cleanup(t *testing.T) {
 
 func TestSQLStore_ConcurrentAccess(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -263,7 +262,6 @@ func TestSQLStore_ConcurrentAccess(t *testing.T) {
 
 func TestSQLStore_ContextCancellation(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -282,7 +280,6 @@ func TestSQLStore_ContextCancellation(t *testing.T) {
 
 func TestSQLStore_JSONEncoding(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -321,7 +318,6 @@ func TestSQLStore_JSONEncoding(t *testing.T) {
 
 func TestSQLStore_EmptyMessages(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
@@ -346,7 +342,6 @@ func TestSQLStore_EmptyMessages(t *testing.T) {
 
 func TestSQLStore_UpdateExisting(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)

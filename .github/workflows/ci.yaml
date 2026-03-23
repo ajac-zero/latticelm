@@ -11,26 +11,11 @@ env:
   TRIVY_VERSION: '0.63.0'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  TEST_DATABASE_URL: postgres://latticelm:latticelm@localhost:5432/latticelm?sslmode=disable
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: latticelm
-          POSTGRES_PASSWORD: latticelm
-          POSTGRES_DB: latticelm
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U latticelm -d latticelm"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
 
     steps:
     - name: Checkout code
@@ -52,8 +37,6 @@ jobs:
       run: mkdir -p internal/ui/dist && echo '<html></html>' > internal/ui/dist/index.html
 
     - name: Run tests
-      env:
-        TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       run: go test -v -race -coverprofile=coverage.out ./...
 
     - name: Upload coverage to Codecov

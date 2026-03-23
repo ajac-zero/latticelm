@@ -12,7 +12,6 @@ import (
 
 func TestMigrate_Fresh(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	ctx := context.Background()
 	version, err := Migrate(ctx, db, "pgx")
@@ -32,7 +31,6 @@ func TestMigrate_Fresh(t *testing.T) {
 
 func TestMigrate_Idempotent(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	ctx := context.Background()
 
@@ -51,7 +49,6 @@ func TestMigrate_Idempotent(t *testing.T) {
 
 func TestCheckSchemaVersion_Match(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	ctx := context.Background()
 	_, err := Migrate(ctx, db, "pgx")
@@ -62,7 +59,6 @@ func TestCheckSchemaVersion_Match(t *testing.T) {
 
 func TestCheckSchemaVersion_Mismatch(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	ctx := context.Background()
 	require.NoError(t, createSchemaMigrationsTable(db))
@@ -87,7 +83,6 @@ func TestLoadMigrations(t *testing.T) {
 
 func TestNewSQLStore_UsessMigrations(t *testing.T) {
 	db := setupPostgresDB(t)
-	defer db.Close()
 
 	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
