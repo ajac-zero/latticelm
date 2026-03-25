@@ -638,6 +638,19 @@ func loadConfig() (*config.Store, *config.Config, error) {
 	encKey := os.Getenv("ENCRYPTION_KEY")
 
 	if dbURL == "" || encKey == "" {
+		cfgPath := os.Getenv("GATEWAY_CONFIG")
+		if cfgPath == "" {
+			return nil, nil, fmt.Errorf("no provider configuration: set GATEWAY_CONFIG (file path) or DATABASE_URL + ENCRYPTION_KEY (database-backed store)")
+		}
+		providers, models, err := config.LoadFromFile(cfgPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("GATEWAY_CONFIG: %w", err)
+		}
+		cfg.Providers = providers
+		cfg.Models = models
+		if err := cfg.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("GATEWAY_CONFIG validation: %w", err)
+		}
 		return nil, cfg, nil
 	}
 
@@ -671,6 +684,27 @@ func loadConfig() (*config.Store, *config.Config, error) {
 	}
 
 	ctx := context.Background()
+
+	// Seed from GATEWAY_CONFIG if the database has no providers yet.
+	if cfgPath := os.Getenv("GATEWAY_CONFIG"); cfgPath != "" {
+		seeded, err := configStore.IsSeeded(ctx)
+		if err != nil {
+			_ = configStore.Close()
+			return nil, nil, fmt.Errorf("check config store seed status: %w", err)
+		}
+		if !seeded {
+			fileProviders, fileModels, err := config.LoadFromFile(cfgPath)
+			if err != nil {
+				_ = configStore.Close()
+				return nil, nil, fmt.Errorf("GATEWAY_CONFIG: %w", err)
+			}
+			if err := configStore.Seed(ctx, fileProviders, fileModels); err != nil {
+				_ = configStore.Close()
+				return nil, nil, fmt.Errorf("seed config store from GATEWAY_CONFIG: %w", err)
+			}
+		}
+	}
+
 	providers, err := configStore.ListProviders(ctx)
 	if err != nil {
 		_ = configStore.Close()
