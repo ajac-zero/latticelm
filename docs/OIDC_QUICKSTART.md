@@ -135,7 +135,11 @@ For production use:
        - "10.0.0.0/8"  # VPN range
    ```
 
-5. **Consider Redis-backed sessions** for multi-instance deployments (future enhancement)
+5. **Configure Redis-backed sessions** for multi-instance deployments:
+   ```bash
+   SESSION_REDIS_URL=redis://redis:6379/2
+   ```
+   Without Redis, sessions are stored in-memory and won't work across multiple replicas.
 
 ## Next Steps
 

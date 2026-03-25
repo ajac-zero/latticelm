@@ -13,6 +13,7 @@ type Config struct {
 	Conversations ConversationConfig       `json:"conversations"`
 	Logging       LoggingConfig            `json:"logging"`
 	RateLimit     RateLimitConfig          `json:"rate_limit"`
+	Session       SessionConfig            `json:"session"`
 	Observability ObservabilityConfig      `json:"observability"`
 	Usage         UsageConfig              `json:"usage"`
 	UI            UIConfig                 `json:"ui"`
@@ -56,6 +57,15 @@ type RateLimitConfig struct {
 	MaxOutputTokens       int      `json:"max_output_tokens"`
 	MaxConcurrentRequests int      `json:"max_concurrent_requests"`
 	DailyTokenQuota       int64    `json:"daily_token_quota"`
+}
+
+// SessionConfig controls session storage for OIDC authentication.
+type SessionConfig struct {
+	// RedisURL enables Redis-backed session storage for distributed deployments.
+	// If empty, in-memory storage is used (single instance only).
+	RedisURL string `json:"redis_url"`
+	// TTL is the session lifetime. Defaults to 24 hours.
+	TTL string `json:"ttl"`
 }
 
 // ObservabilityConfig controls observability features.

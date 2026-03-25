@@ -120,6 +120,10 @@ func applyEnvOverrides(cfg *Config) error {
 	setStr(&cfg.Conversations.ConnMaxLifetime, "CONVERSATIONS_CONN_MAX_LIFETIME")
 	setStr(&cfg.Conversations.ConnMaxIdleTime, "CONVERSATIONS_CONN_MAX_IDLE_TIME")
 
+	// Session
+	setStr(&cfg.Session.RedisURL, "SESSION_REDIS_URL")
+	setStr(&cfg.Session.TTL, "SESSION_TTL")
+
 	return nil
 }
 

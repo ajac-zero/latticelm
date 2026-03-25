@@ -97,7 +97,7 @@ func TestAuthAPITokenLoginAndSession(t *testing.T) {
 }
 
 func TestAuthAPIHandleSessionPrefersOIDCSession(t *testing.T) {
-	store := NewSessionStore(time.Hour)
+	store := NewSessionStore(time.Hour, nil)
 	sessionID, err := store.Create(&SessionData{
 		UserID:  "oidc-user",
 		Email:   "oidc@example.com",
