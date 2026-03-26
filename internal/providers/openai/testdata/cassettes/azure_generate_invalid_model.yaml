@@ -43,13 +43,13 @@ interactions:
         body: '{"error":{"code":"DeploymentNotFound","message":"The API deployment for this resource does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again."}}'
         headers:
             Apim-Request-Id:
-                - 25d8e18a-fd8b-4510-9d2d-972a229610f4
+                - f9d04925-59c7-4864-8547-ced024afc93e
             Content-Length:
                 - "197"
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 05:28:06 GMT
+                - Thu, 26 Mar 2026 05:54:25 GMT
             Strict-Transport-Security:
                 - max-age=31536000; includeSubDomains; preload
             X-Content-Type-Options:
@@ -58,4 +58,4 @@ interactions:
                 - East US 2
         status: 404 Not Found
         code: 404
-        duration: 58.30975ms
+        duration: 279.471208ms

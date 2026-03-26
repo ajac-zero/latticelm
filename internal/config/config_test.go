@@ -16,6 +16,11 @@ func TestLoadFromEnv(t *testing.T) {
 	}{
 		{
 			name: "empty env produces zero-value config",
+			env: map[string]string{
+				"SERVER_ADDRESS": "",
+				"AUTH_ENABLED":   "",
+				"UI_ENABLED":     "",
+			},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "", cfg.Server.Address)
 				assert.False(t, cfg.Auth.Enabled)

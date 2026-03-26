@@ -58,8 +58,10 @@ test-integration: ## Run integration tests (replays recorded cassettes)
 
 test-record: ## Re-record integration test cassettes (requires API credentials)
 	@echo "Recording integration test cassettes..."
-	@echo "Ensure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_MODEL are set"
+	@echo "For Azure OpenAI: Ensure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_MODEL are set"
+	@echo "For Azure Anthropic: Ensure AZURE_ANTHROPIC_API_KEY, AZURE_ANTHROPIC_ENDPOINT, AZURE_ANTHROPIC_MODEL are set"
 	rm -f internal/providers/openai/testdata/cassettes/*.yaml
+	rm -f internal/providers/anthropic/testdata/cassettes/*.yaml
 	$(GOTEST) -v -tags=integration -run 'Integration' -count=1 ./...
 
 test-coverage: test ## Run tests with coverage report

@@ -41,10 +41,10 @@ interactions:
         proto_minor: 0
         content_length: 1005
         body: |
-            {"choices":[{"content_filter_results":{},"finish_reason":"tool_calls","index":0,"logprobs":null,"message":{"annotations":[],"content":null,"refusal":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{\"location\":\"San Francisco, CA\"}","name":"get_weather"},"id":"call_ew5TLLVQs1RmztUed95QoMSd","type":"function"}]}}],"created":1774502883,"id":"chatcmpl-DNXYBYnGBVbpCaUmPhhcSDFv2BjLd","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":27,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":139,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":166}}
+            {"choices":[{"content_filter_results":{},"finish_reason":"tool_calls","index":0,"logprobs":null,"message":{"annotations":[],"content":null,"refusal":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{\"location\":\"San Francisco, CA\"}","name":"get_weather"},"id":"call_r09tnm3iCKt4r6dXkkOmIDWc","type":"function"}]}}],"created":1774504461,"id":"chatcmpl-DNXxdVbnKfnqB9LIahSZBMq53kNHq","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":27,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":139,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":166}}
         headers:
             Apim-Request-Id:
-                - e458d851-ade5-47cc-a8c2-4fca79586ee4
+                - 0e5270f0-2358-48c8-884b-3562e1004289
             Azureml-Model-Session:
                 - d20260302201402-c60e04fa2ecc
             Content-Length:
@@ -52,7 +52,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 05:28:04 GMT
+                - Thu, 26 Mar 2026 05:54:22 GMT
             Strict-Transport-Security:
                 - max-age=31536000; includeSubDomains; preload
             X-Accel-Buffering:
@@ -74,7 +74,7 @@ interactions:
             X-Ratelimit-Remaining-Tokens:
                 - "249905"
             X-Request-Id:
-                - 207fbea2-c339-4ef8-b81d-9955fbc6fc02
+                - e7ef7b09-fe7e-4122-9523-e8ba56045347
         status: 200 OK
         code: 200
-        duration: 1.282773417s
+        duration: 1.22992675s

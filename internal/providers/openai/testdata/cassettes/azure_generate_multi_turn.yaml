@@ -41,10 +41,10 @@ interactions:
         proto_minor: 0
         content_length: 1043
         body: |
-            {"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"annotations":[],"content":"Your name is Alice.","refusal":null,"role":"assistant"}}],"created":1774502884,"id":"chatcmpl-DNXYCmJbbouPuMzMHsouzrTPLEDOC","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":15,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":35,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":50}}
+            {"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"annotations":[],"content":"Your name is Alice.","refusal":null,"role":"assistant"}}],"created":1774504463,"id":"chatcmpl-DNXxf4CBQnXpYTBkxu5vYNpu2Dzps","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":15,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":35,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":50}}
         headers:
             Apim-Request-Id:
-                - 4422c964-ed2d-41bd-bdb7-493e6c5534a6
+                - ad8d83dc-5769-470e-808b-c6f27a9405d7
             Azureml-Model-Session:
                 - d20260302201402-c60e04fa2ecc
             Content-Length:
@@ -52,7 +52,7 @@ interactions:
             Content-Type:
                 - application/json
             Date:
-                - Thu, 26 Mar 2026 05:28:05 GMT
+                - Thu, 26 Mar 2026 05:54:24 GMT
             Strict-Transport-Security:
                 - max-age=31536000; includeSubDomains; preload
             X-Accel-Buffering:
@@ -74,7 +74,7 @@ interactions:
             X-Ratelimit-Remaining-Tokens:
                 - "249886"
             X-Request-Id:
-                - 135a1ce2-56a4-49e2-82af-be67342c5027
+                - 12f26459-f79b-4ed5-89e0-29d92095321c
         status: 200 OK
         code: 200
-        duration: 1.25157025s
+        duration: 1.288184416s
