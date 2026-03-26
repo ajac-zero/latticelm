@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -10,11 +11,10 @@ import (
 )
 
 func TestMigrate_Fresh(t *testing.T) {
-	db := setupSQLiteDB(t)
-	defer db.Close()
+	db := setupPostgresDB(t)
 
 	ctx := context.Background()
-	version, err := Migrate(ctx, db, "sqlite3")
+	version, err := Migrate(ctx, db, "pgx")
 	require.NoError(t, err)
 	assert.Equal(t, expectedSchemaVersion, version)
 
@@ -24,22 +24,21 @@ func TestMigrate_Fresh(t *testing.T) {
 	assert.Equal(t, 1, count)
 
 	// conversations table should exist
-	var tableName string
-	require.NoError(t, db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'`).Scan(&tableName))
-	assert.Equal(t, "conversations", tableName)
+	var tableName sql.NullString
+	require.NoError(t, db.QueryRow(`SELECT to_regclass('public.conversations')`).Scan(&tableName))
+	assert.True(t, tableName.Valid)
 }
 
 func TestMigrate_Idempotent(t *testing.T) {
-	db := setupSQLiteDB(t)
-	defer db.Close()
+	db := setupPostgresDB(t)
 
 	ctx := context.Background()
 
-	v1, err := Migrate(ctx, db, "sqlite3")
+	v1, err := Migrate(ctx, db, "pgx")
 	require.NoError(t, err)
 
 	// Running again should be a no-op
-	v2, err := Migrate(ctx, db, "sqlite3")
+	v2, err := Migrate(ctx, db, "pgx")
 	require.NoError(t, err)
 	assert.Equal(t, v1, v2)
 
@@ -49,25 +48,23 @@ func TestMigrate_Idempotent(t *testing.T) {
 }
 
 func TestCheckSchemaVersion_Match(t *testing.T) {
-	db := setupSQLiteDB(t)
-	defer db.Close()
+	db := setupPostgresDB(t)
 
 	ctx := context.Background()
-	_, err := Migrate(ctx, db, "sqlite3")
+	_, err := Migrate(ctx, db, "pgx")
 	require.NoError(t, err)
 
 	assert.NoError(t, CheckSchemaVersion(ctx, db))
 }
 
 func TestCheckSchemaVersion_Mismatch(t *testing.T) {
-	db := setupSQLiteDB(t)
-	defer db.Close()
+	db := setupPostgresDB(t)
 
 	ctx := context.Background()
 	require.NoError(t, createSchemaMigrationsTable(db))
 
 	// Insert a fake version that doesn't match
-	_, err := db.Exec(`INSERT INTO schema_migrations (version, description, applied_at) VALUES (999, 'fake', ?)`, time.Now())
+	_, err := db.Exec(`INSERT INTO schema_migrations (version, description, applied_at) VALUES ($1, $2, $3)`, 999, "fake", time.Now())
 	require.NoError(t, err)
 
 	assert.Error(t, CheckSchemaVersion(ctx, db))
@@ -85,10 +82,9 @@ func TestLoadMigrations(t *testing.T) {
 }
 
 func TestNewSQLStore_UsessMigrations(t *testing.T) {
-	db := setupSQLiteDB(t)
-	defer db.Close()
+	db := setupPostgresDB(t)
 
-	store, err := NewSQLStore(db, "sqlite3", time.Hour)
+	store, err := NewSQLStore(db, "pgx", time.Hour)
 	require.NoError(t, err)
 	defer store.Close()
 

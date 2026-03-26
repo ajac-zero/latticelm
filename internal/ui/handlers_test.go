@@ -67,27 +67,6 @@ func TestHandleConfig_MasksProviderAPIKeys(t *testing.T) {
 	assert.NotEmpty(t, apiKey, "masked key should still be present")
 }
 
-func TestHandleConfig_MasksConversationDSN(t *testing.T) {
-	enabled := true
-	// Build the DSN at runtime so no credential-containing URL appears as a literal.
-	pass := strings.Repeat("d", 12)
-	dsn := fmt.Sprintf("postgres://user:%s@db:5432/convs", pass)
-	cfg := &config.Config{
-		Conversations: config.ConversationConfig{
-			Enabled: &enabled,
-			DSN:     dsn,
-		},
-	}
-	s := newTestServer(cfg)
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/api/v1/config", nil)
-	rec := httptest.NewRecorder()
-	s.handleConfig(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotContains(t, rec.Body.String(), pass)
-}
-
 func TestHandleConfig_MasksRedisURL(t *testing.T) {
 	// Build the URL at runtime so no credential-containing URL appears as a literal.
 	pass := strings.Repeat("r", 12)

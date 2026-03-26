@@ -12,7 +12,6 @@ the client.
 conversations:
   enabled: true            # master switch (default: false)
   store_by_default: false  # persist when client omits "store" (default: false)
-  store: "memory"          # backend: "memory", "sql", or "redis"
   ttl: "1h"                # expiration duration
   max_ttl: "24h"           # ceiling that overrides any higher ttl value
 ```
@@ -21,7 +20,6 @@ conversations:
 |--------------------|---------|-------------|
 | `enabled`          | `false` | Master switch. When `false`, a no-op store is used and nothing is persisted. |
 | `store_by_default` | `false` | Controls behavior when the client request does not include `"store"`. |
-| `store`            | `memory`| Backend type. |
 | `ttl`              | none    | Conversation expiration. Zero means no expiry (subject to `max_ttl`). |
 | `max_ttl`          | none    | Hard ceiling. If `ttl` is unset or exceeds `max_ttl`, it is clamped. |
 
@@ -55,11 +53,7 @@ Returns `204 No Content` on success, `404` if the conversation does not exist.
 
 ## TTL & Automatic Expiry
 
-All backends support automatic cleanup of expired conversations:
-
-- **Memory**: background goroutine sweeps every minute.
-- **SQL**: background goroutine runs at `min(ttl/10, 1 minute)` intervals.
-- **Redis**: native key TTL; no background sweep needed.
+Conversation cleanup runs in the PostgreSQL store on a background interval of `min(ttl/10, 1 minute)`.
 
 ## Operational Guidance
 
@@ -72,5 +66,5 @@ All backends support automatic cleanup of expired conversations:
    redaction is not currently supported.
 4. **Audit**: enable structured logging (`logging.format: "json"`) to capture
    `stored` flags on every request for compliance auditing.
-5. **Encryption at rest**: for SQL/Redis backends, configure TLS and
-   disk-level encryption on the backing data store.
+5. **Encryption at rest**: configure TLS and disk-level encryption for
+   PostgreSQL and Redis in your deployment environment.

@@ -22,11 +22,8 @@ type Config struct {
 type ConversationConfig struct {
 	Enabled         *bool  `json:"enabled"`
 	StoreByDefault  bool   `json:"store_by_default"`
-	Store           string `json:"store"`
 	TTL             string `json:"ttl"`
 	MaxTTL          string `json:"max_ttl"`
-	DSN             string `json:"dsn"`
-	Driver          string `json:"driver"`
 	MaxOpenConns    int    `json:"max_open_conns"`
 	MaxIdleConns    int    `json:"max_idle_conns"`
 	ConnMaxLifetime string `json:"conn_max_lifetime"`
@@ -99,8 +96,6 @@ type ExporterConfig struct {
 // UsageConfig controls persistent token usage tracking.
 type UsageConfig struct {
 	Enabled       bool   `json:"enabled"`
-	AnalyticsMode string `json:"analytics_mode"`
-	DSN           string `json:"dsn"`
 	BufferSize    int    `json:"buffer_size"`
 	FlushInterval string `json:"flush_interval"`
 }

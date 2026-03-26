@@ -32,12 +32,11 @@ type Store struct {
 	wg            sync.WaitGroup
 	flushInterval time.Duration
 	batchSize     int
-	analyticsMode AnalyticsMode
 }
 
 // NewStore creates a usage store with a background flush goroutine.
 // Call Close() to flush remaining events and stop the goroutine.
-func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval time.Duration, analyticsMode AnalyticsMode) *Store {
+func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval time.Duration) *Store {
 	if bufferSize <= 0 {
 		bufferSize = 1000
 	}
@@ -52,7 +51,6 @@ func NewStore(db *sql.DB, logger *slog.Logger, bufferSize int, flushInterval tim
 		done:          make(chan struct{}),
 		flushInterval: flushInterval,
 		batchSize:     100,
-		analyticsMode: analyticsMode,
 	}
 
 	s.wg.Add(1)
@@ -217,32 +215,6 @@ type TrendRow struct {
 	RequestCount int64     `json:"request_count"`
 }
 
-// hasTimescaleDB checks whether the TimescaleDB extension is available.
-func (s *Store) hasTimescaleDB(ctx context.Context) bool {
-	var exists bool
-	err := s.db.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`,
-	).Scan(&exists)
-	return err == nil && exists
-}
-
-// hasUsageRollups checks whether continuous aggregate rollups exist.
-func (s *Store) hasUsageRollups(ctx context.Context) bool {
-	var exists bool
-	err := s.db.QueryRowContext(ctx,
-		`SELECT to_regclass('token_usage_hourly') IS NOT NULL AND to_regclass('token_usage_daily') IS NOT NULL`,
-	).Scan(&exists)
-	return err == nil && exists
-}
-
-// useRollups determines whether to use continuous aggregates for analytics.
-func (s *Store) useRollups(ctx context.Context) bool {
-	if s.analyticsMode != AnalyticsModeTimescaleDB {
-		return false
-	}
-	return s.hasUsageRollups(ctx)
-}
-
 // appendFilters builds WHERE clauses and parameter list from a QueryFilter.
 func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
 	var clauses []string
@@ -283,25 +255,7 @@ func appendFilters(f QueryFilter, paramIdx int) ([]string, []interface{}) {
 
 // QuerySummary returns aggregated token usage grouped by the available dimensions.
 func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, error) {
-	table := "token_usage"
-	timeCol := "time"
-	countExpr := "COUNT(*)"
-	if s.useRollups(ctx) {
-		// Use hourly aggregate for ranges ≤ 7 days, daily for longer.
-		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
-			table = "token_usage_hourly"
-		} else {
-			table = "token_usage_daily"
-		}
-		timeCol = "bucket"
-		countExpr = "SUM(request_count)"
-	}
-
 	clauses, args := appendFilters(f, 1)
-	// Rename "time" references to the actual column when querying aggregates.
-	for i, c := range clauses {
-		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
-	}
 
 	where := ""
 	if len(clauses) > 0 {
@@ -309,10 +263,10 @@ func (s *Store) QuerySummary(ctx context.Context, f QueryFilter) ([]SummaryRow, 
 	}
 
 	q := fmt.Sprintf(`SELECT tenant_id, user_sub, provider, model,
-		SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
-		FROM %s %s
+		SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), COUNT(*)
+		FROM token_usage %s
 		GROUP BY tenant_id, user_sub, provider, model
-		ORDER BY SUM(total_tokens) DESC`, countExpr, table, where)
+		ORDER BY SUM(total_tokens) DESC`, where)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -345,23 +299,7 @@ func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, l
 		limit = 10
 	}
 
-	table := "token_usage"
-	timeCol := "time"
-	countExpr := "COUNT(*)"
-	if s.useRollups(ctx) {
-		if !f.Start.IsZero() && !f.End.IsZero() && f.End.Sub(f.Start) <= 7*24*time.Hour {
-			table = "token_usage_hourly"
-		} else {
-			table = "token_usage_daily"
-		}
-		timeCol = "bucket"
-		countExpr = "SUM(request_count)"
-	}
-
 	clauses, args := appendFilters(f, 1)
-	for i, c := range clauses {
-		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
-	}
 
 	where := ""
 	if len(clauses) > 0 {
@@ -372,11 +310,11 @@ func (s *Store) QueryTop(ctx context.Context, f QueryFilter, dimension string, l
 	limitParam := fmt.Sprintf("$%d", len(args))
 
 	// #nosec G201 -- table/column names are fixed allowlist values; filters remain parameterized.
-	q := fmt.Sprintf(`SELECT %s, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s
-		FROM %s %s
+	q := fmt.Sprintf(`SELECT %s, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), COUNT(*)
+		FROM token_usage %s
 		GROUP BY %s
 		ORDER BY SUM(total_tokens) DESC
-		LIMIT %s`, dimension, countExpr, table, where, dimension, limitParam)
+		LIMIT %s`, dimension, where, dimension, limitParam)
 
 	// #nosec G701 -- query string is built from allowlisted identifiers and parameterized filters.
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -410,51 +348,17 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 		return nil, fmt.Errorf("start and end times are required for trends")
 	}
 
-	table := "token_usage"
-	timeCol := "time"
-	countExpr := "COUNT(*)"
-	useRollups := s.useRollups(ctx)
-	useTSDB := s.hasTimescaleDB(ctx)
-
-	if useRollups {
-		switch granularity {
-		case "hourly":
-			table = "token_usage_hourly"
-		default:
-			table = "token_usage_daily"
-			granularity = "daily"
-		}
-		timeCol = "bucket"
-		countExpr = "SUM(request_count)"
+	trunc := "day"
+	if granularity == "hourly" {
+		trunc = "hour"
 	}
+	bucketExpr := fmt.Sprintf("date_trunc('%s', time)", trunc)
 
 	clauses, args := appendFilters(f, 1)
-	for i, c := range clauses {
-		clauses[i] = strings.Replace(c, "time ", timeCol+" ", 1)
-	}
 
 	where := ""
 	if len(clauses) > 0 {
 		where = "WHERE " + strings.Join(clauses, " AND ")
-	}
-
-	var bucketExpr string
-	if useRollups {
-		bucketExpr = timeCol
-	} else {
-		if useTSDB {
-			interval := "1 day"
-			if granularity == "hourly" {
-				interval = "1 hour"
-			}
-			bucketExpr = fmt.Sprintf("time_bucket('%s', %s)", interval, timeCol)
-		} else {
-			trunc := "day"
-			if granularity == "hourly" {
-				trunc = "hour"
-			}
-			bucketExpr = fmt.Sprintf("date_trunc('%s', %s)", trunc, timeCol)
-		}
 	}
 
 	selectDim, groupByDim := "", ""
@@ -464,10 +368,10 @@ func (s *Store) QueryTrends(ctx context.Context, f QueryFilter, granularity stri
 	}
 
 	// #nosec G201 -- bucket/table/dimension are limited to allowlisted values; filters remain parameterized.
-	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), %s%s
-		FROM %s %s
+	q := fmt.Sprintf(`SELECT %s AS bucket, SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), COUNT(*)%s
+		FROM token_usage %s
 		GROUP BY bucket%s
-		ORDER BY bucket ASC`, bucketExpr, countExpr, selectDim, table, where, groupByDim)
+		ORDER BY bucket ASC`, bucketExpr, selectDim, where, groupByDim)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
