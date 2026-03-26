@@ -1,0 +1,80 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 347
+        host: ""
+        body: '{"messages":[{"content":"What is the weather in San Francisco?","role":"user"}],"model":"gpt-5.1","tools":[{"function":{"name":"get_weather","description":"Get the current weather for a location","parameters":{"properties":{"location":{"description":"City and state","type":"string"}},"required":["location"],"type":"object"}},"type":"function"}]}'
+        form:
+            api-version:
+                - 2024-12-01-preview
+        headers:
+            Accept:
+                - application/json
+            Content-Type:
+                - application/json
+            User-Agent:
+                - OpenAI/Go 3.24.0
+            X-Stainless-Arch:
+                - arm64
+            X-Stainless-Lang:
+                - go
+            X-Stainless-Os:
+                - MacOS
+            X-Stainless-Package-Version:
+                - 3.24.0
+            X-Stainless-Retry-Count:
+                - "0"
+            X-Stainless-Runtime:
+                - go
+            X-Stainless-Runtime-Version:
+                - go1.26.1
+        url: https://scrubbed.openai.azure.com/openai/deployments/gpt-5.1/chat/completions?api-version=2024-12-01-preview
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 1005
+        body: |
+            {"choices":[{"content_filter_results":{},"finish_reason":"tool_calls","index":0,"logprobs":null,"message":{"annotations":[],"content":null,"refusal":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{\"location\":\"San Francisco, CA\"}","name":"get_weather"},"id":"call_ew5TLLVQs1RmztUed95QoMSd","type":"function"}]}}],"created":1774502883,"id":"chatcmpl-DNXYBYnGBVbpCaUmPhhcSDFv2BjLd","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":27,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":139,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":166}}
+        headers:
+            Apim-Request-Id:
+                - e458d851-ade5-47cc-a8c2-4fca79586ee4
+            Azureml-Model-Session:
+                - d20260302201402-c60e04fa2ecc
+            Content-Length:
+                - "1005"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 05:28:04 GMT
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Accel-Buffering:
+                - "no"
+            X-Content-Type-Options:
+                - nosniff
+            X-Ms-Deployment-Name:
+                - gpt-5.1
+            X-Ms-Rai-Invoked:
+                - "true"
+            X-Ms-Region:
+                - East US 2
+            X-Ratelimit-Limit-Requests:
+                - "2500"
+            X-Ratelimit-Limit-Tokens:
+                - "250000"
+            X-Ratelimit-Remaining-Requests:
+                - "2497"
+            X-Ratelimit-Remaining-Tokens:
+                - "249905"
+            X-Request-Id:
+                - 207fbea2-c339-4ef8-b81d-9955fbc6fc02
+        status: 200 OK
+        code: 200
+        duration: 1.282773417s

@@ -1,6 +1,6 @@
 # Makefile for LLM Gateway
 
-.PHONY: help build test docker-build docker-push k8s-deploy k8s-delete clean
+.PHONY: help build test test-integration test-record docker-build docker-push k8s-deploy k8s-delete clean
 
 # Variables
 APP_NAME := llm-gateway
@@ -51,6 +51,16 @@ build-static: ## Build static binary
 test: ## Run tests
 	@echo "Running tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+
+test-integration: ## Run integration tests (replays recorded cassettes)
+	@echo "Running integration tests..."
+	$(GOTEST) -v -tags=integration -run 'Integration' -count=1 ./...
+
+test-record: ## Re-record integration test cassettes (requires API credentials)
+	@echo "Recording integration test cassettes..."
+	@echo "Ensure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_MODEL are set"
+	rm -f internal/providers/openai/testdata/cassettes/*.yaml
+	$(GOTEST) -v -tags=integration -run 'Integration' -count=1 ./...
 
 test-coverage: test ## Run tests with coverage report
 	@echo "Generating coverage report..."
