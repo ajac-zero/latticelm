@@ -18,6 +18,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/ajac-zero/latticelm/internal/apikeys"
 	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/config"
 	"github.com/ajac-zero/latticelm/internal/conversation"
@@ -127,6 +128,7 @@ func main() {
 		Issuer:       cfg.Auth.Issuer,
 		DiscoveryURL: cfg.Auth.DiscoveryURL,
 		Audiences:    cfg.Auth.Audiences,
+		AdminClaim:   cfg.UI.Claim,
 	}
 	authMiddleware, err := auth.New(authConfig, logger)
 	if err != nil {
@@ -149,9 +151,11 @@ func main() {
 
 	// Initialize user store (requires DATABASE_URL)
 	var userStore *users.Store
+	var userDB *sql.DB // shared by user store and API keys
 	dbURL := os.Getenv("DATABASE_URL")
 	if cfg.Conversations.IsEnabled() && dbURL != "" {
-		db, err := sql.Open("pgx", dbURL)
+		var err error
+		userDB, err = sql.Open("pgx", dbURL)
 		if err != nil {
 			logger.Error("failed to open database for user store", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -160,14 +164,14 @@ func main() {
 		// Run user migrations
 		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer migrateCancel()
-		userSchemaVersion, err := users.Migrate(migrateCtx, db, "pgx")
+		userSchemaVersion, err := users.Migrate(migrateCtx, userDB, "pgx")
 		if err != nil {
 			logger.Error("user migration failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
 		logger.Info("user schema ready", slog.Int("version", userSchemaVersion))
 
-		userStore = users.NewStore(db, "pgx")
+		userStore = users.NewStore(userDB, "pgx")
 		logger.Info("user store initialized")
 	} else if cfg.Auth.Enabled && cfg.UI.Enabled {
 		logger.Warn("auth enabled but DATABASE_URL not configured for user management")
@@ -213,6 +217,35 @@ func main() {
 				slog.String("email", cfg.Auth.AdminEmail),
 			)
 		}
+	}
+
+	// Initialize API key authentication
+	var apiKeyStore *apikeys.Store
+	if cfg.APIKeys.Enabled {
+		if userDB == nil || userStore == nil {
+			logger.Error("API keys require DATABASE_URL and conversations enabled for user management")
+			os.Exit(1)
+		}
+
+		migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer migrateCancel()
+		akSchemaVersion, err := apikeys.Migrate(migrateCtx, userDB)
+		if err != nil {
+			logger.Error("api_keys migration failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		logger.Info("api_keys schema ready", slog.Int("version", akSchemaVersion))
+
+		apiKeyStore = apikeys.NewStore(userDB)
+
+		// Prepend API key authenticator to the auth chain so sk-* tokens
+		// are resolved before attempting JWT validation.
+		authMiddleware.PrependAuthenticator(&apikeys.Authenticator{
+			Store:  apiKeyStore,
+			Logger: logger,
+		})
+
+		logger.Info("API key authentication enabled")
 	}
 
 	// Initialize conversation store
@@ -359,6 +392,13 @@ func main() {
 	apiMux := http.NewServeMux()
 	gatewayServer.RegisterAPIRoutes(apiMux)
 
+	// Register API key management routes on the API mux (auth-protected)
+	if apiKeyStore != nil {
+		akAPI := apikeys.NewAPI(apiKeyStore, userStore, logger, cfg.APIKeys.MaxKeysPerUser)
+		akAPI.RegisterRoutes(apiMux)
+		logger.Info("API key management endpoints enabled")
+	}
+
 	// Register usage read API on the API mux (auth-protected via middleware below)
 	if usageStore != nil {
 		usageOpts := []func(*usage.API){}
@@ -393,6 +433,12 @@ func main() {
 		if userStore != nil {
 			usersAPI := users.NewAPI(userStore)
 			usersAPI.RegisterRoutes(adminMux)
+		}
+
+		// Register API key management on admin mux (session auth)
+		if apiKeyStore != nil {
+			akAPI := apikeys.NewAPI(apiKeyStore, userStore, logger, cfg.APIKeys.MaxKeysPerUser)
+			akAPI.RegisterAdminRoutes(adminMux)
 		}
 
 		// Register usage read API on admin mux so the embedded UI (session auth)

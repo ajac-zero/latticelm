@@ -10,6 +10,7 @@ type Config struct {
 	Providers     map[string]ProviderEntry `json:"providers"`
 	Models        []ModelEntry             `json:"models"`
 	Auth          AuthConfig               `json:"auth"`
+	APIKeys       APIKeysConfig            `json:"api_keys"`
 	Conversations ConversationConfig       `json:"conversations"`
 	Logging       LoggingConfig            `json:"logging"`
 	RateLimit     RateLimitConfig          `json:"rate_limit"`
@@ -17,6 +18,12 @@ type Config struct {
 	Observability ObservabilityConfig      `json:"observability"`
 	Usage         UsageConfig              `json:"usage"`
 	UI            UIConfig                 `json:"ui"`
+}
+
+// APIKeysConfig controls API key authentication.
+type APIKeysConfig struct {
+	Enabled        bool `json:"enabled"`
+	MaxKeysPerUser int  `json:"max_keys_per_user"` // 0 = unlimited
 }
 
 // ConversationConfig controls conversation storage.

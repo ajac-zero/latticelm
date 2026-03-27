@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,36 +286,33 @@ func TestMiddleware_IdentityFromJWT(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Helper to create a request with JWT claims in context
-	makeReqWithClaims := func(claims jwt.MapClaims) *http.Request {
+	// Helper to create a request with an authenticated Principal in context
+	makeReqWithPrincipal := func(sub, tenant string) *http.Request {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "192.168.1.1:1234"
-		ctx := context.WithValue(req.Context(), claimsKeyForTest, claims)
+		p := &auth.Principal{Subject: sub, TenantID: tenant}
+		ctx := auth.ContextWithPrincipal(req.Context(), p)
 		return req.WithContext(ctx)
 	}
 
 	// User A: first request allowed
-	reqA := makeReqWithClaims(jwt.MapClaims{"sub": "user-a", "tenant_id": "tenant-1"})
+	reqA := makeReqWithPrincipal("user-a", "tenant-1")
 	wA := httptest.NewRecorder()
 	handler.ServeHTTP(wA, reqA)
 	assert.Equal(t, http.StatusOK, wA.Code)
 
 	// User A: second request should be rate limited
-	reqA2 := makeReqWithClaims(jwt.MapClaims{"sub": "user-a", "tenant_id": "tenant-1"})
+	reqA2 := makeReqWithPrincipal("user-a", "tenant-1")
 	wA2 := httptest.NewRecorder()
 	handler.ServeHTTP(wA2, reqA2)
 	assert.Equal(t, http.StatusTooManyRequests, wA2.Code)
 
 	// User B: should have separate rate limit, still allowed
-	reqB := makeReqWithClaims(jwt.MapClaims{"sub": "user-b", "tenant_id": "tenant-1"})
+	reqB := makeReqWithPrincipal("user-b", "tenant-1")
 	wB := httptest.NewRecorder()
 	handler.ServeHTTP(wB, reqB)
 	assert.Equal(t, http.StatusOK, wB.Code)
 }
-
-// claimsKeyForTest matches auth.claimsKey for testing.
-// We use auth.GetClaims which reads from this context key.
-var claimsKeyForTest = auth.ClaimsContextKey()
 
 func TestMiddleware_DifferentIPsHaveSeparateLimits(t *testing.T) {
 	client, _ := setupTestRedis(t)
@@ -567,14 +563,11 @@ func TestIdentity(t *testing.T) {
 }
 
 func TestExtractIdentity(t *testing.T) {
-	t.Run("from JWT claims", func(t *testing.T) {
+	t.Run("from Principal", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "1.2.3.4:5678"
-		claims := jwt.MapClaims{
-			"sub":       "user-123",
-			"tenant_id": "acme-corp",
-		}
-		ctx := context.WithValue(req.Context(), claimsKeyForTest, claims)
+		p := &auth.Principal{Subject: "user-123", TenantID: "acme-corp"}
+		ctx := auth.ContextWithPrincipal(req.Context(), p)
 		req = req.WithContext(ctx)
 
 		id := extractIdentity(req, nil)
@@ -583,7 +576,7 @@ func TestExtractIdentity(t *testing.T) {
 		assert.Equal(t, "1.2.3.4", id.IP)
 	})
 
-	t.Run("without JWT falls back to IP", func(t *testing.T) {
+	t.Run("without Principal falls back to IP", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "1.2.3.4:5678"
 
