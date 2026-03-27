@@ -1,0 +1,66 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 119
+        host: scrubbed.services.ai.azure.com
+        body: '{"max_tokens":4096,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"nonexistent-model"}'
+        headers:
+            Accept:
+                - application/json
+            Anthropic-Version:
+                - "2023-06-01"
+            Content-Type:
+                - application/json
+            User-Agent:
+                - Anthropic/Go 1.26.0
+            X-Stainless-Arch:
+                - arm64
+            X-Stainless-Lang:
+                - go
+            X-Stainless-Os:
+                - MacOS
+            X-Stainless-Package-Version:
+                - 1.26.0
+            X-Stainless-Retry-Count:
+                - "0"
+            X-Stainless-Runtime:
+                - go
+            X-Stainless-Runtime-Version:
+                - go1.26.1
+            X-Stainless-Timeout:
+                - "600"
+        url: https://scrubbed.services.ai.azure.com/anthropic/v1/messages
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: '{"error":{"code":"DeploymentNotFound","message":"The API deployment nonexistent-model does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again.","details":"The API deployment nonexistent-model does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again."}}'
+        headers:
+            Apim-Request-Id:
+                - 3baf8648-9831-47ea-ae8f-ba5d936e6a7c
+            Azureml-Served-By-Cluster:
+                - hyena-eastus2-01
+            Content-Type:
+                - application/json; charset=utf-8
+            Date:
+                - Thu, 26 Mar 2026 05:54:30 GMT
+            Request-Context:
+                - appId=
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Content-Type-Options:
+                - nosniff
+            X-Ms-Error-Code:
+                - DeploymentNotFound
+            X-Ms-Region:
+                - East US 2
+        status: 404 Not Found
+        code: 404
+        duration: 283.689959ms

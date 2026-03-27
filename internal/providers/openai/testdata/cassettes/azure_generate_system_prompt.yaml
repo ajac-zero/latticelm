@@ -1,0 +1,80 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 151
+        host: ""
+        body: '{"messages":[{"content":"Always respond with exactly one word.","role":"system"},{"content":"What color is the sky?","role":"user"}],"model":"gpt-5.1"}'
+        form:
+            api-version:
+                - 2024-12-01-preview
+        headers:
+            Accept:
+                - application/json
+            Content-Type:
+                - application/json
+            User-Agent:
+                - OpenAI/Go 3.24.0
+            X-Stainless-Arch:
+                - arm64
+            X-Stainless-Lang:
+                - go
+            X-Stainless-Os:
+                - MacOS
+            X-Stainless-Package-Version:
+                - 3.24.0
+            X-Stainless-Retry-Count:
+                - "0"
+            X-Stainless-Runtime:
+                - go
+            X-Stainless-Runtime-Version:
+                - go1.26.1
+        url: https://scrubbed.openai.azure.com/openai/deployments/gpt-5.1/chat/completions?api-version=2024-12-01-preview
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 1028
+        body: |
+            {"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"annotations":[],"content":"Blue","refusal":null,"role":"assistant"}}],"created":1774504460,"id":"chatcmpl-DNXxcZ7Jyb3KLzURP4f5ZYb8g7nSB","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":11,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":23,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":34}}
+        headers:
+            Apim-Request-Id:
+                - 3f61ce7e-5303-4995-a8db-9351fd921b92
+            Azureml-Model-Session:
+                - d20260302201402-c60e04fa2ecc
+            Content-Length:
+                - "1028"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 05:54:21 GMT
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Accel-Buffering:
+                - "no"
+            X-Content-Type-Options:
+                - nosniff
+            X-Ms-Deployment-Name:
+                - gpt-5.1
+            X-Ms-Rai-Invoked:
+                - "true"
+            X-Ms-Region:
+                - East US 2
+            X-Ratelimit-Limit-Requests:
+                - "2500"
+            X-Ratelimit-Limit-Tokens:
+                - "250000"
+            X-Ratelimit-Remaining-Requests:
+                - "2498"
+            X-Ratelimit-Remaining-Tokens:
+                - "249976"
+            X-Request-Id:
+                - 34809021-286d-4867-a2c8-b43f3073ee6c
+        status: 200 OK
+        code: 200
+        duration: 1.377375s

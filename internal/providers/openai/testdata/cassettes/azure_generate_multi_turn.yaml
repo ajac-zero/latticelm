@@ -1,0 +1,80 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 189
+        host: ""
+        body: '{"messages":[{"content":"My name is Alice.","role":"user"},{"content":"Hello Alice! How can I help you?","role":"assistant"},{"content":"What is my name?","role":"user"}],"model":"gpt-5.1"}'
+        form:
+            api-version:
+                - 2024-12-01-preview
+        headers:
+            Accept:
+                - application/json
+            Content-Type:
+                - application/json
+            User-Agent:
+                - OpenAI/Go 3.24.0
+            X-Stainless-Arch:
+                - arm64
+            X-Stainless-Lang:
+                - go
+            X-Stainless-Os:
+                - MacOS
+            X-Stainless-Package-Version:
+                - 3.24.0
+            X-Stainless-Retry-Count:
+                - "0"
+            X-Stainless-Runtime:
+                - go
+            X-Stainless-Runtime-Version:
+                - go1.26.1
+        url: https://scrubbed.openai.azure.com/openai/deployments/gpt-5.1/chat/completions?api-version=2024-12-01-preview
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: 1043
+        body: |
+            {"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"annotations":[],"content":"Your name is Alice.","refusal":null,"role":"assistant"}}],"created":1774504463,"id":"chatcmpl-DNXxf4CBQnXpYTBkxu5vYNpu2Dzps","model":"gpt-5.1-2025-11-13","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":15,"completion_tokens_details":{"accepted_prediction_tokens":0,"audio_tokens":0,"reasoning_tokens":0,"rejected_prediction_tokens":0},"prompt_tokens":35,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0},"total_tokens":50}}
+        headers:
+            Apim-Request-Id:
+                - ad8d83dc-5769-470e-808b-c6f27a9405d7
+            Azureml-Model-Session:
+                - d20260302201402-c60e04fa2ecc
+            Content-Length:
+                - "1043"
+            Content-Type:
+                - application/json
+            Date:
+                - Thu, 26 Mar 2026 05:54:24 GMT
+            Strict-Transport-Security:
+                - max-age=31536000; includeSubDomains; preload
+            X-Accel-Buffering:
+                - "no"
+            X-Content-Type-Options:
+                - nosniff
+            X-Ms-Deployment-Name:
+                - gpt-5.1
+            X-Ms-Rai-Invoked:
+                - "true"
+            X-Ms-Region:
+                - East US 2
+            X-Ratelimit-Limit-Requests:
+                - "2500"
+            X-Ratelimit-Limit-Tokens:
+                - "250000"
+            X-Ratelimit-Remaining-Requests:
+                - "2496"
+            X-Ratelimit-Remaining-Tokens:
+                - "249886"
+            X-Request-Id:
+                - 12f26459-f79b-4ed5-89e0-29d92095321c
+        status: 200 OK
+        code: 200
+        duration: 1.288184416s
