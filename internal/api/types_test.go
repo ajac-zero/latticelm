@@ -322,6 +322,36 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 			},
 		},
 		{
+			name: "message preserves structured multimodal content blocks",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "message",
+							Role: "user",
+							Content: json.RawMessage(`[
+								{"type": "input_text", "text": "hello"},
+								{"type": "input_image", "image_url": "https://example.com/image.png", "detail": "high"},
+								{"type": "input_file", "filename": "notes.txt", "file_data": "Zm9vYmFy"}
+							]`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				require.Len(t, msgs[0].Content, 3)
+				assert.Equal(t, "input_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "hello", msgs[0].Content[0].Text)
+				assert.Equal(t, "input_image", msgs[0].Content[1].Type)
+				assert.Equal(t, "https://example.com/image.png", msgs[0].Content[1].ImageURL)
+				assert.Equal(t, "high", msgs[0].Content[1].Detail)
+				assert.Equal(t, "input_file", msgs[0].Content[2].Type)
+				assert.Equal(t, "notes.txt", msgs[0].Content[2].Filename)
+				assert.Equal(t, "Zm9vYmFy", msgs[0].Content[2].FileData)
+			},
+		},
+		{
 			name: "message with tool_use blocks",
 			request: ResponseRequest{
 				Input: InputUnion{
@@ -386,6 +416,31 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 			},
 		},
 		{
+			name: "assistant message preserves refusal content blocks",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "message",
+							Role: "assistant",
+							Content: json.RawMessage(`[
+								{"type": "output_text", "text": "I can't comply."},
+								{"type": "refusal", "refusal": "This request is disallowed."}
+							]`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				require.Len(t, msgs[0].Content, 2)
+				assert.Equal(t, "output_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "I can't comply.", msgs[0].Content[0].Text)
+				assert.Equal(t, "refusal", msgs[0].Content[1].Type)
+				assert.Equal(t, "This request is disallowed.", msgs[0].Content[1].Refusal)
+			},
+		},
+		{
 			name: "multiple tool_use blocks",
 			request: ResponseRequest{
 				Input: InputUnion{
@@ -442,6 +497,33 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 				require.Len(t, msgs[0].Content, 1)
 				assert.Equal(t, "input_text", msgs[0].Content[0].Type)
 				assert.Equal(t, `{"temperature": 72, "condition": "sunny"}`, msgs[0].Content[0].Text)
+			},
+		},
+		{
+			name: "function_call_output item preserves array content",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type:   "function_call_output",
+							CallID: "call_456",
+							Name:   "render_report",
+							Output: []map[string]any{
+								{"type": "input_text", "text": "See attached report."},
+								{"type": "input_file", "filename": "report.txt", "file_data": "cmVwb3J0"},
+							},
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "tool", msgs[0].Role)
+				require.Len(t, msgs[0].Content, 2)
+				assert.Equal(t, "input_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "See attached report.", msgs[0].Content[0].Text)
+				assert.Equal(t, "input_file", msgs[0].Content[1].Type)
+				assert.Equal(t, "report.txt", msgs[0].Content[1].Filename)
 			},
 		},
 		{

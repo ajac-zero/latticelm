@@ -72,7 +72,10 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		return nil, fmt.Errorf("openai client not initialized")
 	}
 
-	oaiMessages := buildOAIMessages(messages)
+	oaiMessages, err := buildOAIMessages(messages)
+	if err != nil {
+		return nil, fmt.Errorf("convert messages: %w", err)
+	}
 
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(req.Model),
@@ -158,7 +161,11 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			return
 		}
 
-		oaiMessages := buildOAIMessages(messages)
+		oaiMessages, err := buildOAIMessages(messages)
+		if err != nil {
+			errChan <- fmt.Errorf("convert messages: %w", err)
+			return
+		}
 
 		params := openai.ChatCompletionNewParams{
 			Model:    openai.ChatModel(req.Model),

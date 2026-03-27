@@ -53,35 +53,3 @@ type Conversation struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
-
-// copyMessages returns a deep copy of a Message slice, duplicating nested Content and ToolCalls slices.
-func copyMessages(messages []api.Message) []api.Message {
-	out := make([]api.Message, len(messages))
-	for i, msg := range messages {
-		out[i] = msg
-		if msg.Content != nil {
-			out[i].Content = make([]api.ContentBlock, len(msg.Content))
-			copy(out[i].Content, msg.Content)
-		}
-		if msg.ToolCalls != nil {
-			out[i].ToolCalls = make([]api.ToolCall, len(msg.ToolCalls))
-			copy(out[i].ToolCalls, msg.ToolCalls)
-		}
-	}
-	return out
-}
-
-// copyConversation returns a deep copy of a Conversation.
-func copyConversation(conv *Conversation) *Conversation {
-	return &Conversation{
-		ID:        conv.ID,
-		Messages:  copyMessages(conv.Messages),
-		Model:     conv.Model,
-		OwnerIss:  conv.OwnerIss,
-		OwnerSub:  conv.OwnerSub,
-		TenantID:  conv.TenantID,
-		CreatedAt: conv.CreatedAt,
-		UpdatedAt: conv.UpdatedAt,
-	}
-}
-

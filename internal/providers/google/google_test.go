@@ -346,7 +346,14 @@ func TestConvertMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			contents, systemText := convertMessages(tt.messages)
+			contents, systemInstruction, err := convertMessages(tt.messages)
+			require.NoError(t, err)
+			systemText := ""
+			if systemInstruction != nil {
+				for _, part := range systemInstruction.Parts {
+					systemText += part.Text
+				}
+			}
 			assert.Len(t, contents, tt.expectedContents)
 			assert.Equal(t, tt.expectedSystem, systemText)
 			if tt.validate != nil {
@@ -468,7 +475,13 @@ func TestBuildConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := buildConfig(tt.systemText, tt.req, tt.tools, tt.toolConfig)
+			var systemInstruction *genai.Content
+			if tt.systemText != "" {
+				systemInstruction = &genai.Content{
+					Parts: []*genai.Part{genai.NewPartFromText(tt.systemText)},
+				}
+			}
+			cfg := buildConfig(systemInstruction, tt.req, tt.tools, tt.toolConfig)
 			if tt.expectNil {
 				assert.Nil(t, cfg)
 			} else {
