@@ -212,7 +212,7 @@ func TestHandleResponses_Stream_StoreFalse_NoPersistence(t *testing.T) {
 
 // ---------- DELETE /v1/responses/{id} ----------
 
-func TestHandleResponseByID_Delete(t *testing.T) {
+func TestHandleResponseByID_Delete_StorePolicy(t *testing.T) {
 	store := newMockConversationStore()
 	store.setConversation("resp_abc", &conversation.Conversation{
 		ID:    "resp_abc",
@@ -233,7 +233,7 @@ func TestHandleResponseByID_Delete(t *testing.T) {
 	assert.Equal(t, 0, store.Size(), "conversation should be deleted")
 }
 
-func TestHandleResponseByID_NotFound(t *testing.T) {
+func TestHandleResponseByID_NotFound_StorePolicy(t *testing.T) {
 	store := newMockConversationStore()
 	srv := New(newMockRegistry(), store, newMockLogger().asLogger())
 
@@ -246,18 +246,7 @@ func TestHandleResponseByID_NotFound(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "conversation not found")
 }
 
-func TestHandleResponseByID_MethodNotAllowed(t *testing.T) {
-	srv := New(newMockRegistry(), newMockConversationStore(), newMockLogger().asLogger())
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_abc", nil)
-	rec := httptest.NewRecorder()
-
-	srv.handleResponseByID(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandleResponseByID_EmptyID(t *testing.T) {
+func TestHandleResponseByID_EmptyID_StorePolicy(t *testing.T) {
 	srv := New(newMockRegistry(), newMockConversationStore(), newMockLogger().asLogger())
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/responses/", nil)
