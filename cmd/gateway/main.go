@@ -698,7 +698,7 @@ func loadConfig() (*config.Store, *config.Config, error) {
 				_ = configStore.Close()
 				return nil, nil, fmt.Errorf("GATEWAY_CONFIG: %w", err)
 			}
-			if err := configStore.Seed(ctx, fileProviders, fileModels); err != nil {
+			if err := configStore.SeedIfEmpty(ctx, fileProviders, fileModels); err != nil {
 				_ = configStore.Close()
 				return nil, nil, fmt.Errorf("seed config store from GATEWAY_CONFIG: %w", err)
 			}

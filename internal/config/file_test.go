@@ -76,12 +76,76 @@ func TestLoadFromFile_JSON(t *testing.T) {
 	assert.Equal(t, "gemini-2.0-flash", models[0].Name)
 }
 
-func TestLoadFromFile_EmptyProviders(t *testing.T) {
-	path := writeTemp(t, "config.yaml", "providers: {}\nmodels: []\n")
+func TestLoadFromFile_ExpandsEnvPlaceholders(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-from-env")
+	t.Setenv("OPENAI_MODEL_ID", "gpt-4o")
+	content := `
+providers:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+models:
+  - name: ${OPENAI_MODEL_ID}
+    provider: openai
+`
+	path := writeTemp(t, "config.yaml", content)
 	providers, models, err := LoadFromFile(path)
 	require.NoError(t, err)
-	assert.Empty(t, providers)
-	assert.Empty(t, models)
+	assert.Equal(t, "sk-from-env", providers["openai"].APIKey)
+	assert.Equal(t, "gpt-4o", models[0].Name)
+}
+
+func TestLoadFromFile_MissingEnvPlaceholder(t *testing.T) {
+	content := `
+providers:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+models:
+  - name: gpt-4o
+    provider: openai
+`
+	path := writeTemp(t, "config.yaml", content)
+	_, _, err := LoadFromFile(path)
+	assert.ErrorContains(t, err, `environment variable "OPENAI_API_KEY" is not set`)
+}
+
+func TestLoadFromFile_RequiresProvidersAndModels(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "missing providers",
+			content: `
+providers: {}
+models:
+  - name: gpt-4o
+    provider: openai
+`,
+			want: "at least one provider",
+		},
+		{
+			name: "missing models",
+			content: `
+providers:
+  openai:
+    type: openai
+    api_key: sk-test
+models: []
+`,
+			want: "at least one model",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeTemp(t, "config.yaml", tt.content)
+			_, _, err := LoadFromFile(path)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestLoadFromFile_UnsupportedExtension(t *testing.T) {
