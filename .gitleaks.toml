@@ -1,0 +1,6 @@
+title = "gitleaks config"
+
+[allowlist]
+description = "Allow test API keys in test files"
+paths = ['''_test\.go$''']
+regexes = ['''sk-[0-9a-f]{64}''']
