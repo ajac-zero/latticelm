@@ -39,28 +39,19 @@ func (id Identity) TenantKey() string {
 }
 
 // extractIdentity extracts the rate limiting identity from the request.
-// It checks JWT claims first, falling back to client IP.
+// It checks the authenticated Principal first, falling back to client IP.
 func extractIdentity(r *http.Request, trustedCIDRs []*net.IPNet) Identity {
 	id := Identity{
 		IP: getClientIP(r, trustedCIDRs),
 	}
 
-	claims, ok := auth.GetClaims(r.Context())
-	if !ok {
+	principal := auth.PrincipalFromContext(r.Context())
+	if principal == nil {
 		return id
 	}
 
-	if sub, ok := claims["sub"].(string); ok {
-		id.Subject = sub
-	}
-
-	// Look for tenant claim in common locations
-	for _, claimName := range []string{"tenant_id", "org_id", "tenant", "organization"} {
-		if val, ok := claims[claimName].(string); ok && val != "" {
-			id.Tenant = val
-			break
-		}
-	}
+	id.Subject = principal.Subject
+	id.Tenant = principal.TenantID
 
 	if id.Tenant == "" {
 		id.Tenant = id.Subject

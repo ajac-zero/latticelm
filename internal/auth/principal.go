@@ -29,7 +29,12 @@ func PrincipalFromContext(ctx context.Context) *Principal {
 }
 
 // PrincipalFromClaims builds a Principal from validated JWT claims.
-func PrincipalFromClaims(claims jwt.MapClaims) *Principal {
+//
+// Optional extraRoleClaims specify additional claim names to inspect for roles.
+// This is useful when the admin configuration uses a non-standard claim name
+// (e.g., "permissions") so those values are captured in the Principal's Roles
+// and downstream checks like HasAdminRole work uniformly.
+func PrincipalFromClaims(claims jwt.MapClaims, extraRoleClaims ...string) *Principal {
 	p := &Principal{}
 
 	if iss, ok := claims["iss"].(string); ok {
@@ -54,6 +59,15 @@ func PrincipalFromClaims(claims jwt.MapClaims) *Principal {
 			if len(p.Roles) > 0 {
 				break
 			}
+		}
+	}
+
+	// Also extract from caller-specified claim names so custom admin claims
+	// (e.g., "permissions") propagate into the Principal.
+	for _, key := range extraRoleClaims {
+		if raw, exists := claims[key]; exists {
+			extra := extractStringSlice(raw)
+			p.Roles = append(p.Roles, extra...)
 		}
 	}
 

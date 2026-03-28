@@ -37,6 +37,7 @@ type Config struct {
 	Audiences    []string      // e.g., your client ID(s)
 	ClockSkew    time.Duration // allowance for clock drift; default 0
 	StaleTTL     time.Duration // stale-key acceptance window; 0 = unlimited
+	AdminClaim   string        // optional custom claim name whose values are extracted as roles (e.g., "permissions")
 }
 
 // AdminConfig holds authorization settings for admin-only routes.
@@ -48,13 +49,14 @@ type AdminConfig struct {
 
 // Middleware provides JWT validation middleware.
 type Middleware struct {
-	cfg           Config
-	keys          map[string]interface{} // kid → *rsa.PublicKey or *ecdsa.PublicKey
-	lastFetchedAt time.Time              // time of the last successful JWKS fetch
-	mu            sync.RWMutex
-	client        *http.Client
-	logger        *slog.Logger
-	oidcClient    *OIDCClient // optional OIDC client for session-based auth (enterprise-grade)
+	cfg            Config
+	keys           map[string]interface{} // kid → *rsa.PublicKey or *ecdsa.PublicKey
+	lastFetchedAt  time.Time              // time of the last successful JWKS fetch
+	mu             sync.RWMutex
+	client         *http.Client
+	logger         *slog.Logger
+	oidcClient     *OIDCClient // optional OIDC client for session-based auth (enterprise-grade)
+	authenticators []Authenticator
 
 	// refreshMu serialises on-demand JWKS refreshes triggered by unknown key IDs to
 	// prevent multiple concurrent requests from hammering the IdP simultaneously.
@@ -94,101 +96,155 @@ func New(cfg Config, logger *slog.Logger) (*Middleware, error) {
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
 
+	// Register built-in authenticators: JWT Bearer → session cookie.
+	m.authenticators = []Authenticator{
+		&jwtAuthenticator{mw: m, adminClaim: cfg.AdminClaim},
+		&sessionCookieAuthenticator{mw: m},
+	}
+
 	go m.periodicRefresh()
 
 	return m, nil
+}
+
+// PrependAuthenticator inserts an authenticator at the front of the chain so
+// it is evaluated before the built-in JWT and session authenticators.
+func (m *Middleware) PrependAuthenticator(a Authenticator) {
+	m.authenticators = append([]Authenticator{a}, m.authenticators...)
 }
 
 // SetOIDCClient allows the middleware to accept OIDC session cookies as an alternative
 // to JWT Bearer tokens. The ID token is never exposed to the frontend (enterprise-grade).
 func (m *Middleware) SetOIDCClient(oidcClient *OIDCClient) {
 	m.oidcClient = oidcClient
+	// Replace the generic session-cookie authenticator with one that also
+	// knows about OIDC server-side sessions.
+	for i, a := range m.authenticators {
+		if _, ok := a.(*sessionCookieAuthenticator); ok {
+			m.authenticators[i] = &sessionCookieAuthenticator{mw: m}
+			return
+		}
+	}
+	m.authenticators = append(m.authenticators, &sessionCookieAuthenticator{mw: m})
 }
 
 // SessionCookieName is the name of the HttpOnly session cookie used for admin UI authentication.
 const SessionCookieName = "lattice_session"
 
 // Handler wraps an HTTP handler with authentication.
+//
+// It iterates the registered authenticator chain in order. The first
+// authenticator that returns a non-nil Principal wins; the first that
+// returns a non-nil error causes the request to be rejected.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.cfg.Enabled {
+		if !m.cfg.Enabled && len(m.authenticators) == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Extract token: prefer Authorization header, fall back to session cookie.
-		var tokenString string
-		authHeader := r.Header.Get("Authorization")
-		if authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				m.logger.WarnContext(r.Context(), "auth failed: invalid authorization header format",
+		for _, authn := range m.authenticators {
+			principal, err := authn.Authenticate(r)
+			if err != nil {
+				m.logger.WarnContext(r.Context(), "auth failed: credential rejected",
 					logger.LogAttrsWithTrace(r.Context(),
 						slog.String("request_id", logger.FromContext(r.Context())),
 						slog.String("method", r.Method),
 						slog.String("path", r.URL.Path),
+						slog.String("error", err.Error()),
 					)...,
 				)
 				writeUnauthorized(w)
 				return
 			}
-			tokenString = parts[1]
-		} else {
-			cookie, err := r.Cookie(SessionCookieName)
-			if err != nil || cookie.Value == "" {
-				// Enterprise-grade: Check for OIDC session cookie (HttpOnly, never exposed to frontend)
-				if m.oidcClient != nil {
-					if session, ok := m.oidcClient.getSession(r); ok {
-						// Validate the ID token stored server-side
-						claims, err := m.validateToken(session.IDToken)
-						if err != nil {
-							m.logger.WarnContext(r.Context(), "OIDC session has invalid ID token",
-								logger.LogAttrsWithTrace(r.Context(),
-									slog.String("error", err.Error()),
-								)...,
-							)
-							writeUnauthorized(w)
-							return
-						}
-						ctx := context.WithValue(r.Context(), claimsKey, claims)
-						ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
-						next.ServeHTTP(w, r.WithContext(ctx))
-						return
-					}
-				}
-
-				m.logger.WarnContext(r.Context(), "auth failed: missing authorization header and session cookie",
-					logger.LogAttrsWithTrace(r.Context(),
-						slog.String("request_id", logger.FromContext(r.Context())),
-						slog.String("method", r.Method),
-						slog.String("path", r.URL.Path),
-					)...,
-				)
-				writeUnauthorized(w)
+			if principal != nil {
+				ctx := ContextWithPrincipal(r.Context(), principal)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			tokenString = cookie.Value
 		}
 
-		// Validate token
-		claims, err := m.validateToken(tokenString)
-		if err != nil {
-			m.logger.WarnContext(r.Context(), "auth failed: token validation failed",
-				logger.LogAttrsWithTrace(r.Context(),
-					slog.String("request_id", logger.FromContext(r.Context())),
-					slog.String("method", r.Method),
-					slog.String("path", r.URL.Path),
-					slog.String("error", err.Error()),
-				)...,
-			)
-			writeUnauthorized(w)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), claimsKey, claims)
-		ctx = ContextWithPrincipal(ctx, PrincipalFromClaims(claims))
-		next.ServeHTTP(w, r.WithContext(ctx))
+		m.logger.WarnContext(r.Context(), "auth failed: no valid credentials",
+			logger.LogAttrsWithTrace(r.Context(),
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+			)...,
+		)
+		writeUnauthorized(w)
 	})
+}
+
+// jwtAuthenticator validates Bearer JWT tokens against the JWKS key set.
+type jwtAuthenticator struct {
+	mw         *Middleware
+	adminClaim string // extra claim name to extract as roles
+}
+
+func (a *jwtAuthenticator) Authenticate(r *http.Request) (*Principal, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return nil, nil
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return nil, fmt.Errorf("invalid authorization header format")
+	}
+	tokenString := parts[1]
+
+	// JWTs are three base64url segments separated by dots. Skip tokens
+	// that are clearly not JWTs so the next authenticator can try them.
+	if strings.Count(tokenString, ".") != 2 {
+		return nil, nil
+	}
+
+	claims, err := a.mw.validateToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	var extraClaims []string
+	if a.adminClaim != "" {
+		extraClaims = append(extraClaims, a.adminClaim)
+	}
+	return PrincipalFromClaims(claims, extraClaims...), nil
+}
+
+// sessionCookieAuthenticator validates session cookies (plain JWT cookie and
+// OIDC server-side sessions).
+type sessionCookieAuthenticator struct {
+	mw *Middleware
+}
+
+func (a *sessionCookieAuthenticator) extraClaims() []string {
+	if a.mw.cfg.AdminClaim != "" {
+		return []string{a.mw.cfg.AdminClaim}
+	}
+	return nil
+}
+
+func (a *sessionCookieAuthenticator) Authenticate(r *http.Request) (*Principal, error) {
+	// Check for OIDC server-side session first.
+	if a.mw.oidcClient != nil {
+		if session, ok := a.mw.oidcClient.getSession(r); ok {
+			claims, err := a.mw.validateToken(session.IDToken)
+			if err != nil {
+				return nil, fmt.Errorf("OIDC session ID token invalid: %w", err)
+			}
+			return PrincipalFromClaims(claims, a.extraClaims()...), nil
+		}
+	}
+
+	// Fall back to plain JWT stored in a session cookie.
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return nil, nil
+	}
+	claims, err := a.mw.validateToken(cookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	return PrincipalFromClaims(claims, a.extraClaims()...), nil
 }
 
 // writeUnauthorized writes a generic 401 Unauthorized JSON response without
@@ -241,8 +297,8 @@ func (m *AdminMiddleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, ok := GetClaims(r.Context())
-		if !ok || !hasAdminAccess(claims, m.cfg) {
+		principal := PrincipalFromContext(r.Context())
+		if principal == nil || !principal.HasAdminRole(m.cfg) {
 			http.Error(w, "admin access required", http.StatusForbidden)
 			return
 		}

@@ -37,6 +37,14 @@ func applyEnvOverrides(cfg *Config) error {
 	setStr(&cfg.Auth.RedirectURI, "AUTH_REDIRECT_URI")
 	setStr(&cfg.Auth.AdminEmail, "AUTH_ADMIN_EMAIL")
 
+	// API keys
+	if err = setBool(&cfg.APIKeys.Enabled, "API_KEYS_ENABLED"); err != nil {
+		return err
+	}
+	if err = setInt(&cfg.APIKeys.MaxKeysPerUser, "API_KEYS_MAX_PER_USER"); err != nil {
+		return err
+	}
+
 	// UI
 	if err = setBool(&cfg.UI.Enabled, "UI_ENABLED"); err != nil {
 		return err

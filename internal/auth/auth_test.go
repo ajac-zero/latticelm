@@ -294,12 +294,12 @@ func TestMiddleware_Handler(t *testing.T) {
 	m, err := New(cfg, slog.Default())
 	require.NoError(t, err)
 
-	// Create a test handler that echoes back claims
+	// Create a test handler that echoes back the principal
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := GetClaims(r.Context())
-		if ok {
+		p := PrincipalFromContext(r.Context())
+		if p != nil {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", claims["sub"])))
+			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", p.Subject)))
 		} else {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("no-claims"))
@@ -506,7 +506,7 @@ func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
 				return req
 			},
 			leakPatterns:       []string{"expired", "token is expired", "exp"},
-			expectLogSubstring: "token validation failed",
+			expectLogSubstring: "credential rejected",
 		},
 		{
 			name: "unknown key ID does not leak key ID details",
@@ -527,7 +527,7 @@ func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
 				return req
 			},
 			leakPatterns:       []string{"unknown-kid-xyz", "unknown key ID"},
-			expectLogSubstring: "token validation failed",
+			expectLogSubstring: "credential rejected",
 		},
 		{
 			name: "wrong issuer does not leak issuer details",
@@ -546,7 +546,7 @@ func TestMiddleware_Handler_SanitizedErrors(t *testing.T) {
 				return req
 			},
 			leakPatterns:       []string{"attacker.example.com", "invalid issuer"},
-			expectLogSubstring: "token validation failed",
+			expectLogSubstring: "credential rejected",
 		},
 	}
 
@@ -612,10 +612,10 @@ func TestMiddleware_Handler_SessionCookie(t *testing.T) {
 	require.NoError(t, err)
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := GetClaims(r.Context())
-		if ok {
+		p := PrincipalFromContext(r.Context())
+		if p != nil {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", claims["sub"])))
+			_, _ = w.Write([]byte(fmt.Sprintf("sub:%s", p.Subject)))
 		} else {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("no-claims"))
@@ -703,7 +703,7 @@ func TestAdminMiddleware_Handler(t *testing.T) {
 	tests := []struct {
 		name         string
 		cfg          AdminConfig
-		claims       jwt.MapClaims
+		principal    *Principal
 		expectStatus int
 	}{
 		{
@@ -718,9 +718,7 @@ func TestAdminMiddleware_Handler(t *testing.T) {
 			cfg: AdminConfig{
 				Enabled: true,
 			},
-			claims: jwt.MapClaims{
-				"role": "admin",
-			},
+			principal:    &Principal{Roles: []string{"admin"}},
 			expectStatus: http.StatusOK,
 		},
 		{
@@ -729,9 +727,7 @@ func TestAdminMiddleware_Handler(t *testing.T) {
 				Enabled:       true,
 				AllowedValues: []string{"platform-admin"},
 			},
-			claims: jwt.MapClaims{
-				"groups": []interface{}{"engineering", "platform-admin"},
-			},
+			principal:    &Principal{Roles: []string{"engineering", "platform-admin"}},
 			expectStatus: http.StatusOK,
 		},
 		{
@@ -741,26 +737,22 @@ func TestAdminMiddleware_Handler(t *testing.T) {
 				Claim:         "permissions",
 				AllowedValues: []string{"gateway:admin"},
 			},
-			claims: jwt.MapClaims{
-				"permissions": []string{"gateway:read", "gateway:admin"},
-			},
+			principal:    &Principal{Roles: []string{"gateway:read", "gateway:admin"}},
 			expectStatus: http.StatusOK,
 		},
 		{
-			name: "missing claims denied",
+			name: "missing principal denied",
 			cfg: AdminConfig{
 				Enabled: true,
 			},
 			expectStatus: http.StatusForbidden,
 		},
 		{
-			name: "non admin claim denied",
+			name: "non admin role denied",
 			cfg: AdminConfig{
 				Enabled: true,
 			},
-			claims: jwt.MapClaims{
-				"role": "user",
-			},
+			principal:    &Principal{Roles: []string{"user"}},
 			expectStatus: http.StatusForbidden,
 		},
 	}
@@ -768,8 +760,8 @@ func TestAdminMiddleware_Handler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/admin", nil)
-			if tt.claims != nil {
-				req = req.WithContext(context.WithValue(req.Context(), claimsKey, tt.claims))
+			if tt.principal != nil {
+				req = req.WithContext(ContextWithPrincipal(req.Context(), tt.principal))
 			}
 
 			rec := httptest.NewRecorder()
@@ -1803,4 +1795,89 @@ func TestValidateToken_MultipleAudiences(t *testing.T) {
 
 	_, err = m.validateToken(tokenWrong)
 	assert.Error(t, err, "token with wrong audience should fail")
+}
+
+func TestMiddleware_AdminClaimPropagation(t *testing.T) {
+	server := newMockJWKSServer(testPublicKey, testKID)
+	defer server.close()
+
+	cfg := Config{
+		Enabled:    true,
+		Issuer:     server.server.URL,
+		Audiences:  []string{testAudience},
+		AdminClaim: "permissions",
+	}
+	m, err := New(cfg, slog.Default())
+	require.NoError(t, err)
+
+	// Token whose only role-like claim is the custom "permissions" field.
+	claims := jwt.MapClaims{
+		"sub":         "user-custom",
+		"iss":         server.server.URL,
+		"aud":         testAudience,
+		"exp":         time.Now().Add(time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+		"permissions": []interface{}{"gateway:admin"},
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	// Use the middleware to authenticate and verify the Principal has the custom roles.
+	var captured *Principal
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = PrincipalFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, captured)
+	assert.Contains(t, captured.Roles, "gateway:admin",
+		"custom admin claim values should be present in Principal.Roles")
+
+	// Verify HasAdminRole works with the custom claim.
+	adminCfg := AdminConfig{
+		Enabled:       true,
+		AllowedValues: []string{"gateway:admin"},
+	}
+	assert.True(t, captured.HasAdminRole(adminCfg))
+}
+
+func TestMiddleware_Handler_AuthDisabledWithAuthenticators(t *testing.T) {
+	// Auth disabled (no OIDC) but an external authenticator is registered.
+	m, err := New(Config{Enabled: false}, slog.Default())
+	require.NoError(t, err)
+
+	called := false
+	m.PrependAuthenticator(AuthenticatorFunc(func(r *http.Request) (*Principal, error) {
+		called = true
+		if r.Header.Get("X-Test-Key") == "valid" {
+			return &Principal{Subject: "test-user"}, nil
+		}
+		return nil, nil
+	}))
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := m.Handler(next)
+
+	// Request with valid key should pass.
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("X-Test-Key", "valid")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, called)
+
+	// Request without key should be rejected.
+	called = false
+	req2 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusUnauthorized, rec2.Code)
 }
