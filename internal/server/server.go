@@ -287,11 +287,6 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		WriteOpenResponsesError(w, s.logger, "method not allowed", "invalid_request", http.StatusMethodNotAllowed, nil, nil)
-		return
-	}
-
 	// Extract ID from path: supports both /v1/responses/{id} and /api/v1/responses/{id}
 	const responsesSuffix = "/responses/"
 	idx := strings.LastIndex(r.URL.Path, responsesSuffix)
@@ -304,6 +299,72 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetResponse(w, r, id)
+	case http.MethodDelete:
+		s.handleDeleteResponse(w, r, id)
+	default:
+		WriteOpenResponsesError(w, s.logger, "method not allowed", "invalid_request", http.StatusMethodNotAllowed, nil, nil)
+	}
+}
+
+func (s *GatewayServer) handleGetResponse(w http.ResponseWriter, r *http.Request, id string) {
+	conv, err := s.convs.Get(r.Context(), id)
+	if err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to look up conversation for retrieval",
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("response_id", id),
+			slog.String("error", err.Error()),
+		)
+		WriteOpenResponsesError(w, s.logger, "error looking up conversation", "server_error", http.StatusInternalServerError, nil, nil)
+		return
+	}
+	if conv == nil {
+		WriteOpenResponsesError(w, s.logger, "conversation not found", "not_found", http.StatusNotFound, nil, nil)
+		return
+	}
+
+	// Enforce ownership / tenant isolation when auth is enabled.
+	principal := auth.PrincipalFromContext(r.Context())
+	if principal != nil && !principal.OwnsConversation(conv.OwnerIss, conv.OwnerSub, conv.TenantID) {
+		if principal.HasAdminRole(s.adminConfig) {
+			s.logger.WarnContext(r.Context(), "admin override: accessing conversation owned by another user",
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("conversation_id", id),
+				slog.String("admin_sub", principal.Subject),
+				slog.String("admin_iss", principal.Issuer),
+				slog.String("owner_sub", conv.OwnerSub),
+				slog.String("owner_iss", conv.OwnerIss),
+				slog.String("owner_tenant", conv.TenantID),
+			)
+		} else {
+			// Return 404 to avoid leaking conversation existence.
+			s.logger.WarnContext(r.Context(), "conversation ownership check failed",
+				slog.String("request_id", logger.FromContext(r.Context())),
+				slog.String("conversation_id", id),
+				slog.String("caller_sub", principal.Subject),
+				slog.String("caller_iss", principal.Issuer),
+			)
+			WriteOpenResponsesError(w, s.logger, "conversation not found", "not_found", http.StatusNotFound, nil, nil)
+			return
+		}
+	}
+
+	// Build spec-compliant response from stored conversation
+	resp := s.buildResponseFromConversation(conv)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to encode response",
+			slog.String("request_id", logger.FromContext(r.Context())),
+			slog.String("response_id", id),
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
+func (s *GatewayServer) handleDeleteResponse(w http.ResponseWriter, r *http.Request, id string) {
 	conv, err := s.convs.Get(r.Context(), id)
 	if err != nil {
 		s.logger.ErrorContext(r.Context(), "failed to look up conversation for deletion",
@@ -335,6 +396,176 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 	)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *GatewayServer) buildResponseFromConversation(conv *conversation.Conversation) *api.Response {
+	// Build output items from the last assistant message
+	var outputItems []api.OutputItem
+	for i := len(conv.Messages) - 1; i >= 0; i-- {
+		msg := conv.Messages[i]
+		if msg.Role == "assistant" {
+			outputItems = buildOutputItemsFromMessage(msg)
+			break
+		}
+	}
+
+	// Use stored request parameters with defaults
+	req := conv.Request
+	tools := json.RawMessage(`[]`)
+	toolChoice := json.RawMessage(`"auto"`)
+	text := json.RawMessage(`{"format":{"type":"text"}}`)
+	truncation := "disabled"
+	temperature := 1.0
+	topP := 1.0
+	presencePenalty := 0.0
+	frequencyPenalty := 0.0
+	topLogprobs := 0
+	parallelToolCalls := true
+	serviceTier := "default"
+	var reasoning json.RawMessage
+
+	if req != nil {
+		if req.Tools != nil {
+			tools = req.Tools
+		}
+		if req.ToolChoice != nil {
+			toolChoice = req.ToolChoice
+		}
+		if req.Text != nil {
+			text = req.Text
+		}
+		if req.Truncation != nil {
+			truncation = *req.Truncation
+		}
+		if req.Temperature != nil {
+			temperature = *req.Temperature
+		}
+		if req.TopP != nil {
+			topP = *req.TopP
+		}
+		if req.PresencePenalty != nil {
+			presencePenalty = *req.PresencePenalty
+		}
+		if req.FrequencyPenalty != nil {
+			frequencyPenalty = *req.FrequencyPenalty
+		}
+		if req.TopLogprobs != nil {
+			topLogprobs = *req.TopLogprobs
+		}
+		if req.ParallelToolCalls != nil {
+			parallelToolCalls = *req.ParallelToolCalls
+		}
+		if req.ServiceTier != nil {
+			serviceTier = *req.ServiceTier
+		}
+		if req.Reasoning != nil {
+			reasoning = req.Reasoning
+		}
+	}
+
+	metadata := map[string]string{}
+	if req != nil && req.Metadata != nil {
+		metadata = req.Metadata
+	}
+
+	return &api.Response{
+		ID:                conv.ID,
+		Object:            "response",
+		CreatedAt:         conv.CreatedAt.Unix(),
+		CompletedAt:       ptrInt64(conv.UpdatedAt.Unix()),
+		Status:            "completed",
+		Model:             conv.Model,
+		PreviousResponseID: previousResponseIDFromRequest(req),
+		Instructions:      instructionsFromRequest(req),
+		Output:            outputItems,
+		Tools:             tools,
+		ToolChoice:        toolChoice,
+		Truncation:        truncation,
+		ParallelToolCalls: parallelToolCalls,
+		Text:              text,
+		TopP:              topP,
+		PresencePenalty:   presencePenalty,
+		FrequencyPenalty:  frequencyPenalty,
+		TopLogprobs:       topLogprobs,
+		Temperature:       temperature,
+		Reasoning:         reasoning,
+		Usage:             nil, // Usage not stored in conversation
+		MaxOutputTokens:   maxOutputTokensFromRequest(req),
+		MaxToolCalls:      maxToolCallsFromRequest(req),
+		Store:             true, // If we retrieved it, it was stored
+		Background:        false,
+		ServiceTier:       serviceTier,
+		Metadata:          metadata,
+	}
+}
+
+func buildOutputItemsFromMessage(msg api.Message) []api.OutputItem {
+	var items []api.OutputItem
+
+	// Add message item with content
+	if len(msg.Content) > 0 {
+		contentParts := make([]api.ContentPart, len(msg.Content))
+		for i, block := range msg.Content {
+			contentParts[i] = api.ContentPart{
+				Type:        block.Type,
+				Text:        block.Text,
+				Annotations: []api.Annotation{},
+			}
+		}
+		items = append(items, api.OutputItem{
+			ID:      generateID("msg_"),
+			Type:    "message",
+			Status:  "completed",
+			Role:    "assistant",
+			Content: contentParts,
+		})
+	}
+
+	// Add function_call items
+	for _, tc := range msg.ToolCalls {
+		items = append(items, api.OutputItem{
+			ID:        generateID("item_"),
+			Type:      "function_call",
+			Status:    "completed",
+			CallID:    tc.ID,
+			Name:      tc.Name,
+			Arguments: tc.Arguments,
+		})
+	}
+
+	return items
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
+}
+
+func previousResponseIDFromRequest(req *api.ResponseRequest) *string {
+	if req == nil || req.PreviousResponseID == nil || *req.PreviousResponseID == "" {
+		return nil
+	}
+	return req.PreviousResponseID
+}
+
+func instructionsFromRequest(req *api.ResponseRequest) *string {
+	if req == nil || req.Instructions == nil || *req.Instructions == "" {
+		return nil
+	}
+	return req.Instructions
+}
+
+func maxOutputTokensFromRequest(req *api.ResponseRequest) *int {
+	if req == nil {
+		return nil
+	}
+	return req.MaxOutputTokens
+}
+
+func maxToolCallsFromRequest(req *api.ResponseRequest) *int {
+	if req == nil {
+		return nil
+	}
+	return req.MaxToolCalls
 }
 
 func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
