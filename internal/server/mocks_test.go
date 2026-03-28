@@ -120,7 +120,7 @@ func (m *mockConversationStore) Get(ctx context.Context, id string) (*conversati
 	return conv, nil
 }
 
-func (m *mockConversationStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner conversation.OwnerInfo, request *api.ResponseRequest) (*conversation.Conversation, error) {
+func (m *mockConversationStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner conversation.OwnerInfo, request *api.ResponseRequest, replayState *api.ReplayState) (*conversation.Conversation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -132,6 +132,7 @@ func (m *mockConversationStore) Create(ctx context.Context, id string, model str
 		ID:       id,
 		Model:    model,
 		Messages: messages,
+		Replay:   replayState,
 		Request:  request,
 		OwnerIss: owner.OwnerIss,
 		OwnerSub: owner.OwnerSub,

@@ -22,16 +22,16 @@ type sqlDialect struct {
 func newDialect(driver string) sqlDialect {
 	if driver == "pgx" || driver == "postgres" {
 		return sqlDialect{
-			getByID:    `SELECT id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = $1`,
-			upsert:     `INSERT INTO conversations (id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, messages = EXCLUDED.messages, request = EXCLUDED.request, updated_at = EXCLUDED.updated_at`,
+			getByID:    `SELECT id, model, messages, request, replay_state, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = $1`,
+			upsert:     `INSERT INTO conversations (id, model, messages, request, replay_state, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, messages = EXCLUDED.messages, request = EXCLUDED.request, replay_state = EXCLUDED.replay_state, updated_at = EXCLUDED.updated_at`,
 			update:     `UPDATE conversations SET messages = $1, updated_at = $2 WHERE id = $3`,
 			deleteByID: `DELETE FROM conversations WHERE id = $1`,
 			cleanup:    `DELETE FROM conversations WHERE updated_at < $1`,
 		}
 	}
 	return sqlDialect{
-		getByID:    `SELECT id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = ?`,
-		upsert:     `REPLACE INTO conversations (id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		getByID:    `SELECT id, model, messages, request, replay_state, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = ?`,
+		upsert:     `REPLACE INTO conversations (id, model, messages, request, replay_state, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		update:     `UPDATE conversations SET messages = ?, updated_at = ? WHERE id = ?`,
 		deleteByID: `DELETE FROM conversations WHERE id = ?`,
 		cleanup:    `DELETE FROM conversations WHERE updated_at < ?`,
@@ -80,7 +80,8 @@ func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
 	var conv Conversation
 	var msgJSON string
 	var requestJSON string
-	err := row.Scan(&conv.ID, &conv.Model, &msgJSON, &requestJSON, &conv.OwnerIss, &conv.OwnerSub, &conv.TenantID, &conv.CreatedAt, &conv.UpdatedAt)
+	var replayJSON string
+	err := row.Scan(&conv.ID, &conv.Model, &msgJSON, &requestJSON, &replayJSON, &conv.OwnerIss, &conv.OwnerSub, &conv.TenantID, &conv.CreatedAt, &conv.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -98,11 +99,18 @@ func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
 		}
 		conv.Request = &req
 	}
+	if replayJSON != "" && replayJSON != "null" {
+		var replay api.ReplayState
+		if err := json.Unmarshal([]byte(replayJSON), &replay); err != nil {
+			return nil, err
+		}
+		conv.Replay = &replay
+	}
 
 	return &conv, nil
 }
 
-func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo, request *api.ResponseRequest) (*Conversation, error) {
+func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo, request *api.ResponseRequest, replayState *api.ReplayState) (*Conversation, error) {
 	now := time.Now()
 	msgJSON, err := json.Marshal(messages)
 	if err != nil {
@@ -112,14 +120,19 @@ func (s *SQLStore) Create(ctx context.Context, id string, model string, messages
 	if err != nil {
 		return nil, err
 	}
+	replayJSON, err := json.Marshal(replayState)
+	if err != nil {
+		return nil, err
+	}
 
-	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), string(requestJSON), owner.OwnerIss, owner.OwnerSub, owner.TenantID, now, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), string(requestJSON), string(replayJSON), owner.OwnerIss, owner.OwnerSub, owner.TenantID, now, now); err != nil {
 		return nil, err
 	}
 
 	return &Conversation{
 		ID:        id,
 		Messages:  messages,
+		Replay:    replayState,
 		Model:     model,
 		Request:   copyRequest(request),
 		OwnerIss:  owner.OwnerIss,

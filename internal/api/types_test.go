@@ -798,13 +798,159 @@ func TestResponseRequest_NormalizeInput(t *testing.T) {
 				assert.Equal(t, "also visible", msgs[0].Content[1].Text)
 			},
 		},
+		{
+			name: "item_reference returns ID for server resolution",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "item_reference",
+							ID:   "msg_12345",
+						},
+						{
+							Type:    "message",
+							Role:    "user",
+							Content: json.RawMessage(`"continue"`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				// item_reference items are not converted to messages directly
+				// they are returned separately for server resolution
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "user", msgs[0].Role)
+			},
+		},
+		{
+			name: "item_reference returns item IDs in second return value",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "item_reference",
+							ID:   "msg_abc",
+						},
+						{
+							Type: "item_reference",
+							ID:   "msg_xyz",
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				// No messages created from item_reference
+				require.Len(t, msgs, 0)
+			},
+		},
+		{
+			name: "reasoning item with content",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "reasoning",
+							Content: json.RawMessage(`[
+								{"type": "output_text", "text": "Step 1: Analyze the problem..."}
+							]`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].Content, 1)
+				assert.Equal(t, "output_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "Step 1: Analyze the problem...", msgs[0].Content[0].Text)
+			},
+		},
+		{
+			name: "reasoning item with summary",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "reasoning",
+							Summary: json.RawMessage(`[
+								{"type": "summary_text", "text": "Analyzed the user request and determined the best approach."}
+							]`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].Content, 1)
+				assert.Equal(t, "output_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "Analyzed the user request and determined the best approach.", msgs[0].Content[0].Text)
+			},
+		},
+		{
+			name: "reasoning item with encrypted_content",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type:             "reasoning",
+							EncryptedContent: "encrypted_blob_12345",
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].Content, 1)
+				assert.Equal(t, "encrypted_reasoning", msgs[0].Content[0].Type)
+				assert.Equal(t, "encrypted_blob_12345", msgs[0].Content[0].EncryptedContent)
+			},
+		},
+		{
+			name: "reasoning item with content and summary",
+			request: ResponseRequest{
+				Input: InputUnion{
+					Items: []InputItem{
+						{
+							Type: "reasoning",
+							Content: json.RawMessage(`[
+								{"type": "output_text", "text": "Internal reasoning text..."}
+							]`),
+							Summary: json.RawMessage(`[
+								{"type": "summary_text", "text": "Summary of reasoning"}
+							]`),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, msgs []Message) {
+				require.Len(t, msgs, 1)
+				assert.Equal(t, "assistant", msgs[0].Role)
+				require.Len(t, msgs[0].Content, 2)
+				assert.Equal(t, "output_text", msgs[0].Content[0].Type)
+				assert.Equal(t, "Internal reasoning text...", msgs[0].Content[0].Text)
+				assert.Equal(t, "output_text", msgs[0].Content[1].Type)
+				assert.Equal(t, "Summary of reasoning", msgs[0].Content[1].Text)
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msgs := tt.request.NormalizeInput()
+			msgs, itemRefs := tt.request.NormalizeInput()
 			if tt.validate != nil {
 				tt.validate(t, msgs)
+			}
+			// For item_reference tests, verify the returned IDs
+			if tt.name == "item_reference returns item IDs in second return value" {
+				require.Len(t, itemRefs, 2)
+				assert.Equal(t, "msg_abc", itemRefs[0])
+				assert.Equal(t, "msg_xyz", itemRefs[1])
+			}
+			if tt.name == "item_reference returns ID for server resolution" {
+				require.Len(t, itemRefs, 1)
+				assert.Equal(t, "msg_12345", itemRefs[0])
 			}
 		})
 	}
@@ -885,6 +1031,51 @@ func TestResponseRequest_Validate(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "input is required",
+		},
+		{
+			name: "item_reference requires previous_response_id",
+			request: &ResponseRequest{
+				Model: "gpt-4",
+				Input: InputUnion{
+					Items: []InputItem{{Type: "item_reference", ID: "msg_123"}},
+				},
+			},
+			expectError: true,
+			errorMsg:    "previous_response_id is required when using item_reference",
+		},
+		{
+			name: "item_reference requires id",
+			request: &ResponseRequest{
+				Model:              "gpt-4",
+				PreviousResponseID: stringPtr("resp_123"),
+				Input: InputUnion{
+					Items: []InputItem{{Type: "item_reference"}},
+				},
+			},
+			expectError: true,
+			errorMsg:    "item_reference id is required",
+		},
+		{
+			name: "reasoning requires payload",
+			request: &ResponseRequest{
+				Model: "gpt-4",
+				Input: InputUnion{
+					Items: []InputItem{{Type: "reasoning"}},
+				},
+			},
+			expectError: true,
+			errorMsg:    "reasoning item must include content, summary, or encrypted_content",
+		},
+		{
+			name: "unsupported input item type fails validation",
+			request: &ResponseRequest{
+				Model: "gpt-4",
+				Input: InputUnion{
+					Items: []InputItem{{Type: "unsupported_type"}},
+				},
+			},
+			expectError: true,
+			errorMsg:    "unsupported input item type",
 		},
 	}
 
@@ -1088,7 +1279,7 @@ func TestResponseRequest_CompleteWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Normalize
-	msgs := req.NormalizeInput()
+	msgs, _ := req.NormalizeInput()
 	require.Len(t, msgs, 4)
 
 	// Check user message

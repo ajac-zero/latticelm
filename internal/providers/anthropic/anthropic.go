@@ -125,28 +125,53 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 	// Extract text and tool calls from response
 	var text string
 	var toolCalls []api.ToolCall
+	replayMessage := &api.Message{Role: "assistant"}
 
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "text":
-			text += block.AsText().Text
+			textBlock := block.AsText()
+			text += textBlock.Text
+			replayMessage.Content = append(replayMessage.Content, api.ContentBlock{
+				Type: "output_text",
+				Text: textBlock.Text,
+			})
+		case "thinking":
+			thinkingBlock := block.AsThinking()
+			replayMessage.Content = append(replayMessage.Content, api.ContentBlock{
+				Type:      "anthropic_thinking",
+				Text:      thinkingBlock.Thinking,
+				Signature: thinkingBlock.Signature,
+			})
+		case "redacted_thinking":
+			redacted := block.AsRedactedThinking()
+			replayMessage.Content = append(replayMessage.Content, api.ContentBlock{
+				Type: "anthropic_redacted_thinking",
+				Data: redacted.Data,
+			})
 		case "tool_use":
 			// Extract tool calls
 			toolUse := block.AsToolUse()
 			argsJSON, _ := json.Marshal(toolUse.Input)
-			toolCalls = append(toolCalls, api.ToolCall{
+			toolCall := api.ToolCall{
 				ID:        toolUse.ID,
 				Name:      toolUse.Name,
 				Arguments: string(argsJSON),
-			})
+			}
+			toolCalls = append(toolCalls, toolCall)
+			replayMessage.ToolCalls = append(replayMessage.ToolCalls, toolCall)
 		}
+	}
+	if len(replayMessage.Content) == 0 && len(replayMessage.ToolCalls) == 0 {
+		replayMessage = nil
 	}
 
 	return &api.ProviderResult{
-		ID:        resp.ID,
-		Model:     string(resp.Model),
-		Text:      text,
-		ToolCalls: toolCalls,
+		ID:            resp.ID,
+		Model:         string(resp.Model),
+		Text:          text,
+		ToolCalls:     toolCalls,
+		ReplayMessage: replayMessage,
 		Usage: api.Usage{
 			InputTokens:  int(resp.Usage.InputTokens),
 			OutputTokens: int(resp.Usage.OutputTokens),
@@ -228,6 +253,10 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 		// Track content block index and tool call state
 		var contentBlockIndex int
 		var inputTokens, outputTokens int64
+		var responseID string
+		var responseModel string
+		replayBlocks := make(map[int]*api.ContentBlock)
+		streamToolCalls := make(map[int]*api.ToolCall)
 
 		// Process stream
 		for stream.Next() {
@@ -236,6 +265,8 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			switch event.Type {
 			case "message_start":
 				inputTokens = event.Message.Usage.InputTokens
+				responseID = event.Message.ID
+				responseModel = string(event.Message.Model)
 
 			case "message_delta":
 				outputTokens = event.Usage.OutputTokens
@@ -243,9 +274,14 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			case "content_block_start":
 				// New content block (text or tool_use)
 				contentBlockIndex = int(event.Index)
-				if event.ContentBlock.Type == "tool_use" {
+				switch event.ContentBlock.Type {
+				case "tool_use":
 					// Send tool call delta with ID and name
 					toolUse := event.ContentBlock.AsToolUse()
+					streamToolCalls[contentBlockIndex] = &api.ToolCall{
+						ID:   toolUse.ID,
+						Name: toolUse.Name,
+					}
 					delta := &api.ToolCallDelta{
 						Index: contentBlockIndex,
 						ID:    toolUse.ID,
@@ -257,25 +293,58 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 						errChan <- ctx.Err()
 						return
 					}
+				case "text":
+					textBlock := event.ContentBlock.AsText()
+					replayBlocks[contentBlockIndex] = &api.ContentBlock{
+						Type: "output_text",
+						Text: textBlock.Text,
+					}
+				case "thinking":
+					thinkingBlock := event.ContentBlock.AsThinking()
+					replayBlocks[contentBlockIndex] = &api.ContentBlock{
+						Type:      "anthropic_thinking",
+						Text:      thinkingBlock.Thinking,
+						Signature: thinkingBlock.Signature,
+					}
+				case "redacted_thinking":
+					redacted := event.ContentBlock.AsRedactedThinking()
+					replayBlocks[contentBlockIndex] = &api.ContentBlock{
+						Type: "anthropic_redacted_thinking",
+						Data: redacted.Data,
+					}
 				}
 
 			case "content_block_delta":
 				if event.Delta.Type == "text_delta" {
+					if block := replayBlocks[int(event.Index)]; block != nil {
+						block.Text += event.Delta.Text
+					}
 					// Text streaming
 					select {
-					case deltaChan <- &api.ProviderStreamDelta{Text: event.Delta.Text}:
+					case deltaChan <- &api.ProviderStreamDelta{ID: responseID, Model: responseModel, Text: event.Delta.Text}:
 					case <-ctx.Done():
 						errChan <- ctx.Err()
 						return
 					}
+				} else if event.Delta.Type == "thinking_delta" {
+					if block := replayBlocks[int(event.Index)]; block != nil {
+						block.Text += event.Delta.Thinking
+					}
+				} else if event.Delta.Type == "signature_delta" {
+					if block := replayBlocks[int(event.Index)]; block != nil {
+						block.Signature = event.Delta.Signature
+					}
 				} else if event.Delta.Type == "input_json_delta" {
+					if toolCall := streamToolCalls[int(event.Index)]; toolCall != nil {
+						toolCall.Arguments += event.Delta.PartialJSON
+					}
 					// Tool arguments streaming
 					delta := &api.ToolCallDelta{
 						Index:     int(event.Index),
 						Arguments: event.Delta.PartialJSON,
 					}
 					select {
-					case deltaChan <- &api.ProviderStreamDelta{ToolCallDelta: delta}:
+					case deltaChan <- &api.ProviderStreamDelta{ID: responseID, Model: responseModel, ToolCallDelta: delta}:
 					case <-ctx.Done():
 						errChan <- ctx.Err()
 						return
@@ -289,10 +358,15 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			return
 		}
 
+		replayMessage := buildStreamReplayMessage(replayBlocks, streamToolCalls)
+
 		// Send final delta with usage
 		select {
 		case deltaChan <- &api.ProviderStreamDelta{
-			Done: true,
+			ID:            responseID,
+			Model:         responseModel,
+			Done:          true,
+			ReplayMessage: replayMessage,
 			Usage: &api.Usage{
 				InputTokens:  int(inputTokens),
 				OutputTokens: int(outputTokens),
@@ -305,6 +379,36 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 	}()
 
 	return deltaChan, errChan
+}
+
+func buildStreamReplayMessage(blocks map[int]*api.ContentBlock, toolCalls map[int]*api.ToolCall) *api.Message {
+	replayMessage := &api.Message{Role: "assistant"}
+
+	maxIndex := -1
+	for idx := range blocks {
+		if idx > maxIndex {
+			maxIndex = idx
+		}
+	}
+	for idx := range toolCalls {
+		if idx > maxIndex {
+			maxIndex = idx
+		}
+	}
+
+	for i := 0; i <= maxIndex; i++ {
+		if block := blocks[i]; block != nil {
+			replayMessage.Content = append(replayMessage.Content, *block)
+		}
+		if toolCall := toolCalls[i]; toolCall != nil {
+			replayMessage.ToolCalls = append(replayMessage.ToolCalls, *toolCall)
+		}
+	}
+
+	if len(replayMessage.Content) == 0 && len(replayMessage.ToolCalls) == 0 {
+		return nil
+	}
+	return replayMessage
 }
 
 func chooseModel(requested, defaultModel string) string {
@@ -365,6 +469,9 @@ func buildAnthropicMessages(messages []api.Message) ([]anthropic.MessageParam, [
 func buildAnthropicSystemBlocks(blocks []api.ContentBlock, role string) ([]anthropic.TextBlockParam, error) {
 	result := make([]anthropic.TextBlockParam, 0, len(blocks))
 	for _, block := range blocks {
+		if block.Type == "encrypted_reasoning" {
+			continue
+		}
 		text, ok := block.TextValue()
 		if !ok {
 			return nil, fmt.Errorf("%s messages only support text content in the Anthropic provider; found %q", role, block.Type)
@@ -392,6 +499,8 @@ func buildAnthropicTextBlocks(blocks []api.ContentBlock, role string) ([]anthrop
 				return nil, fmt.Errorf("build document block: %w", err)
 			}
 			result = append(result, docBlock)
+		case "encrypted_reasoning":
+			continue
 		default:
 			return nil, fmt.Errorf("%s messages do not support %q content in the Anthropic provider", role, block.Type)
 		}
@@ -472,9 +581,22 @@ func inferAnthropicDocumentMediaType(name string) string {
 }
 
 func buildAnthropicAssistantBlocks(blocks []api.ContentBlock, toolCalls []api.ToolCall) ([]anthropic.ContentBlockParamUnion, error) {
-	contentBlocks, err := buildAnthropicTextBlocks(blocks, "assistant")
-	if err != nil {
-		return nil, err
+	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(blocks)+len(toolCalls))
+	for _, block := range blocks {
+		switch block.Type {
+		case "encrypted_reasoning":
+			continue
+		case "anthropic_thinking":
+			contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(block.Signature, block.Text))
+		case "anthropic_redacted_thinking":
+			contentBlocks = append(contentBlocks, anthropic.NewRedactedThinkingBlock(block.Data))
+		default:
+			text, ok := block.TextValue()
+			if !ok {
+				return nil, fmt.Errorf("assistant messages only support text or Anthropic thinking content; found %q", block.Type)
+			}
+			contentBlocks = append(contentBlocks, anthropic.NewTextBlock(text))
+		}
 	}
 	for _, tc := range toolCalls {
 		var input map[string]interface{}
@@ -489,6 +611,9 @@ func buildAnthropicAssistantBlocks(blocks []api.ContentBlock, toolCalls []api.To
 func buildAnthropicToolResultContent(blocks []api.ContentBlock) ([]anthropic.ToolResultBlockParamContentUnion, error) {
 	content := make([]anthropic.ToolResultBlockParamContentUnion, 0, len(blocks))
 	for _, block := range blocks {
+		if block.Type == "encrypted_reasoning" {
+			continue
+		}
 		text, ok := block.TextValue()
 		if !ok {
 			return nil, fmt.Errorf("tool results only support text content in the Anthropic provider; found %q", block.Type)

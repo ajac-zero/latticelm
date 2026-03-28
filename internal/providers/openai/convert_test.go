@@ -307,6 +307,27 @@ func TestBuildOAIMessages_PreservesAssistantContentParts(t *testing.T) {
 	assert.Equal(t, "This request violates policy.", assistantMsg.Content.OfArrayOfContentParts[1].OfRefusal.Refusal)
 }
 
+func TestBuildOAIMessages_IgnoresEncryptedReasoningBlocks(t *testing.T) {
+	messages := []api.Message{
+		{
+			Role: "assistant",
+			Content: []api.ContentBlock{
+				{Type: "output_text", Text: "Visible reasoning summary"},
+				{Type: "encrypted_reasoning", EncryptedContent: "opaque_blob"},
+			},
+		},
+	}
+
+	oaiMessages, err := buildOAIMessages(messages)
+	require.NoError(t, err)
+	require.Len(t, oaiMessages, 1)
+
+	assistantMsg := oaiMessages[0].OfAssistant
+	require.NotNil(t, assistantMsg)
+	require.True(t, assistantMsg.Content.OfString.Valid())
+	assert.Equal(t, "Visible reasoning summary", assistantMsg.Content.OfString.Value)
+}
+
 func TestBuildOAIMessages_PreservesToolTextParts(t *testing.T) {
 	messages := []api.Message{
 		{

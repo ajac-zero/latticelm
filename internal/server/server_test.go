@@ -1138,6 +1138,151 @@ func TestBuildResponse(t *testing.T) {
 	}
 }
 
+func TestHandleResponses_StoresReplayState(t *testing.T) {
+	registry := newMockRegistry()
+	provider := newMockProvider("anthropic")
+	provider.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
+		return &api.ProviderResult{
+			ID:    "anth_resp_123",
+			Model: req.Model,
+			Text:  "final answer",
+			ReplayMessage: &api.Message{
+				Role: "assistant",
+				Content: []api.ContentBlock{
+					{Type: "anthropic_thinking", Text: "thought", Signature: "sig_123"},
+					{Type: "output_text", Text: "final answer"},
+				},
+			},
+		}, nil
+	}
+	registry.addProvider("anthropic", provider)
+	registry.addModel("claude-3", "anthropic")
+
+	store := newMockConversationStore()
+	server := New(registry, store, newMockLogger().asLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"claude-3","input":"hello","store":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.handleResponses(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp api.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Output, 1)
+
+	require.Len(t, store.conversations, 1)
+	var stored *conversation.Conversation
+	for _, conv := range store.conversations {
+		stored = conv
+	}
+	require.NotNil(t, stored)
+	require.NotNil(t, stored.Replay)
+	assert.Equal(t, "anthropic", stored.Replay.Provider)
+	assert.Equal(t, "anth_resp_123", stored.Replay.ProviderResponseID)
+	require.Len(t, stored.Replay.Items, 1)
+	assert.Equal(t, resp.Output[0].ID, stored.Replay.Items[0].ID)
+	require.NotNil(t, stored.Replay.Items[0].Message)
+	assert.Equal(t, "anthropic_thinking", stored.Replay.Items[0].Message.Content[0].Type)
+}
+
+func TestHandleResponses_RehydratesReplayStateForSameProvider(t *testing.T) {
+	registry := newMockRegistry()
+	provider := newMockProvider("anthropic")
+	provider.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
+		require.Len(t, messages, 3)
+		require.Len(t, messages[1].Content, 2)
+		assert.Equal(t, "anthropic_thinking", messages[1].Content[0].Type)
+		assert.Equal(t, "output_text", messages[1].Content[1].Type)
+		return &api.ProviderResult{Model: req.Model, Text: "ok"}, nil
+	}
+	registry.addProvider("anthropic", provider)
+	registry.addModel("claude-3", "anthropic")
+
+	store := newMockConversationStore()
+	store.setConversation("prev-123", &conversation.Conversation{
+		ID:    "prev-123",
+		Model: "claude-3",
+		Messages: []api.Message{
+			{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "hello"}}},
+			{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "portable"}}},
+		},
+		Replay: &api.ReplayState{
+			Provider: "anthropic",
+			Items: []api.ReplayItem{{
+				ID:             "msg_123",
+				OutputItemType: "message",
+				MessageIndex:   1,
+				Message: &api.Message{
+					Role: "assistant",
+					Content: []api.ContentBlock{
+						{Type: "anthropic_thinking", Text: "chain", Signature: "sig_123"},
+						{Type: "output_text", Text: "portable"},
+					},
+				},
+			}},
+		},
+	})
+
+	server := New(registry, store, newMockLogger().asLogger())
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"claude-3","input":"follow up","previous_response_id":"prev-123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.handleResponses(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandleResponses_DoesNotRehydrateReplayStateAcrossProviders(t *testing.T) {
+	registry := newMockRegistry()
+	provider := newMockProvider("openai")
+	provider.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
+		require.Len(t, messages, 3)
+		require.Len(t, messages[1].Content, 1)
+		assert.Equal(t, "output_text", messages[1].Content[0].Type)
+		return &api.ProviderResult{Model: req.Model, Text: "ok"}, nil
+	}
+	registry.addProvider("openai", provider)
+	registry.addModel("gpt-4", "openai")
+
+	store := newMockConversationStore()
+	store.setConversation("prev-123", &conversation.Conversation{
+		ID:    "prev-123",
+		Model: "gpt-4",
+		Messages: []api.Message{
+			{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "hello"}}},
+			{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "portable"}}},
+		},
+		Replay: &api.ReplayState{
+			Provider: "anthropic",
+			Items: []api.ReplayItem{{
+				ID:             "msg_123",
+				OutputItemType: "message",
+				MessageIndex:   1,
+				Message: &api.Message{
+					Role: "assistant",
+					Content: []api.ContentBlock{
+						{Type: "anthropic_thinking", Text: "chain", Signature: "sig_123"},
+						{Type: "output_text", Text: "portable"},
+					},
+				},
+			}},
+		},
+	})
+
+	server := New(registry, store, newMockLogger().asLogger())
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4","input":"follow up","previous_response_id":"prev-123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.handleResponses(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestSendSSE(t *testing.T) {
 	server := New(newMockRegistry(), newMockConversationStore(), newMockLogger().asLogger())
 	rec := newFlushableRecorder()

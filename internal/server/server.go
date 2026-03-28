@@ -187,6 +187,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 	}
 
 	principal := auth.PrincipalFromContext(r.Context())
+	var prevConv *conversation.Conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
 		conv, err := s.convs.Get(r.Context(), *req.PreviousResponseID)
@@ -234,8 +235,8 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 		}
-
-		historyMsgs = conv.Messages
+		prevConv = conv
+		historyMsgs = cloneMessages(conv.Messages)
 		req.InheritMissingContext(conv.Request)
 	}
 
@@ -252,7 +253,23 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	inputMsgs := req.NormalizeInput()
+	inputMsgs, itemRefIDs := req.NormalizeInput()
+
+	provider, err := s.resolveProvider(&req)
+	if err != nil {
+		WriteOpenResponsesError(w, s.logger, err.Error(), "invalid_request", http.StatusBadRequest, nil, nil)
+		return
+	}
+
+	if prevConv != nil {
+		historyMsgs = applyReplayState(historyMsgs, prevConv.Replay, provider.Name())
+		if len(itemRefIDs) > 0 {
+			resolvedMsgs := s.resolveItemReferences(itemRefIDs, historyMsgs, prevConv.Replay, provider.Name())
+			if len(resolvedMsgs) > 0 {
+				historyMsgs = append(resolvedMsgs, historyMsgs...)
+			}
+		}
+	}
 
 	// Combined messages for conversation storage (history + new input, no instructions)
 	storeMsgs := make([]api.Message, 0, len(historyMsgs)+len(inputMsgs))
@@ -268,13 +285,6 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	providerMsgs = append(providerMsgs, storeMsgs...)
-
-	provider, err := s.resolveProvider(&req)
-	if err != nil {
-		WriteOpenResponsesError(w, s.logger, err.Error(), "invalid_request", http.StatusBadRequest, nil, nil)
-		return
-	}
-
 	// Resolve provider_model_id (e.g., Azure deployment name)
 	resolvedReq := req
 	resolvedReq.Model = s.registry.ResolveModelID(req.Model)
@@ -469,33 +479,33 @@ func (s *GatewayServer) buildResponseFromConversation(conv *conversation.Convers
 	}
 
 	return &api.Response{
-		ID:                conv.ID,
-		Object:            "response",
-		CreatedAt:         conv.CreatedAt.Unix(),
-		CompletedAt:       ptrInt64(conv.UpdatedAt.Unix()),
-		Status:            "completed",
-		Model:             conv.Model,
+		ID:                 conv.ID,
+		Object:             "response",
+		CreatedAt:          conv.CreatedAt.Unix(),
+		CompletedAt:        ptrInt64(conv.UpdatedAt.Unix()),
+		Status:             "completed",
+		Model:              conv.Model,
 		PreviousResponseID: previousResponseIDFromRequest(req),
-		Instructions:      instructionsFromRequest(req),
-		Output:            outputItems,
-		Tools:             tools,
-		ToolChoice:        toolChoice,
-		Truncation:        truncation,
-		ParallelToolCalls: parallelToolCalls,
-		Text:              text,
-		TopP:              topP,
-		PresencePenalty:   presencePenalty,
-		FrequencyPenalty:  frequencyPenalty,
-		TopLogprobs:       topLogprobs,
-		Temperature:       temperature,
-		Reasoning:         reasoning,
-		Usage:             nil, // Usage not stored in conversation
-		MaxOutputTokens:   maxOutputTokensFromRequest(req),
-		MaxToolCalls:      maxToolCallsFromRequest(req),
-		Store:             true, // If we retrieved it, it was stored
-		Background:        false,
-		ServiceTier:       serviceTier,
-		Metadata:          metadata,
+		Instructions:       instructionsFromRequest(req),
+		Output:             outputItems,
+		Tools:              tools,
+		ToolChoice:         toolChoice,
+		Truncation:         truncation,
+		ParallelToolCalls:  parallelToolCalls,
+		Text:               text,
+		TopP:               topP,
+		PresencePenalty:    presencePenalty,
+		FrequencyPenalty:   frequencyPenalty,
+		TopLogprobs:        topLogprobs,
+		Temperature:        temperature,
+		Reasoning:          reasoning,
+		Usage:              nil, // Usage not stored in conversation
+		MaxOutputTokens:    maxOutputTokensFromRequest(req),
+		MaxToolCalls:       maxToolCallsFromRequest(req),
+		Store:              true, // If we retrieved it, it was stored
+		Background:         false,
+		ServiceTier:        serviceTier,
+		Metadata:           metadata,
 	}
 }
 
@@ -596,16 +606,25 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 	}
 
 	responseID := generateID("resp_")
+	outputItems := buildOutputItems(result)
+	resp := s.buildResponseWithOutput(origReq, result, provider.Name(), responseID, outputItems)
 
 	// Persist conversation only when storage policy allows
 	if s.shouldStore(origReq) {
-		assistantMsg := api.Message{
-			Role:      "assistant",
-			Content:   []api.ContentBlock{{Type: "output_text", Text: result.Text}},
-			ToolCalls: result.ToolCalls,
-		}
-		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq); err != nil {
+		if assistantMsg := buildAssistantMessage(result); assistantMsg != nil {
+			allMsgs := append(storeMsgs, *assistantMsg)
+			replayState := buildReplayState(provider.Name(), result, outputItems, len(allMsgs)-1)
+			if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq, replayState); err != nil {
+				s.logger.ErrorContext(r.Context(), "failed to store conversation",
+					logger.LogAttrsWithTrace(r.Context(),
+						slog.String("request_id", logger.FromContext(r.Context())),
+						slog.String("response_id", responseID),
+						slog.String("error", err.Error()),
+					)...,
+				)
+				// Don't fail the response if storage fails
+			}
+		} else if _, err := s.convs.Create(r.Context(), responseID, result.Model, storeMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq, buildReplayState(provider.Name(), result, outputItems, -1)); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				logger.LogAttrsWithTrace(r.Context(),
 					slog.String("request_id", logger.FromContext(r.Context())),
@@ -645,9 +664,6 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 			slog.Bool("stored", s.shouldStore(origReq)),
 		)...,
 	)
-
-	// Build spec-compliant response
-	resp := s.buildResponse(origReq, result, provider.Name(), responseID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -696,7 +712,9 @@ func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.R
 	var streamErr error
 	var streamRespErr *api.ResponseError
 	var providerModel string
+	var providerResultID string
 	var streamUsage *api.Usage
+	var replayMessage *api.Message
 
 	ensureMessageStarted := func() {
 		if assistantMsg != nil {
@@ -747,6 +765,11 @@ loop:
 			if delta.Model != "" && providerModel == "" {
 				providerModel = delta.Model
 			}
+			if delta.ID != "" && providerResultID == "" {
+				providerResultID = delta.ID
+			}
+
+			// Handle text content
 			if delta.Text != "" {
 				ensureMessageStarted()
 				assistantMsg.text += delta.Text
@@ -810,6 +833,9 @@ loop:
 			}
 			if delta.Usage != nil {
 				streamUsage = delta.Usage
+			}
+			if delta.ReplayMessage != nil {
+				replayMessage = delta.ReplayMessage
 			}
 			if delta.Done {
 				break loop
@@ -926,8 +952,10 @@ loop:
 		model = providerModel
 	}
 	finalResult := &api.ProviderResult{
-		Model:     model,
-		ToolCalls: toolCalls,
+		ID:            providerResultID,
+		Model:         model,
+		ToolCalls:     toolCalls,
+		ReplayMessage: replayMessage,
 	}
 	if assistantMsg != nil {
 		finalResult.Text = assistantMsg.text
@@ -935,9 +963,8 @@ loop:
 	if streamUsage != nil {
 		finalResult.Usage = *streamUsage
 	}
-	completedResp := s.buildResponse(origReq, finalResult, provider.Name(), responseID)
-	completedResp.Output = buildOrderedStreamOutput(assistantMsg, toolCallsInProgress)
-
+	outputItems := buildOrderedStreamOutput(assistantMsg, toolCallsInProgress)
+	completedResp := s.buildResponseWithOutput(origReq, finalResult, provider.Name(), responseID, outputItems)
 	s.sendSSE(w, flusher, &seq, "response.completed", &api.StreamEvent{
 		Type:     "response.completed",
 		Response: completedResp,
@@ -945,13 +972,17 @@ loop:
 	s.sendSSEDone(w, flusher)
 
 	if s.shouldStore(origReq) && (finalResult.Text != "" || len(toolCalls) > 0) {
-		assistantMsgToStore := api.Message{
-			Role:      "assistant",
-			Content:   []api.ContentBlock{{Type: "output_text", Text: finalResult.Text}},
-			ToolCalls: toolCalls,
-		}
-		allMsgs := append(storeMsgs, assistantMsgToStore)
-		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq); err != nil {
+		if assistantMsg := buildAssistantMessage(finalResult); assistantMsg != nil {
+			allMsgs := append(storeMsgs, *assistantMsg)
+			replayState := buildReplayState(provider.Name(), finalResult, completedResp.Output, len(allMsgs)-1)
+			if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq, replayState); err != nil {
+				s.logger.ErrorContext(r.Context(), "failed to store conversation",
+					slog.String("request_id", logger.FromContext(r.Context())),
+					slog.String("response_id", responseID),
+					slog.String("error", err.Error()),
+				)
+			}
+		} else if _, err := s.convs.Create(r.Context(), responseID, model, storeMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq, buildReplayState(provider.Name(), finalResult, completedResp.Output, -1)); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				slog.String("request_id", logger.FromContext(r.Context())),
 				slog.String("response_id", responseID),
@@ -1137,41 +1168,15 @@ func buildOrderedStreamOutput(message *streamMessageBuilder, toolCalls map[int]*
 }
 
 func (s *GatewayServer) buildResponse(req *api.ResponseRequest, result *api.ProviderResult, providerName string, responseID string) *api.Response {
+	return s.buildResponseWithOutput(req, result, providerName, responseID, buildOutputItems(result))
+}
+
+func (s *GatewayServer) buildResponseWithOutput(req *api.ResponseRequest, result *api.ProviderResult, providerName string, responseID string, outputItems []api.OutputItem) *api.Response {
 	now := time.Now().Unix()
 
 	model := result.Model
 	if model == "" {
 		model = req.Model
-	}
-
-	// Build output items array
-	outputItems := []api.OutputItem{}
-
-	// Add message item if there's text
-	if result.Text != "" {
-		outputItems = append(outputItems, api.OutputItem{
-			ID:     generateID("msg_"),
-			Type:   "message",
-			Status: "completed",
-			Role:   "assistant",
-			Content: []api.ContentPart{{
-				Type:        "output_text",
-				Text:        result.Text,
-				Annotations: []api.Annotation{},
-			}},
-		})
-	}
-
-	// Add function_call items
-	for _, tc := range result.ToolCalls {
-		outputItems = append(outputItems, api.OutputItem{
-			ID:        generateID("item_"),
-			Type:      "function_call",
-			Status:    "completed",
-			CallID:    tc.ID,
-			Name:      tc.Name,
-			Arguments: tc.Arguments,
-		})
 	}
 
 	// Echo back request params with defaults
@@ -1279,6 +1284,160 @@ func (s *GatewayServer) resolveProvider(req *api.ResponseRequest) (providers.Pro
 		return nil, fmt.Errorf("provider %s not configured", req.Provider)
 	}
 	return s.registry.Default(req.Model)
+}
+
+// resolveItemReferences resolves item_reference IDs to their corresponding messages
+// from the conversation history. Item references allow clients to refer to specific
+// output items from previous responses without resending the full content.
+func (s *GatewayServer) resolveItemReferences(refIDs []string, history []api.Message, replay *api.ReplayState, providerName string) []api.Message {
+	if replay == nil || len(refIDs) == 0 {
+		return nil
+	}
+
+	refs := make(map[string]api.ReplayItem, len(replay.Items))
+	for _, item := range replay.Items {
+		refs[item.ID] = item
+	}
+
+	resolved := make([]api.Message, 0, len(refIDs))
+	seenIndexes := make(map[int]struct{}, len(refIDs))
+	for _, refID := range refIDs {
+		item, ok := refs[refID]
+		if !ok || item.MessageIndex < 0 || item.MessageIndex >= len(history) {
+			continue
+		}
+		if _, alreadySeen := seenIndexes[item.MessageIndex]; alreadySeen {
+			continue
+		}
+		seenIndexes[item.MessageIndex] = struct{}{}
+
+		if replay.Provider == providerName && item.Message != nil {
+			resolved = append(resolved, cloneMessage(*item.Message))
+			continue
+		}
+		resolved = append(resolved, cloneMessage(history[item.MessageIndex]))
+	}
+
+	return resolved
+}
+
+func buildOutputItems(result *api.ProviderResult) []api.OutputItem {
+	outputItems := []api.OutputItem{}
+	if result == nil {
+		return outputItems
+	}
+
+	if result.Text != "" {
+		outputItems = append(outputItems, api.OutputItem{
+			ID:     generateID("msg_"),
+			Type:   "message",
+			Status: "completed",
+			Role:   "assistant",
+			Content: []api.ContentPart{{
+				Type:        "output_text",
+				Text:        result.Text,
+				Annotations: []api.Annotation{},
+			}},
+		})
+	}
+
+	for _, tc := range result.ToolCalls {
+		outputItems = append(outputItems, api.OutputItem{
+			ID:        generateID("item_"),
+			Type:      "function_call",
+			Status:    "completed",
+			CallID:    tc.ID,
+			Name:      tc.Name,
+			Arguments: tc.Arguments,
+		})
+	}
+
+	return outputItems
+}
+
+func buildAssistantMessage(result *api.ProviderResult) *api.Message {
+	if result == nil || (result.Text == "" && len(result.ToolCalls) == 0) {
+		return nil
+	}
+
+	msg := &api.Message{
+		Role:      "assistant",
+		ToolCalls: cloneToolCalls(result.ToolCalls),
+	}
+	if result.Text != "" {
+		msg.Content = []api.ContentBlock{{Type: "output_text", Text: result.Text}}
+	}
+	return msg
+}
+
+func buildReplayState(providerName string, result *api.ProviderResult, outputItems []api.OutputItem, messageIndex int) *api.ReplayState {
+	if result == nil {
+		return nil
+	}
+
+	state := &api.ReplayState{
+		Provider:           providerName,
+		ProviderResponseID: result.ID,
+	}
+	for _, item := range outputItems {
+		if item.Type != "message" && item.Type != "function_call" {
+			continue
+		}
+		replayItem := api.ReplayItem{
+			ID:             item.ID,
+			OutputItemType: item.Type,
+			MessageIndex:   messageIndex,
+		}
+		if item.Type == "message" && result.ReplayMessage != nil {
+			replayMsg := cloneMessage(*result.ReplayMessage)
+			replayItem.Message = &replayMsg
+		}
+		state.Items = append(state.Items, replayItem)
+	}
+
+	if state.ProviderResponseID == "" && len(state.Items) == 0 {
+		return nil
+	}
+	return state
+}
+
+func applyReplayState(messages []api.Message, replay *api.ReplayState, providerName string) []api.Message {
+	out := cloneMessages(messages)
+	if replay == nil || replay.Provider != providerName {
+		return out
+	}
+
+	for _, item := range replay.Items {
+		if item.Message == nil || item.MessageIndex < 0 || item.MessageIndex >= len(out) {
+			continue
+		}
+		out[item.MessageIndex] = cloneMessage(*item.Message)
+	}
+
+	return out
+}
+
+func cloneMessages(messages []api.Message) []api.Message {
+	out := make([]api.Message, len(messages))
+	for i, msg := range messages {
+		out[i] = cloneMessage(msg)
+	}
+	return out
+}
+
+func cloneMessage(msg api.Message) api.Message {
+	out := api.Message{
+		Role:      msg.Role,
+		CallID:    msg.CallID,
+		Name:      msg.Name,
+		Content:   append([]api.ContentBlock(nil), msg.Content...),
+		ToolCalls: cloneToolCalls(msg.ToolCalls),
+	}
+	return out
+}
+
+func cloneToolCalls(toolCalls []api.ToolCall) []api.ToolCall {
+	return append([]api.ToolCall(nil), toolCalls...)
 }
 
 func ownerFromPrincipal(p *auth.Principal) conversation.OwnerInfo {

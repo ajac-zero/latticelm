@@ -119,7 +119,6 @@ func TestParseToolChoice(t *testing.T) {
 		})
 	}
 }
-
 func TestBuildAnthropicTextBlocks(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -292,4 +291,40 @@ func TestParseDataURL(t *testing.T) {
 			assert.Equal(t, tt.expectData, data)
 		})
 	}
+}
+
+func TestBuildAnthropicAssistantBlocks_AllowsReplayReasoningBlocks(t *testing.T) {
+	blocks, err := buildAnthropicAssistantBlocks([]api.ContentBlock{
+		{Type: "anthropic_thinking", Text: "let me think", Signature: "sig_123"},
+		{Type: "anthropic_redacted_thinking", Data: "opaque"},
+		{Type: "output_text", Text: "final answer"},
+	}, []api.ToolCall{{ID: "tool_1", Name: "lookup", Arguments: `{"q":"x"}`}})
+	require.NoError(t, err)
+	require.Len(t, blocks, 4)
+
+	payload, err := json.Marshal(blocks)
+	require.NoError(t, err)
+	assert.Contains(t, string(payload), `"type":"thinking"`)
+	assert.Contains(t, string(payload), `"signature":"sig_123"`)
+	assert.Contains(t, string(payload), `"type":"redacted_thinking"`)
+	assert.Contains(t, string(payload), `"data":"opaque"`)
+	assert.Contains(t, string(payload), `"type":"tool_use"`)
+}
+
+func TestBuildStreamReplayMessage_PreservesOrder(t *testing.T) {
+	replay := buildStreamReplayMessage(
+		map[int]*api.ContentBlock{
+			0: {Type: "output_text", Text: "first"},
+			1: {Type: "anthropic_thinking", Text: "thought", Signature: "sig"},
+		},
+		map[int]*api.ToolCall{
+			2: {ID: "tool_1", Name: "lookup", Arguments: `{"q":"x"}`},
+		},
+	)
+	require.NotNil(t, replay)
+	require.Len(t, replay.Content, 2)
+	require.Len(t, replay.ToolCalls, 1)
+	assert.Equal(t, "output_text", replay.Content[0].Type)
+	assert.Equal(t, "anthropic_thinking", replay.Content[1].Type)
+	assert.Equal(t, "tool_1", replay.ToolCalls[0].ID)
 }

@@ -83,15 +83,23 @@ func (u InputUnion) MarshalJSON() ([]byte, error) {
 // InputItem is a discriminated union on "type".
 // Valid types: message, item_reference, function_call, function_call_output, reasoning.
 type InputItem struct {
-	Type      string          `json:"type"`
-	Role      string          `json:"role,omitempty"`
-	Content   json.RawMessage `json:"content,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	CallID    string          `json:"call_id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments string          `json:"arguments,omitempty"`
-	Output    any             `json:"output,omitempty"`
-	Status    string          `json:"status,omitempty"`
+	Type             string          `json:"type"`
+	Role             string          `json:"role,omitempty"`
+	Content          json.RawMessage `json:"content,omitempty"`
+	ID               string          `json:"id,omitempty"`
+	CallID           string          `json:"call_id,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	Arguments        string          `json:"arguments,omitempty"`
+	Output           any             `json:"output,omitempty"`
+	Status           string          `json:"status,omitempty"`
+	Summary          json.RawMessage `json:"summary,omitempty"`
+	EncryptedContent string          `json:"encrypted_content,omitempty"`
+}
+
+// ReasoningSummaryContent represents a reasoning summary text block.
+type ReasoningSummaryContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // ============================================================
@@ -109,15 +117,18 @@ type Message struct {
 
 // ContentBlock is a typed content element.
 type ContentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Refusal  string `json:"refusal,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-	FileData string `json:"file_data,omitempty"`
-	FileURL  string `json:"file_url,omitempty"`
-	Filename string `json:"filename,omitempty"`
-	VideoURL string `json:"video_url,omitempty"`
+	Type             string `json:"type"`
+	Text             string `json:"text,omitempty"`
+	Refusal          string `json:"refusal,omitempty"`
+	ImageURL         string `json:"image_url,omitempty"`
+	Detail           string `json:"detail,omitempty"`
+	FileData         string `json:"file_data,omitempty"`
+	FileURL          string `json:"file_url,omitempty"`
+	Filename         string `json:"filename,omitempty"`
+	VideoURL         string `json:"video_url,omitempty"`
+	EncryptedContent string `json:"encrypted_content,omitempty"`
+	Signature        string `json:"signature,omitempty"`
+	Data             string `json:"data,omitempty"`
 }
 
 func (b ContentBlock) TextValue() (string, bool) {
@@ -133,15 +144,17 @@ func (b ContentBlock) TextValue() (string, bool) {
 
 // NormalizeInput converts the request Input into messages for providers.
 // Does NOT include instructions (the server prepends those separately).
-func (r *ResponseRequest) NormalizeInput() []Message {
+// Returns the normalized messages and any item_reference IDs that need resolution.
+func (r *ResponseRequest) NormalizeInput() ([]Message, []string) {
 	if r.Input.String != nil {
 		return []Message{{
 			Role:    "user",
 			Content: []ContentBlock{textContentBlock("user", *r.Input.String)},
-		}}
+		}}, nil
 	}
 
 	var msgs []Message
+	var itemRefs []string
 	for _, item := range r.Input.Items {
 		switch item.Type {
 		case "message", "":
@@ -150,6 +163,47 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 				msg.Content, msg.ToolCalls = normalizeMessageContent(item.Role, item.Content)
 			}
 			msgs = append(msgs, msg)
+		case "item_reference":
+			// item_reference items are IDs referencing previous output items.
+			// These need to be resolved by the server using previous_response_id or stored context.
+			if item.ID != "" {
+				itemRefs = append(itemRefs, item.ID)
+			}
+		case "reasoning":
+			// reasoning items represent prior model reasoning content.
+			msg := Message{Role: "assistant"}
+			var content []ContentBlock
+			if item.Content != nil {
+				content, _ = normalizeMessageContent("assistant", item.Content)
+			}
+			// Reasoning summaries are normalized as assistant text so providers
+			// that only support text assistant content can still accept them.
+			if item.Summary != nil {
+				var summaries []ReasoningSummaryContent
+				if err := json.Unmarshal(item.Summary, &summaries); err == nil {
+					for _, s := range summaries {
+						if s.Text != "" {
+							content = append(content, ContentBlock{
+								Type: "output_text",
+								Text: s.Text,
+							})
+						}
+					}
+				}
+			}
+			// Preserve encrypted reasoning for storage/retrieval, but providers
+			// should ignore it because this gateway does not yet have a portable
+			// way to forward opaque reasoning blobs downstream.
+			if item.EncryptedContent != "" {
+				content = append(content, ContentBlock{
+					Type:             "encrypted_reasoning",
+					EncryptedContent: item.EncryptedContent,
+				})
+			}
+			if len(content) > 0 {
+				msg.Content = content
+				msgs = append(msgs, msg)
+			}
 		case "function_call":
 			// function_call items represent the assistant's tool invocation.
 			// Consecutive function_call items (parallel tool calls) must be merged
@@ -177,7 +231,24 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 			})
 		}
 	}
-	return msgs
+	return msgs, itemRefs
+}
+
+// ReplayState stores provider-native artifacts that can be rehydrated on
+// same-provider follow-up requests.
+type ReplayState struct {
+	Provider           string       `json:"provider"`
+	ProviderResponseID string       `json:"provider_response_id,omitempty"`
+	Items              []ReplayItem `json:"items,omitempty"`
+}
+
+// ReplayItem maps a public output item ID back to the stored message and any
+// provider-native assistant message that should replace it during replay.
+type ReplayItem struct {
+	ID             string   `json:"id"`
+	OutputItemType string   `json:"output_item_type"`
+	MessageIndex   int      `json:"message_index"`
+	Message        *Message `json:"message,omitempty"`
 }
 
 // ============================================================
@@ -308,11 +379,12 @@ type StreamEvent struct {
 
 // ProviderResult is returned by Provider.Generate.
 type ProviderResult struct {
-	ID        string
-	Model     string
-	Text      string
-	Usage     Usage
-	ToolCalls []ToolCall
+	ID            string
+	Model         string
+	Text          string
+	Usage         Usage
+	ToolCalls     []ToolCall
+	ReplayMessage *Message
 }
 
 // ProviderStreamDelta is sent through the stream channel.
@@ -323,6 +395,7 @@ type ProviderStreamDelta struct {
 	Done          bool
 	Usage         *Usage
 	ToolCallDelta *ToolCallDelta
+	ReplayMessage *Message
 }
 
 // ToolCall represents a function call from the model.
@@ -378,31 +451,49 @@ func (r *ResponseRequest) Validate() error {
 	if err != nil {
 		return err
 	}
-	if toolChoice.Mode == "" || toolChoice.Mode == "auto" || toolChoice.Mode == "none" {
-		return nil
-	}
-	toolNames, err := r.DeclaredToolNames()
-	if err != nil {
-		return err
-	}
-	if len(toolNames) == 0 {
-		return errors.New("tool_choice requires tools to be declared")
-	}
-	switch toolChoice.Mode {
-	case "required", "any":
-		return nil
-	case "function":
-		if _, ok := toolNames[toolChoice.RequiredToolName]; !ok {
-			return fmt.Errorf("tool_choice references unknown tool %q", toolChoice.RequiredToolName)
+	if toolChoice.Mode != "" && toolChoice.Mode != "auto" && toolChoice.Mode != "none" {
+		toolNames, err := r.DeclaredToolNames()
+		if err != nil {
+			return err
 		}
-	case "allowed_tools":
-		for name := range toolChoice.AllowedTools {
-			if _, ok := toolNames[name]; !ok {
-				return fmt.Errorf("allowed_tools references unknown tool %q", name)
+		if len(toolNames) == 0 {
+			return errors.New("tool_choice requires tools to be declared")
+		}
+		switch toolChoice.Mode {
+		case "required", "any":
+		case "function":
+			if _, ok := toolNames[toolChoice.RequiredToolName]; !ok {
+				return fmt.Errorf("tool_choice references unknown tool %q", toolChoice.RequiredToolName)
 			}
+		case "allowed_tools":
+			for name := range toolChoice.AllowedTools {
+				if _, ok := toolNames[name]; !ok {
+					return fmt.Errorf("allowed_tools references unknown tool %q", name)
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported tool_choice mode %q", toolChoice.Mode)
 		}
-	default:
-		return fmt.Errorf("unsupported tool_choice mode %q", toolChoice.Mode)
+	}
+	hasItemReference := false
+	for _, item := range r.Input.Items {
+		switch item.Type {
+		case "", "message", "function_call", "function_call_output":
+		case "item_reference":
+			hasItemReference = true
+			if item.ID == "" {
+				return errors.New("item_reference id is required")
+			}
+		case "reasoning":
+			if item.Content == nil && item.Summary == nil && item.EncryptedContent == "" {
+				return errors.New("reasoning item must include content, summary, or encrypted_content")
+			}
+		default:
+			return fmt.Errorf("unsupported input item type %q", item.Type)
+		}
+	}
+	if hasItemReference && (r.PreviousResponseID == nil || *r.PreviousResponseID == "") {
+		return errors.New("previous_response_id is required when using item_reference")
 	}
 	return nil
 }
