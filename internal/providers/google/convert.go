@@ -71,48 +71,35 @@ func parseTools(req *api.ResponseRequest) ([]*genai.Tool, error) {
 
 // parseToolChoice converts req.ToolChoice to Google's ToolConfig with FunctionCallingConfig.
 func parseToolChoice(req *api.ResponseRequest) (*genai.ToolConfig, error) {
+	parsed, err := req.ParseToolChoice()
+	if err != nil {
+		return nil, err
+	}
 	if len(req.ToolChoice) == 0 {
 		return nil, nil
-	}
-
-	var choice interface{}
-	if err := json.Unmarshal(req.ToolChoice, &choice); err != nil {
-		return nil, fmt.Errorf("unmarshal tool_choice: %w", err)
 	}
 
 	config := &genai.ToolConfig{
 		FunctionCallingConfig: &genai.FunctionCallingConfig{},
 	}
 
-	// Handle string values: "auto", "none", "required"/"any"
-	if str, ok := choice.(string); ok {
-		switch str {
-		case "auto":
-			config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAuto
-		case "none":
-			config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeNone
-		case "required", "any":
-			config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAny
-		default:
-			return nil, fmt.Errorf("unknown tool_choice string: %s", str)
-		}
+	switch parsed.Mode {
+	case "auto", "allowed_tools":
+		config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAuto
 		return config, nil
+	case "none":
+		config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeNone
+		return config, nil
+	case "required", "any":
+		config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAny
+		return config, nil
+	case "function":
+		config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAny
+		config.FunctionCallingConfig.AllowedFunctionNames = []string{parsed.RequiredToolName}
+		return config, nil
+	default:
+		return nil, fmt.Errorf("unsupported tool_choice format")
 	}
-
-	// Handle object format: {"type": "function", "function": {"name": "..."}}
-	if obj, ok := choice.(map[string]interface{}); ok {
-		if typeVal, ok := obj["type"].(string); ok && typeVal == "function" {
-			config.FunctionCallingConfig.Mode = genai.FunctionCallingConfigModeAny
-			if funcObj, ok := obj["function"].(map[string]interface{}); ok {
-				if name, ok := funcObj["name"].(string); ok {
-					config.FunctionCallingConfig.AllowedFunctionNames = []string{name}
-				}
-			}
-			return config, nil
-		}
-	}
-
-	return nil, fmt.Errorf("unsupported tool_choice format")
 }
 
 // extractToolCalls extracts tool calls from Google's response format to generic api.ToolCall slice.

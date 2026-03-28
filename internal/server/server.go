@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,22 @@ type GatewayServer struct {
 	tokenLimits    TokenLimits
 	storeByDefault bool
 	adminConfig    auth.AdminConfig
+}
+
+type streamMessageBuilder struct {
+	itemID       string
+	outputIndex  int
+	contentIndex int
+	text         string
+}
+
+type streamToolCallBuilder struct {
+	streamIndex int
+	outputIndex int
+	itemID      string
+	id          string
+	name        string
+	arguments   string
 }
 
 // New creates a GatewayServer bound to the provider registry.
@@ -124,7 +141,7 @@ func (s *GatewayServer) RegisterPublicRoutes(mux *http.ServeMux) {
 
 func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteOpenResponsesError(w, s.logger, "method not allowed", "invalid_request", http.StatusMethodNotAllowed, nil, nil)
 		return
 	}
 
@@ -155,42 +172,21 @@ func (s *GatewayServer) handleModels(w http.ResponseWriter, r *http.Request) {
 
 func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteOpenResponsesError(w, s.logger, "method not allowed", "invalid_request", http.StatusMethodNotAllowed, nil, nil)
 		return
 	}
 
 	var req api.ResponseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Check if error is due to request size limit
 		if err.Error() == "http: request body too large" {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			WriteOpenResponsesError(w, s.logger, "request body too large", "invalid_request", http.StatusRequestEntityTooLarge, nil, nil)
 			return
 		}
-		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		WriteOpenResponsesError(w, s.logger, "invalid JSON payload", "invalid_request", http.StatusBadRequest, nil, nil)
 		return
 	}
 
-	if err := req.Validate(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Enforce per-request token limits
-	if s.tokenLimits.MaxOutputTokens > 0 && req.MaxOutputTokens != nil && *req.MaxOutputTokens > s.tokenLimits.MaxOutputTokens {
-		WriteJSONError(w, s.logger, fmt.Sprintf(
-			"max_output_tokens %d exceeds configured limit of %d",
-			*req.MaxOutputTokens, s.tokenLimits.MaxOutputTokens,
-		), http.StatusBadRequest)
-		return
-	}
-
-	// Normalize input to internal messages
-	inputMsgs := req.NormalizeInput()
-
-	// Extract caller principal (nil when auth is disabled).
 	principal := auth.PrincipalFromContext(r.Context())
-
-	// Build full message history from previous conversation
 	var historyMsgs []api.Message
 	if req.PreviousResponseID != nil && *req.PreviousResponseID != "" {
 		conv, err := s.convs.Get(r.Context(), *req.PreviousResponseID)
@@ -202,7 +198,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 					slog.String("error", err.Error()),
 				)...,
 			)
-			http.Error(w, "error retrieving conversation", http.StatusInternalServerError)
+			WriteOpenResponsesError(w, s.logger, "error retrieving conversation", "server_error", http.StatusInternalServerError, nil, nil)
 			return
 		}
 		if conv == nil {
@@ -210,7 +206,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 				slog.String("request_id", logger.FromContext(r.Context())),
 				slog.String("conversation_id", *req.PreviousResponseID),
 			)
-			http.Error(w, "conversation not found", http.StatusNotFound)
+			WriteOpenResponsesError(w, s.logger, "conversation not found", "not_found", http.StatusNotFound, nil, nil)
 			return
 		}
 
@@ -234,13 +230,29 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 					slog.String("caller_sub", principal.Subject),
 					slog.String("caller_iss", principal.Issuer),
 				)
-				http.Error(w, "conversation not found", http.StatusNotFound)
+				WriteOpenResponsesError(w, s.logger, "conversation not found", "not_found", http.StatusNotFound, nil, nil)
 				return
 			}
 		}
 
 		historyMsgs = conv.Messages
+		req.InheritMissingContext(conv.Request)
 	}
+
+	if err := req.Validate(); err != nil {
+		WriteOpenResponsesError(w, s.logger, err.Error(), "invalid_request", http.StatusBadRequest, nil, nil)
+		return
+	}
+
+	if s.tokenLimits.MaxOutputTokens > 0 && req.MaxOutputTokens != nil && *req.MaxOutputTokens > s.tokenLimits.MaxOutputTokens {
+		WriteOpenResponsesError(w, s.logger, fmt.Sprintf(
+			"max_output_tokens %d exceeds configured limit of %d",
+			*req.MaxOutputTokens, s.tokenLimits.MaxOutputTokens,
+		), "invalid_request", http.StatusBadRequest, nil, nil)
+		return
+	}
+
+	inputMsgs := req.NormalizeInput()
 
 	// Combined messages for conversation storage (history + new input, no instructions)
 	storeMsgs := make([]api.Message, 0, len(historyMsgs)+len(inputMsgs))
@@ -259,7 +271,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 
 	provider, err := s.resolveProvider(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		WriteOpenResponsesError(w, s.logger, err.Error(), "invalid_request", http.StatusBadRequest, nil, nil)
 		return
 	}
 
@@ -276,7 +288,7 @@ func (s *GatewayServer) handleResponses(w http.ResponseWriter, r *http.Request) 
 
 func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteOpenResponsesError(w, s.logger, "method not allowed", "invalid_request", http.StatusMethodNotAllowed, nil, nil)
 		return
 	}
 
@@ -288,7 +300,7 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 		id = r.URL.Path[idx+len(responsesSuffix):]
 	}
 	if id == "" {
-		http.Error(w, "response id is required", http.StatusBadRequest)
+		WriteOpenResponsesError(w, s.logger, "response id is required", "invalid_request", http.StatusBadRequest, nil, nil)
 		return
 	}
 
@@ -299,11 +311,11 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 			slog.String("response_id", id),
 			slog.String("error", err.Error()),
 		)
-		http.Error(w, "error looking up conversation", http.StatusInternalServerError)
+		WriteOpenResponsesError(w, s.logger, "error looking up conversation", "server_error", http.StatusInternalServerError, nil, nil)
 		return
 	}
 	if conv == nil {
-		http.Error(w, "conversation not found", http.StatusNotFound)
+		WriteOpenResponsesError(w, s.logger, "conversation not found", "not_found", http.StatusNotFound, nil, nil)
 		return
 	}
 
@@ -313,7 +325,7 @@ func (s *GatewayServer) handleResponseByID(w http.ResponseWriter, r *http.Reques
 			slog.String("response_id", id),
 			slog.String("error", err.Error()),
 		)
-		http.Error(w, "error deleting conversation", http.StatusInternalServerError)
+		WriteOpenResponsesError(w, s.logger, "error deleting conversation", "server_error", http.StatusInternalServerError, nil, nil)
 		return
 	}
 
@@ -337,12 +349,18 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 			)...,
 		)
 
-		// Check if error is from circuit breaker
+		message := "provider error"
+		errorType := "model_error"
 		if isCircuitBreakerError(err) {
-			http.Error(w, "service temporarily unavailable - circuit breaker open", http.StatusServiceUnavailable)
-		} else {
-			http.Error(w, "provider error", http.StatusBadGateway)
+			message = "service temporarily unavailable - circuit breaker open"
+			errorType = "server_error"
 		}
+		WriteOpenResponsesError(w, s.logger, message, errorType, http.StatusInternalServerError, nil, nil)
+		return
+	}
+
+	if respErr := validateToolCalls(origReq, result.ToolCalls); respErr != nil {
+		WriteOpenResponsesError(w, s.logger, respErr.Message, respErr.Type, http.StatusInternalServerError, respErr.Code, respErr.Param)
 		return
 	}
 
@@ -356,7 +374,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 			ToolCalls: result.ToolCalls,
 		}
 		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context()))); err != nil {
+		if _, err := s.convs.Create(r.Context(), responseID, result.Model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				logger.LogAttrsWithTrace(r.Context(),
 					slog.String("request_id", logger.FromContext(r.Context())),
@@ -416,7 +434,7 @@ func (s *GatewayServer) handleSyncResponse(w http.ResponseWriter, r *http.Reques
 func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.Request, provider providers.Provider, providerMsgs []api.Message, resolvedReq *api.ResponseRequest, origReq *api.ResponseRequest, storeMsgs []api.Message) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		WriteOpenResponsesError(w, s.logger, "streaming not supported", "server_error", http.StatusInternalServerError, nil, nil)
 		return
 	}
 
@@ -426,12 +444,9 @@ func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusOK)
 
 	responseID := generateID("resp_")
-	itemID := generateID("msg_")
 	seq := 0
-	outputIdx := 0
-	contentIdx := 0
+	nextOutputIdx := 0
 
-	// Build initial response snapshot (in_progress, no output yet)
 	initialResp := s.buildResponse(origReq, &api.ProviderResult{
 		Model: origReq.Model,
 	}, provider.Name(), responseID)
@@ -440,72 +455,59 @@ func (s *GatewayServer) handleStreamingResponse(w http.ResponseWriter, r *http.R
 	initialResp.Output = []api.OutputItem{}
 	initialResp.Usage = nil
 
-	// response.created
-	s.sendSSE(w, flusher, &seq, "response.created", &api.StreamEvent{
-		Type:     "response.created",
-		Response: initialResp,
-	})
-
-	// response.in_progress
 	s.sendSSE(w, flusher, &seq, "response.in_progress", &api.StreamEvent{
 		Type:     "response.in_progress",
 		Response: initialResp,
 	})
 
-	// response.output_item.added
-	inProgressItem := &api.OutputItem{
-		ID:      itemID,
-		Type:    "message",
-		Status:  "in_progress",
-		Role:    "assistant",
-		Content: []api.ContentPart{},
-	}
-	s.sendSSE(w, flusher, &seq, "response.output_item.added", &api.StreamEvent{
-		Type:        "response.output_item.added",
-		OutputIndex: &outputIdx,
-		Item:        inProgressItem,
-	})
-
-	// response.content_part.added
-	emptyPart := &api.ContentPart{
-		Type:        "output_text",
-		Text:        "",
-		Annotations: []api.Annotation{},
-	}
-	s.sendSSE(w, flusher, &seq, "response.content_part.added", &api.StreamEvent{
-		Type:         "response.content_part.added",
-		ItemID:       itemID,
-		OutputIndex:  &outputIdx,
-		ContentIndex: &contentIdx,
-		Part:         emptyPart,
-	})
-
-	// Start provider stream
-	deltaChan, errChan := provider.GenerateStream(r.Context(), providerMsgs, resolvedReq)
-
-	var fullText string
+	var assistantMsg *streamMessageBuilder
+	toolCallsInProgress := make(map[int]*streamToolCallBuilder)
 	var streamErr error
+	var streamRespErr *api.ResponseError
 	var providerModel string
 	var streamUsage *api.Usage
 
-	// Track tool calls being built
-	type toolCallBuilder struct {
-		itemID    string
-		id        string
-		name      string
-		arguments string
+	ensureMessageStarted := func() {
+		if assistantMsg != nil {
+			return
+		}
+		assistantMsg = &streamMessageBuilder{
+			itemID:       generateID("msg_"),
+			outputIndex:  nextOutputIdx,
+			contentIndex: 0,
+		}
+		nextOutputIdx++
+		s.sendSSE(w, flusher, &seq, "response.output_item.added", &api.StreamEvent{
+			Type:        "response.output_item.added",
+			OutputIndex: &assistantMsg.outputIndex,
+			Item: &api.OutputItem{
+				ID:      assistantMsg.itemID,
+				Type:    "message",
+				Status:  "in_progress",
+				Role:    "assistant",
+				Content: []api.ContentPart{},
+			},
+		})
+		s.sendSSE(w, flusher, &seq, "response.content_part.added", &api.StreamEvent{
+			Type:         "response.content_part.added",
+			ItemID:       assistantMsg.itemID,
+			OutputIndex:  &assistantMsg.outputIndex,
+			ContentIndex: &assistantMsg.contentIndex,
+			Part: &api.ContentPart{
+				Type:        "output_text",
+				Text:        "",
+				Annotations: []api.Annotation{},
+			},
+		})
 	}
-	toolCallsInProgress := make(map[int]*toolCallBuilder)
-	nextOutputIdx := 0
-	textItemAdded := false
+
+	deltaChan, errChan := provider.GenerateStream(r.Context(), providerMsgs, resolvedReq)
 
 loop:
 	for {
 		select {
 		case delta, ok := <-deltaChan:
 			if !ok {
-				// deltaChan closed — drain errChan to catch any error
-				// that was sent before the goroutine exited.
 				if err, ok := <-errChan; ok && err != nil {
 					streamErr = err
 				}
@@ -514,74 +516,70 @@ loop:
 			if delta.Model != "" && providerModel == "" {
 				providerModel = delta.Model
 			}
-
-			// Handle text content
 			if delta.Text != "" {
-				// Add text item on first text delta
-				if !textItemAdded {
-					textItemAdded = true
-					nextOutputIdx++
-				}
-				fullText += delta.Text
+				ensureMessageStarted()
+				assistantMsg.text += delta.Text
 				s.sendSSE(w, flusher, &seq, "response.output_text.delta", &api.StreamEvent{
 					Type:         "response.output_text.delta",
-					ItemID:       itemID,
-					OutputIndex:  &outputIdx,
-					ContentIndex: &contentIdx,
+					ItemID:       assistantMsg.itemID,
+					OutputIndex:  &assistantMsg.outputIndex,
+					ContentIndex: &assistantMsg.contentIndex,
 					Delta:        delta.Text,
 				})
 			}
-
-			// Handle tool call delta
 			if delta.ToolCallDelta != nil {
 				tc := delta.ToolCallDelta
-
-				// First chunk for this tool call index
-				if _, exists := toolCallsInProgress[tc.Index]; !exists {
-					toolItemID := generateID("item_")
-					toolOutputIdx := nextOutputIdx
+				builder, exists := toolCallsInProgress[tc.Index]
+				if !exists {
+					builder = &streamToolCallBuilder{
+						streamIndex: tc.Index,
+						outputIndex: nextOutputIdx,
+						itemID:      generateID("item_"),
+						id:          tc.ID,
+						name:        tc.Name,
+					}
 					nextOutputIdx++
-
-					// Send response.output_item.added
+					toolCallsInProgress[tc.Index] = builder
+					if respErr := validateToolCallName(origReq, builder.name); respErr != nil {
+						streamRespErr = respErr
+						break loop
+					}
 					s.sendSSE(w, flusher, &seq, "response.output_item.added", &api.StreamEvent{
 						Type:        "response.output_item.added",
-						OutputIndex: &toolOutputIdx,
+						OutputIndex: &builder.outputIndex,
 						Item: &api.OutputItem{
-							ID:     toolItemID,
-							Type:   "function_call",
-							Status: "in_progress",
-							CallID: tc.ID,
-							Name:   tc.Name,
+							ID:        builder.itemID,
+							Type:      "function_call",
+							Status:    "in_progress",
+							CallID:    builder.id,
+							Name:      builder.name,
+							Arguments: "",
 						},
 					})
-
-					toolCallsInProgress[tc.Index] = &toolCallBuilder{
-						itemID:    toolItemID,
-						id:        tc.ID,
-						name:      tc.Name,
-						arguments: "",
+				}
+				if builder.id == "" && tc.ID != "" {
+					builder.id = tc.ID
+				}
+				if tc.Name != "" && builder.name == "" {
+					builder.name = tc.Name
+					if respErr := validateToolCallName(origReq, builder.name); respErr != nil {
+						streamRespErr = respErr
+						break loop
 					}
 				}
-
-				// Send function_call_arguments.delta
 				if tc.Arguments != "" {
-					builder := toolCallsInProgress[tc.Index]
 					builder.arguments += tc.Arguments
-					toolOutputIdx := outputIdx + 1 + tc.Index
-
 					s.sendSSE(w, flusher, &seq, "response.function_call_arguments.delta", &api.StreamEvent{
 						Type:        "response.function_call_arguments.delta",
 						ItemID:      builder.itemID,
-						OutputIndex: &toolOutputIdx,
+						OutputIndex: &builder.outputIndex,
 						Delta:       tc.Arguments,
 					})
 				}
 			}
-
 			if delta.Usage != nil {
 				streamUsage = delta.Usage
 			}
-
 			if delta.Done {
 				break loop
 			}
@@ -598,7 +596,7 @@ loop:
 		}
 	}
 
-	if streamErr != nil {
+	if streamErr != nil && streamRespErr == nil {
 		s.logger.ErrorContext(r.Context(), "stream error",
 			logger.LogAttrsWithTrace(r.Context(),
 				slog.String("request_id", logger.FromContext(r.Context())),
@@ -607,86 +605,80 @@ loop:
 				slog.String("error", streamErr.Error()),
 			)...,
 		)
-
-		// Determine error type based on circuit breaker state
-		errorType := "server_error"
-		errorMessage := streamErr.Error()
-		if isCircuitBreakerError(streamErr) {
-			errorType = "circuit_breaker_open"
-			errorMessage = "service temporarily unavailable - circuit breaker open"
+		streamRespErr = &api.ResponseError{
+			Type:    "model_error",
+			Message: streamErr.Error(),
 		}
+		if isCircuitBreakerError(streamErr) {
+			streamRespErr.Type = "server_error"
+			streamRespErr.Message = "service temporarily unavailable - circuit breaker open"
+		}
+	}
 
+	toolCalls := collectToolCalls(toolCallsInProgress)
+	if streamRespErr == nil {
+		streamRespErr = validateToolCalls(origReq, toolCalls)
+	}
+
+	if streamRespErr != nil {
 		failedResp := s.buildResponse(origReq, &api.ProviderResult{
 			Model: origReq.Model,
 		}, provider.Name(), responseID)
 		failedResp.Status = "failed"
 		failedResp.CompletedAt = nil
 		failedResp.Output = []api.OutputItem{}
-		failedResp.Error = &api.ResponseError{
-			Type:    errorType,
-			Message: errorMessage,
-		}
+		failedResp.Error = streamRespErr
 		s.sendSSE(w, flusher, &seq, "response.failed", &api.StreamEvent{
 			Type:     "response.failed",
 			Response: failedResp,
 		})
+		s.sendSSEDone(w, flusher)
 		return
 	}
 
-	// Send done events for text output if text was added
-	if textItemAdded && fullText != "" {
-		// response.output_text.done
+	if assistantMsg != nil {
 		s.sendSSE(w, flusher, &seq, "response.output_text.done", &api.StreamEvent{
 			Type:         "response.output_text.done",
-			ItemID:       itemID,
-			OutputIndex:  &outputIdx,
-			ContentIndex: &contentIdx,
-			Text:         fullText,
+			ItemID:       assistantMsg.itemID,
+			OutputIndex:  &assistantMsg.outputIndex,
+			ContentIndex: &assistantMsg.contentIndex,
+			Text:         assistantMsg.text,
 		})
-
-		// response.content_part.done
 		completedPart := &api.ContentPart{
 			Type:        "output_text",
-			Text:        fullText,
+			Text:        assistantMsg.text,
 			Annotations: []api.Annotation{},
 		}
 		s.sendSSE(w, flusher, &seq, "response.content_part.done", &api.StreamEvent{
 			Type:         "response.content_part.done",
-			ItemID:       itemID,
-			OutputIndex:  &outputIdx,
-			ContentIndex: &contentIdx,
+			ItemID:       assistantMsg.itemID,
+			OutputIndex:  &assistantMsg.outputIndex,
+			ContentIndex: &assistantMsg.contentIndex,
 			Part:         completedPart,
 		})
-
-		// response.output_item.done
-		completedItem := &api.OutputItem{
-			ID:      itemID,
-			Type:    "message",
-			Status:  "completed",
-			Role:    "assistant",
-			Content: []api.ContentPart{*completedPart},
-		}
 		s.sendSSE(w, flusher, &seq, "response.output_item.done", &api.StreamEvent{
 			Type:        "response.output_item.done",
-			OutputIndex: &outputIdx,
-			Item:        completedItem,
+			OutputIndex: &assistantMsg.outputIndex,
+			Item: &api.OutputItem{
+				ID:      assistantMsg.itemID,
+				Type:    "message",
+				Status:  "completed",
+				Role:    "assistant",
+				Content: []api.ContentPart{*completedPart},
+			},
 		})
 	}
 
-	// Send done events for each tool call
-	for idx, builder := range toolCallsInProgress {
-		toolOutputIdx := outputIdx + 1 + idx
-
+	for _, builder := range sortedToolCallBuilders(toolCallsInProgress) {
 		s.sendSSE(w, flusher, &seq, "response.function_call_arguments.done", &api.StreamEvent{
 			Type:        "response.function_call_arguments.done",
 			ItemID:      builder.itemID,
-			OutputIndex: &toolOutputIdx,
+			OutputIndex: &builder.outputIndex,
 			Arguments:   builder.arguments,
 		})
-
 		s.sendSSE(w, flusher, &seq, "response.output_item.done", &api.StreamEvent{
 			Type:        "response.output_item.done",
-			OutputIndex: &toolOutputIdx,
+			OutputIndex: &builder.outputIndex,
 			Item: &api.OutputItem{
 				ID:        builder.itemID,
 				Type:      "function_call",
@@ -698,62 +690,37 @@ loop:
 		})
 	}
 
-	// Build final completed response
 	model := origReq.Model
 	if providerModel != "" {
 		model = providerModel
 	}
-
-	// Collect tool calls for result
-	var toolCalls []api.ToolCall
-	for _, builder := range toolCallsInProgress {
-		toolCalls = append(toolCalls, api.ToolCall{
-			ID:        builder.id,
-			Name:      builder.name,
-			Arguments: builder.arguments,
-		})
-	}
-
 	finalResult := &api.ProviderResult{
 		Model:     model,
-		Text:      fullText,
 		ToolCalls: toolCalls,
+	}
+	if assistantMsg != nil {
+		finalResult.Text = assistantMsg.text
 	}
 	if streamUsage != nil {
 		finalResult.Usage = *streamUsage
 	}
 	completedResp := s.buildResponse(origReq, finalResult, provider.Name(), responseID)
+	completedResp.Output = buildOrderedStreamOutput(assistantMsg, toolCallsInProgress)
 
-	// Update item IDs to match what we sent during streaming
-	if textItemAdded && len(completedResp.Output) > 0 {
-		completedResp.Output[0].ID = itemID
-	}
-	for idx, builder := range toolCallsInProgress {
-		// Find the corresponding output item
-		for i := range completedResp.Output {
-			if completedResp.Output[i].Type == "function_call" && completedResp.Output[i].CallID == builder.id {
-				completedResp.Output[i].ID = builder.itemID
-				break
-			}
-		}
-		_ = idx // unused
-	}
-
-	// response.completed
 	s.sendSSE(w, flusher, &seq, "response.completed", &api.StreamEvent{
 		Type:     "response.completed",
 		Response: completedResp,
 	})
+	s.sendSSEDone(w, flusher)
 
-	// Store conversation only when storage policy allows
-	if s.shouldStore(origReq) && (fullText != "" || len(toolCalls) > 0) {
-		assistantMsg := api.Message{
+	if s.shouldStore(origReq) && (finalResult.Text != "" || len(toolCalls) > 0) {
+		assistantMsgToStore := api.Message{
 			Role:      "assistant",
-			Content:   []api.ContentBlock{{Type: "output_text", Text: fullText}},
+			Content:   []api.ContentBlock{{Type: "output_text", Text: finalResult.Text}},
 			ToolCalls: toolCalls,
 		}
-		allMsgs := append(storeMsgs, assistantMsg)
-		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context()))); err != nil {
+		allMsgs := append(storeMsgs, assistantMsgToStore)
+		if _, err := s.convs.Create(r.Context(), responseID, model, allMsgs, ownerFromPrincipal(auth.PrincipalFromContext(r.Context())), origReq); err != nil {
 			s.logger.ErrorContext(r.Context(), "failed to store conversation",
 				slog.String("request_id", logger.FromContext(r.Context())),
 				slog.String("response_id", responseID),
@@ -762,11 +729,8 @@ loop:
 		}
 	}
 
-	// Record token usage for distributed quota tracking
 	if completedResp.Usage != nil {
 		ratelimit.RecordUsageFromContext(r.Context(), completedResp.Usage.InputTokens, completedResp.Usage.OutputTokens)
-
-		// Record token usage for analytics
 		principal := auth.PrincipalFromContext(r.Context())
 		usage.RecordFromContext(r.Context(), usage.UsageEvent{
 			TenantID:     tenantFromPrincipal(principal),
@@ -780,7 +744,7 @@ loop:
 		})
 	}
 
-	if fullText != "" || len(toolCalls) > 0 {
+	if finalResult.Text != "" || len(toolCalls) > 0 {
 		s.logger.InfoContext(r.Context(), "streaming response completed",
 			slog.String("request_id", logger.FromContext(r.Context())),
 			slog.String("provider", provider.Name()),
@@ -805,6 +769,140 @@ func (s *GatewayServer) sendSSE(w http.ResponseWriter, flusher http.Flusher, seq
 	}
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
 	flusher.Flush()
+}
+
+func (s *GatewayServer) sendSSEDone(w http.ResponseWriter, flusher http.Flusher) {
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	flusher.Flush()
+}
+
+func validateToolCallName(req *api.ResponseRequest, name string) *api.ResponseError {
+	if req == nil {
+		return nil
+	}
+	toolChoice, err := req.ParseToolChoice()
+	if err != nil {
+		return &api.ResponseError{Type: "invalid_request", Message: err.Error()}
+	}
+	if toolChoice.Mode == "none" {
+		return &api.ResponseError{Type: "model_error", Message: "model emitted a tool call while tool_choice was none"}
+	}
+	if name == "" {
+		return nil
+	}
+	declared, err := req.DeclaredToolNames()
+	if err != nil {
+		return &api.ResponseError{Type: "invalid_request", Message: err.Error()}
+	}
+	if len(declared) == 0 {
+		return &api.ResponseError{Type: "model_error", Message: fmt.Sprintf("model emitted undeclared tool %q", name)}
+	}
+	if _, ok := declared[name]; !ok {
+		return &api.ResponseError{Type: "model_error", Message: fmt.Sprintf("model emitted undeclared tool %q", name)}
+	}
+	switch toolChoice.Mode {
+	case "function":
+		if name != toolChoice.RequiredToolName {
+			return &api.ResponseError{Type: "model_error", Message: fmt.Sprintf("model emitted tool %q but tool_choice required %q", name, toolChoice.RequiredToolName)}
+		}
+	case "allowed_tools":
+		if _, ok := toolChoice.AllowedTools[name]; !ok {
+			return &api.ResponseError{Type: "model_error", Message: fmt.Sprintf("model emitted disallowed tool %q", name)}
+		}
+	}
+	return nil
+}
+
+func validateToolCalls(req *api.ResponseRequest, toolCalls []api.ToolCall) *api.ResponseError {
+	if req == nil {
+		return nil
+	}
+	for _, toolCall := range toolCalls {
+		if respErr := validateToolCallName(req, toolCall.Name); respErr != nil {
+			return respErr
+		}
+	}
+	toolChoice, err := req.ParseToolChoice()
+	if err != nil {
+		return &api.ResponseError{Type: "invalid_request", Message: err.Error()}
+	}
+	if len(toolCalls) == 0 && (toolChoice.Mode == "required" || toolChoice.Mode == "any" || toolChoice.Mode == "function") {
+		msg := "model did not emit a required tool call"
+		if toolChoice.Mode == "function" {
+			msg = fmt.Sprintf("model did not emit required tool %q", toolChoice.RequiredToolName)
+		}
+		return &api.ResponseError{Type: "model_error", Message: msg}
+	}
+	return nil
+}
+
+func collectToolCalls(builders map[int]*streamToolCallBuilder) []api.ToolCall {
+	sorted := sortedToolCallBuilders(builders)
+	toolCalls := make([]api.ToolCall, 0, len(sorted))
+	for _, builder := range sorted {
+		toolCalls = append(toolCalls, api.ToolCall{
+			ID:        builder.id,
+			Name:      builder.name,
+			Arguments: builder.arguments,
+		})
+	}
+	return toolCalls
+}
+
+func sortedToolCallBuilders(builders map[int]*streamToolCallBuilder) []*streamToolCallBuilder {
+	sorted := make([]*streamToolCallBuilder, 0, len(builders))
+	for _, builder := range builders {
+		sorted = append(sorted, builder)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].outputIndex < sorted[j].outputIndex
+	})
+	return sorted
+}
+
+func buildOrderedStreamOutput(message *streamMessageBuilder, toolCalls map[int]*streamToolCallBuilder) []api.OutputItem {
+	type orderedItem struct {
+		index int
+		item  api.OutputItem
+	}
+	items := make([]orderedItem, 0, len(toolCalls)+1)
+	if message != nil {
+		items = append(items, orderedItem{
+			index: message.outputIndex,
+			item: api.OutputItem{
+				ID:     message.itemID,
+				Type:   "message",
+				Status: "completed",
+				Role:   "assistant",
+				Content: []api.ContentPart{{
+					Type:        "output_text",
+					Text:        message.text,
+					Annotations: []api.Annotation{},
+				}},
+			},
+		})
+	}
+	for _, builder := range toolCalls {
+		items = append(items, orderedItem{
+			index: builder.outputIndex,
+			item: api.OutputItem{
+				ID:        builder.itemID,
+				Type:      "function_call",
+				Status:    "completed",
+				CallID:    builder.id,
+				Name:      builder.name,
+				Arguments: builder.arguments,
+			},
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].index < items[j].index
+	})
+	output := make([]api.OutputItem, 0, len(items))
+	for _, item := range items {
+		output = append(output, item.item)
+	}
+	return output
 }
 
 func (s *GatewayServer) buildResponse(req *api.ResponseRequest, result *api.ProviderResult, providerName string, responseID string) *api.Response {

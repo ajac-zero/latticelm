@@ -58,13 +58,38 @@ func RequestSizeLimitMiddleware(next http.Handler, maxBytes int64) http.Handler 
 
 // WriteJSONError writes a JSON error response, safely encoding the message.
 func WriteJSONError(w http.ResponseWriter, log *slog.Logger, message string, statusCode int) {
+	errorType := "server_error"
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusMethodNotAllowed:
+		errorType = "invalid_request"
+	case http.StatusNotFound:
+		errorType = "not_found"
+	case http.StatusTooManyRequests:
+		errorType = "too_many_requests"
+	}
+	WriteOpenResponsesError(w, log, message, errorType, statusCode, nil, nil)
+}
+
+// WriteOpenResponsesError writes an Open Responses-compatible error payload.
+func WriteOpenResponsesError(w http.ResponseWriter, log *slog.Logger, message string, errorType string, statusCode int, code *string, param *string) {
 	body, err := json.Marshal(struct {
 		Error struct {
-			Message string `json:"message"`
+			Message string  `json:"message"`
+			Type    string  `json:"type"`
+			Code    *string `json:"code,omitempty"`
+			Param   *string `json:"param,omitempty"`
 		} `json:"error"`
 	}{Error: struct {
-		Message string `json:"message"`
-	}{Message: message}})
+		Message string  `json:"message"`
+		Type    string  `json:"type"`
+		Code    *string `json:"code,omitempty"`
+		Param   *string `json:"param,omitempty"`
+	}{
+		Message: message,
+		Type:    errorType,
+		Code:    code,
+		Param:   param,
+	}})
 	if err != nil {
 		log.Error("failed to marshal error response",
 			slog.String("original_message", message),

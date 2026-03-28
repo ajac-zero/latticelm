@@ -158,9 +158,16 @@ func TestParseToolChoice(t *testing.T) {
 		},
 		{
 			name:       "specific function",
-			choiceJSON: `{"type": "function", "function": {"name": "get_weather"}}`,
+			choiceJSON: `{"type": "function", "name": "get_weather"}`,
 			validate: func(t *testing.T, choice interface{}) {
 				assert.NotNil(t, choice, "choice should not be nil for specific function")
+			},
+		},
+		{
+			name:       "allowed tools",
+			choiceJSON: `{"type":"allowed_tools","tools":[{"type":"function","name":"get_weather"}]}`,
+			validate: func(t *testing.T, choice interface{}) {
+				assert.NotNil(t, choice, "choice should not be nil for allowed tools")
 			},
 		},
 		{
@@ -176,13 +183,9 @@ func TestParseToolChoice(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:       "unsupported format (object without proper structure)",
-			choiceJSON: `{"invalid": "structure"}`,
-			validate: func(t *testing.T, choice interface{}) {
-				// Currently accepts any object even if structure is wrong
-				// This is documenting actual behavior
-				assert.NotNil(t, choice, "choice is created even with invalid structure")
-			},
+			name:        "unsupported format (object without proper structure)",
+			choiceJSON:  `{"invalid": "structure"}`,
+			expectError: true,
 		},
 	}
 

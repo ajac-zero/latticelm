@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/ajac-zero/latticelm/internal/api"
 	"github.com/openai/openai-go/v3"
@@ -279,34 +280,50 @@ func parseTools(req *api.ResponseRequest) ([]openai.ChatCompletionToolUnionParam
 func parseToolChoice(req *api.ResponseRequest) (openai.ChatCompletionToolChoiceOptionUnionParam, error) {
 	var result openai.ChatCompletionToolChoiceOptionUnionParam
 
+	parsed, err := req.ParseToolChoice()
+	if err != nil {
+		return result, err
+	}
 	if len(req.ToolChoice) == 0 {
 		return result, nil
 	}
 
-	var choice interface{}
-	if err := json.Unmarshal(req.ToolChoice, &choice); err != nil {
-		return result, fmt.Errorf("unmarshal tool_choice: %w", err)
-	}
-
-	// Handle string values: "auto", "none", "required"
-	if str, ok := choice.(string); ok {
-		result.OfAuto = openai.String(str)
+	switch parsed.Mode {
+	case "auto", "none", "required", "any":
+		mode := parsed.Mode
+		if mode == "any" {
+			mode = "required"
+		}
+		result.OfAuto = openai.String(mode)
 		return result, nil
-	}
-
-	// Handle specific function selection: {"type": "function", "function": {"name": "..."}}
-	if obj, ok := choice.(map[string]interface{}); ok {
-		funcObj, _ := obj["function"].(map[string]interface{})
-		name, _ := funcObj["name"].(string)
-
+	case "function":
 		return openai.ToolChoiceOptionFunctionToolChoice(
 			openai.ChatCompletionNamedToolChoiceFunctionParam{
-				Name: name,
+				Name: parsed.RequiredToolName,
 			},
 		), nil
+	case "allowed_tools":
+		names := make([]string, 0, len(parsed.AllowedTools))
+		for name := range parsed.AllowedTools {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		tools := make([]map[string]any, 0, len(names))
+		for _, name := range names {
+			tools = append(tools, map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name": name,
+				},
+			})
+		}
+		return openai.ToolChoiceOptionAllowedTools(openai.ChatCompletionAllowedToolsParam{
+			Mode:  openai.ChatCompletionAllowedToolsModeAuto,
+			Tools: tools,
+		}), nil
+	default:
+		return result, fmt.Errorf("invalid tool_choice format")
 	}
-
-	return result, fmt.Errorf("invalid tool_choice format")
 }
 
 // extractToolCalls converts OpenAI tool calls to api.ToolCall

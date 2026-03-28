@@ -22,16 +22,16 @@ type sqlDialect struct {
 func newDialect(driver string) sqlDialect {
 	if driver == "pgx" || driver == "postgres" {
 		return sqlDialect{
-			getByID:    `SELECT id, model, messages, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = $1`,
-			upsert:     `INSERT INTO conversations (id, model, messages, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, messages = EXCLUDED.messages, updated_at = EXCLUDED.updated_at`,
+			getByID:    `SELECT id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = $1`,
+			upsert:     `INSERT INTO conversations (id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, messages = EXCLUDED.messages, request = EXCLUDED.request, updated_at = EXCLUDED.updated_at`,
 			update:     `UPDATE conversations SET messages = $1, updated_at = $2 WHERE id = $3`,
 			deleteByID: `DELETE FROM conversations WHERE id = $1`,
 			cleanup:    `DELETE FROM conversations WHERE updated_at < $1`,
 		}
 	}
 	return sqlDialect{
-		getByID:    `SELECT id, model, messages, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = ?`,
-		upsert:     `REPLACE INTO conversations (id, model, messages, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		getByID:    `SELECT id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at FROM conversations WHERE id = ?`,
+		upsert:     `REPLACE INTO conversations (id, model, messages, request, owner_iss, owner_sub, tenant_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		update:     `UPDATE conversations SET messages = ?, updated_at = ? WHERE id = ?`,
 		deleteByID: `DELETE FROM conversations WHERE id = ?`,
 		cleanup:    `DELETE FROM conversations WHERE updated_at < ?`,
@@ -79,7 +79,8 @@ func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
 
 	var conv Conversation
 	var msgJSON string
-	err := row.Scan(&conv.ID, &conv.Model, &msgJSON, &conv.OwnerIss, &conv.OwnerSub, &conv.TenantID, &conv.CreatedAt, &conv.UpdatedAt)
+	var requestJSON string
+	err := row.Scan(&conv.ID, &conv.Model, &msgJSON, &requestJSON, &conv.OwnerIss, &conv.OwnerSub, &conv.TenantID, &conv.CreatedAt, &conv.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -90,18 +91,29 @@ func (s *SQLStore) Get(ctx context.Context, id string) (*Conversation, error) {
 	if err := json.Unmarshal([]byte(msgJSON), &conv.Messages); err != nil {
 		return nil, err
 	}
+	if requestJSON != "" && requestJSON != "null" {
+		var req api.ResponseRequest
+		if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+			return nil, err
+		}
+		conv.Request = &req
+	}
 
 	return &conv, nil
 }
 
-func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo) (*Conversation, error) {
+func (s *SQLStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo, request *api.ResponseRequest) (*Conversation, error) {
 	now := time.Now()
 	msgJSON, err := json.Marshal(messages)
 	if err != nil {
 		return nil, err
 	}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
 
-	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), owner.OwnerIss, owner.OwnerSub, owner.TenantID, now, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.dialect.upsert, id, model, string(msgJSON), string(requestJSON), owner.OwnerIss, owner.OwnerSub, owner.TenantID, now, now); err != nil {
 		return nil, err
 	}
 
@@ -109,6 +121,7 @@ func (s *SQLStore) Create(ctx context.Context, id string, model string, messages
 		ID:        id,
 		Messages:  messages,
 		Model:     model,
+		Request:   copyRequest(request),
 		OwnerIss:  owner.OwnerIss,
 		OwnerSub:  owner.OwnerSub,
 		TenantID:  owner.TenantID,
