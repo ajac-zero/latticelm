@@ -208,6 +208,55 @@ func TestParseToolChoice(t *testing.T) {
 	}
 }
 
+func TestSanitizeToolCallID(t *testing.T) {
+	t.Run("short ID is unchanged", func(t *testing.T) {
+		id := "call_abc123"
+		assert.Equal(t, id, sanitizeToolCallID(id))
+	})
+
+	t.Run("exactly 40 chars is unchanged", func(t *testing.T) {
+		id := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 chars
+		assert.Equal(t, id, sanitizeToolCallID(id))
+	})
+
+	t.Run("ID longer than 40 chars is truncated to 40", func(t *testing.T) {
+		id := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 60 chars
+		result := sanitizeToolCallID(id)
+		assert.Equal(t, 40, len(result))
+		assert.Equal(t, id[:40], result)
+	})
+}
+
+func TestBuildOAIMessages_SanitizesLongToolCallIDs(t *testing.T) {
+	longID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 60 chars
+
+	messages := []api.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []api.ToolCall{
+				{ID: longID, Name: "my_tool", Arguments: "{}"},
+			},
+		},
+		{
+			Role:    "tool",
+			Content: []api.ContentBlock{{Type: "input_text", Text: "result"}},
+			CallID:  longID,
+		},
+	}
+
+	oaiMessages := buildOAIMessages(messages)
+	require.Len(t, oaiMessages, 2)
+
+	assistantMsg := oaiMessages[0].OfAssistant
+	require.NotNil(t, assistantMsg)
+	require.Len(t, assistantMsg.ToolCalls, 1)
+	assert.Equal(t, longID[:40], assistantMsg.ToolCalls[0].OfFunction.ID)
+
+	toolMsg := oaiMessages[1].OfTool
+	require.NotNil(t, toolMsg)
+	assert.Equal(t, longID[:40], toolMsg.ToolCallID)
+}
+
 func TestExtractToolCalls(t *testing.T) {
 	// Note: This test would require importing the openai package types
 	// For now, we're testing the logic exists and handles edge cases
