@@ -2,8 +2,11 @@ package google
 
 import (
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"google.golang.org/genai"
 
@@ -202,4 +205,61 @@ func generateRandomID() string {
 	}
 
 	return string(b)
+}
+
+// parseDataURL parses a data URL into its media type and base64 data components.
+// Supports format: data:[<mediatype>];base64,<data>
+func parseDataURL(dataURL string) (mediaType string, data string, err error) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return "", "", fmt.Errorf("invalid data URL: must start with 'data:'")
+	}
+
+	// Parse the data URL
+	remaining := strings.TrimPrefix(dataURL, "data:")
+
+	// Find the comma separating metadata from data
+	commaIdx := strings.Index(remaining, ",")
+	if commaIdx == -1 {
+		return "", "", fmt.Errorf("invalid data URL: missing comma before data")
+	}
+
+	metadata := remaining[:commaIdx]
+	encodedData := remaining[commaIdx+1:]
+
+	// Parse metadata: [<mediatype>];base64
+	parts := strings.Split(metadata, ";")
+	if len(parts) < 2 || parts[len(parts)-1] != "base64" {
+		return "", "", fmt.Errorf("invalid data URL: expected base64 encoding")
+	}
+
+	mediaType = parts[0]
+	if mediaType == "" {
+		return "", "", fmt.Errorf("invalid data URL: missing media type")
+	}
+
+	// URL-decode the data portion if needed
+	decodedData, err := url.QueryUnescape(encodedData)
+	if err != nil {
+		decodedData = encodedData
+	}
+
+	// Validate it's valid base64
+	if _, err := base64.StdEncoding.DecodeString(decodedData); err != nil {
+		return "", "", fmt.Errorf("invalid base64 data: %w", err)
+	}
+
+	return mediaType, decodedData, nil
+}
+
+func parseBase64Payload(value string, defaultMediaType string) (mediaType string, data string, err error) {
+	if strings.HasPrefix(value, "data:") {
+		return parseDataURL(value)
+	}
+	if _, err := base64.StdEncoding.DecodeString(value); err != nil {
+		return "", "", fmt.Errorf("invalid base64 data: %w", err)
+	}
+	if defaultMediaType == "" {
+		defaultMediaType = "application/octet-stream"
+	}
+	return defaultMediaType, value, nil
 }

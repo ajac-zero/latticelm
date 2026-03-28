@@ -361,3 +361,229 @@ func TestGenerateRandomID(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildGeminiTextParts(t *testing.T) {
+	tests := []struct {
+		name        string
+		blocks      []api.ContentBlock
+		role        string
+		expectError bool
+		validate    func(t *testing.T, parts []*genai.Part)
+	}{
+		{
+			name: "text only",
+			blocks: []api.ContentBlock{
+				{Type: "input_text", Text: "Hello"},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.Equal(t, "Hello", parts[0].Text)
+			},
+		},
+		{
+			name: "text and image URL",
+			blocks: []api.ContentBlock{
+				{Type: "input_text", Text: "Describe this:"},
+				{Type: "input_image", ImageURL: "https://example.com/image.png"},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 2)
+				assert.Equal(t, "Describe this:", parts[0].Text)
+				assert.NotNil(t, parts[1].FileData)
+			},
+		},
+		{
+			name: "image with base64 data URL",
+			blocks: []api.ContentBlock{
+				{Type: "input_image", ImageURL: "data:image/png;base64,iVBORw0KGgo="},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].InlineData)
+			},
+		},
+		{
+			name: "video URL",
+			blocks: []api.ContentBlock{
+				{Type: "input_video", VideoURL: "https://example.com/video.mp4"},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].FileData)
+			},
+		},
+		{
+			name: "file with URL",
+			blocks: []api.ContentBlock{
+				{Type: "input_file", FileURL: "https://example.com/doc.pdf"},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].FileData)
+			},
+		},
+		{
+			name: "file with base64 data",
+			blocks: []api.ContentBlock{
+				{Type: "input_file", FileData: "data:application/pdf;base64,SGVsbG8gV29ybGQ="},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].InlineData)
+			},
+		},
+		{
+			name: "file with raw base64 data",
+			blocks: []api.ContentBlock{
+				{Type: "input_file", Filename: "report.txt", FileData: "cmVwb3J0"},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].InlineData)
+				assert.Equal(t, "text/plain", parts[0].InlineData.MIMEType)
+			},
+		},
+		{
+			name: "video with base64 data URL",
+			blocks: []api.ContentBlock{
+				{Type: "input_video", VideoURL: "data:video/mp4;base64,SGVsbG8="},
+			},
+			role: "user",
+			validate: func(t *testing.T, parts []*genai.Part) {
+				require.Len(t, parts, 1)
+				assert.NotNil(t, parts[0].InlineData)
+				assert.Equal(t, "video/mp4", parts[0].InlineData.MIMEType)
+			},
+		},
+		{
+			name: "unsupported content type",
+			blocks: []api.ContentBlock{
+				{Type: "unknown_type"},
+			},
+			role:        "user",
+			expectError: true,
+		},
+		{
+			name: "image without URL fails",
+			blocks: []api.ContentBlock{
+				{Type: "input_image"},
+			},
+			role:        "user",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parts, err := buildGeminiTextParts(tt.blocks, tt.role)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			if tt.validate != nil {
+				tt.validate(t, parts)
+			}
+		})
+	}
+}
+
+func TestParseDataURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		dataURL     string
+		expectMedia string
+		expectData  string
+		expectError bool
+	}{
+		{
+			name:        "valid PDF data URL",
+			dataURL:     "data:application/pdf;base64,SGVsbG8gV29ybGQ=",
+			expectMedia: "application/pdf",
+			expectData:  "SGVsbG8gV29ybGQ=",
+		},
+		{
+			name:        "valid image data URL",
+			dataURL:     "data:image/png;base64,iVBORw0KGgo=",
+			expectMedia: "image/png",
+			expectData:  "iVBORw0KGgo=",
+		},
+		{
+			name:        "missing data prefix",
+			dataURL:     "image/png;base64,SGVsbG8=",
+			expectError: true,
+		},
+		{
+			name:        "missing comma",
+			dataURL:     "data:image/png;base64",
+			expectError: true,
+		},
+		{
+			name:        "missing base64 marker",
+			dataURL:     "data:image/png,SGVsbG8=",
+			expectError: true,
+		},
+		{
+			name:        "invalid base64",
+			dataURL:     "data:image/png;base64,not-valid-base64!!!",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mediaType, data, err := parseDataURL(tt.dataURL)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectMedia, mediaType)
+			assert.Equal(t, tt.expectData, data)
+		})
+	}
+}
+
+func TestGuessMimeTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		url          string
+		guessFunc    func(string) string
+		expectedMime string
+	}{
+		{"png image", "https://example.com/image.png", guessImageMimeType, "image/png"},
+		{"jpeg image", "https://example.com/image.jpg", guessImageMimeType, "image/jpeg"},
+		{"jpeg image uppercase", "https://example.com/image.JPG", guessImageMimeType, "image/jpeg"},
+		{"gif image", "https://example.com/image.gif", guessImageMimeType, "image/gif"},
+		{"webp image", "https://example.com/image.webp", guessImageMimeType, "image/webp"},
+		{"unknown image", "https://example.com/image.unknown", guessImageMimeType, "image/jpeg"},
+		{"png image with query", "https://example.com/image.png?sig=1", guessImageMimeType, "image/png"},
+		{"pdf file", "https://example.com/doc.pdf", guessFileMimeType, "application/pdf"},
+		{"text file", "https://example.com/doc.txt", guessFileMimeType, "text/plain"},
+		{"json file", "https://example.com/doc.json", guessFileMimeType, "application/json"},
+		{"json file with query", "https://example.com/doc.json?download=1", guessFileMimeType, "application/json"},
+		{"unknown file", "https://example.com/doc.unknown", guessFileMimeType, "application/octet-stream"},
+		{"mp4 video", "https://example.com/video.mp4", guessVideoMimeType, "video/mp4"},
+		{"webm video", "https://example.com/video.webm", guessVideoMimeType, "video/webm"},
+		{"mov video", "https://example.com/video.mov", guessVideoMimeType, "video/quicktime"},
+		{"unknown video", "https://example.com/video.unknown", guessVideoMimeType, "video/mp4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.guessFunc(tt.url)
+			assert.Equal(t, tt.expectedMime, result)
+		})
+	}
+}

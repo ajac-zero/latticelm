@@ -2,8 +2,11 @@ package google
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"google.golang.org/genai"
@@ -388,13 +391,154 @@ func buildConfig(systemInstruction *genai.Content, req *api.ResponseRequest, too
 func buildGeminiTextParts(blocks []api.ContentBlock, role string) ([]*genai.Part, error) {
 	parts := make([]*genai.Part, 0, len(blocks))
 	for _, block := range blocks {
-		text, ok := block.TextValue()
-		if !ok {
-			return nil, fmt.Errorf("%s messages only support text content in the Google provider; found %q", role, block.Type)
+		switch block.Type {
+		case "text", "input_text", "output_text":
+			parts = append(parts, genai.NewPartFromText(block.Text))
+		case "input_image":
+			imgPart, err := buildGeminiImagePart(block)
+			if err != nil {
+				return nil, fmt.Errorf("build image part: %w", err)
+			}
+			parts = append(parts, imgPart)
+		case "input_file":
+			filePart, err := buildGeminiFilePart(block)
+			if err != nil {
+				return nil, fmt.Errorf("build file part: %w", err)
+			}
+			parts = append(parts, filePart)
+		case "input_video":
+			videoPart, err := buildGeminiVideoPart(block)
+			if err != nil {
+				return nil, fmt.Errorf("build video part: %w", err)
+			}
+			parts = append(parts, videoPart)
+		default:
+			return nil, fmt.Errorf("%s messages do not support %q content in the Google provider", role, block.Type)
 		}
-		parts = append(parts, genai.NewPartFromText(text))
 	}
 	return parts, nil
+}
+
+func buildGeminiImagePart(block api.ContentBlock) (*genai.Part, error) {
+	if block.ImageURL != "" {
+		// Handle data URL or regular URL
+		if strings.HasPrefix(block.ImageURL, "data:") {
+			mediaType, data, err := parseDataURL(block.ImageURL)
+			if err != nil {
+				return nil, fmt.Errorf("parse image data URL: %w", err)
+			}
+			decodedData, err := base64.StdEncoding.DecodeString(data)
+			if err != nil {
+				return nil, fmt.Errorf("decode base64 image: %w", err)
+			}
+			return genai.NewPartFromBytes(decodedData, mediaType), nil
+		}
+		// Regular URL - use URI-based part
+		mimeType := guessImageMimeType(block.ImageURL)
+		return genai.NewPartFromURI(block.ImageURL, mimeType), nil
+	}
+	return nil, fmt.Errorf("image input requires image_url field")
+}
+
+func buildGeminiFilePart(block api.ContentBlock) (*genai.Part, error) {
+	if block.FileURL != "" {
+		// URL-based file
+		mimeType := guessFileMimeType(block.FileURL)
+		return genai.NewPartFromURI(block.FileURL, mimeType), nil
+	}
+	if block.FileData != "" {
+		// Base64-encoded file data
+		mediaType, data, err := parseBase64Payload(block.FileData, guessFileMimeType(block.Filename))
+		if err != nil {
+			return nil, fmt.Errorf("parse file data: %w", err)
+		}
+		decodedData, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return nil, fmt.Errorf("decode base64 file: %w", err)
+		}
+		return genai.NewPartFromBytes(decodedData, mediaType), nil
+	}
+	return nil, fmt.Errorf("file input requires file_url or file_data field")
+}
+
+func buildGeminiVideoPart(block api.ContentBlock) (*genai.Part, error) {
+	if block.VideoURL != "" {
+		if strings.HasPrefix(block.VideoURL, "data:") {
+			mediaType, data, err := parseDataURL(block.VideoURL)
+			if err != nil {
+				return nil, fmt.Errorf("parse video data URL: %w", err)
+			}
+			decodedData, err := base64.StdEncoding.DecodeString(data)
+			if err != nil {
+				return nil, fmt.Errorf("decode base64 video: %w", err)
+			}
+			return genai.NewPartFromBytes(decodedData, mediaType), nil
+		}
+		// URL-based video
+		mimeType := guessVideoMimeType(block.VideoURL)
+		return genai.NewPartFromURI(block.VideoURL, mimeType), nil
+	}
+	return nil, fmt.Errorf("video input requires video_url field")
+}
+
+// guessImageMimeType attempts to infer MIME type from URL extension
+func guessImageMimeType(location string) string {
+	location = normalizeMediaLocation(location)
+	switch {
+	case strings.HasSuffix(strings.ToLower(location), ".png"):
+		return "image/png"
+	case strings.HasSuffix(strings.ToLower(location), ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(strings.ToLower(location), ".webp"):
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
+}
+
+// guessFileMimeType attempts to infer MIME type for files
+func guessFileMimeType(location string) string {
+	location = normalizeMediaLocation(location)
+	switch {
+	case strings.HasSuffix(strings.ToLower(location), ".pdf"):
+		return "application/pdf"
+	case strings.HasSuffix(strings.ToLower(location), ".txt"),
+		strings.HasSuffix(strings.ToLower(location), ".md"),
+		strings.HasSuffix(strings.ToLower(location), ".csv"),
+		strings.HasSuffix(strings.ToLower(location), ".xml"),
+		strings.HasSuffix(strings.ToLower(location), ".yaml"),
+		strings.HasSuffix(strings.ToLower(location), ".yml"):
+		return "text/plain"
+	case strings.HasSuffix(strings.ToLower(location), ".json"):
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// guessVideoMimeType attempts to infer MIME type for videos
+func guessVideoMimeType(location string) string {
+	location = normalizeMediaLocation(location)
+	switch {
+	case strings.HasSuffix(strings.ToLower(location), ".mp4"):
+		return "video/mp4"
+	case strings.HasSuffix(strings.ToLower(location), ".webm"):
+		return "video/webm"
+	case strings.HasSuffix(strings.ToLower(location), ".mov"):
+		return "video/quicktime"
+	default:
+		return "video/mp4"
+	}
+}
+
+func normalizeMediaLocation(location string) string {
+	if location == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(location); err == nil && parsed.Path != "" {
+		return parsed.Path
+	}
+	return location
 }
 
 func buildGeminiToolResponse(blocks []api.ContentBlock) (map[string]any, error) {
