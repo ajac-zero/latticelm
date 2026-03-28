@@ -44,7 +44,8 @@ func (a *Authenticator) Authenticate(r *http.Request) (*auth.Principal, error) {
 	}
 
 	// Async touch last_used_at without blocking the request.
-	go a.Store.TouchLastUsed(context.Background(), ko.Key.ID)
+	// Use context.WithoutCancel to detach from request lifecycle while preserving values.
+	go a.Store.TouchLastUsed(context.WithoutCancel(r.Context()), ko.Key.ID)
 
 	return &auth.Principal{
 		Issuer:  ko.OIDCIss,
