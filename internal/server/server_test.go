@@ -11,11 +11,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ajac-zero/latticelm/internal/api"
+	"github.com/ajac-zero/latticelm/internal/auth"
 	"github.com/ajac-zero/latticelm/internal/conversation"
 )
 
@@ -1226,4 +1228,308 @@ func parseSSEEvents(body io.Reader) ([]api.StreamEvent, error) {
 	}
 
 	return events, nil
+}
+
+func TestHandleResponseByID_Get(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupServer  func() *GatewayServer
+		setupStore   func(store *mockConversationStore)
+		responseID   string
+		principal    *auth.Principal
+		expectStatus int
+		validate     func(t *testing.T, resp *api.Response)
+	}{
+		{
+			name: "retrieve existing response",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				registry.addModel("gpt-4", "openai")
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger())
+			},
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_123", &conversation.Conversation{
+					ID:        "resp_123",
+					Model:     "gpt-4-turbo",
+					CreatedAt: mustParseTime("2024-01-15T10:00:00Z"),
+					UpdatedAt: mustParseTime("2024-01-15T10:00:05Z"),
+					Messages: []api.Message{
+						{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "Hello"}}},
+						{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "Hi there!"}}},
+					},
+					Request: &api.ResponseRequest{
+						Model:        "gpt-4",
+						Instructions: stringPtr("Be helpful"),
+						Temperature:  floatPtr(0.7),
+					},
+				})
+			},
+			responseID:   "resp_123",
+			expectStatus: http.StatusOK,
+			validate: func(t *testing.T, resp *api.Response) {
+				assert.Equal(t, "resp_123", resp.ID)
+				assert.Equal(t, "response", resp.Object)
+				assert.Equal(t, "completed", resp.Status)
+				assert.Equal(t, "gpt-4-turbo", resp.Model)
+				assert.Equal(t, "Be helpful", *resp.Instructions)
+				assert.Equal(t, 0.7, resp.Temperature)
+				assert.Len(t, resp.Output, 1)
+				assert.Equal(t, "message", resp.Output[0].Type)
+				assert.Equal(t, "assistant", resp.Output[0].Role)
+				assert.Equal(t, "Hi there!", resp.Output[0].Content[0].Text)
+			},
+		},
+		{
+			name: "retrieve response with tool calls",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				registry.addModel("gpt-4", "openai")
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger())
+			},
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_tools", &conversation.Conversation{
+					ID:        "resp_tools",
+					Model:     "gpt-4",
+					CreatedAt: mustParseTime("2024-01-15T10:00:00Z"),
+					UpdatedAt: mustParseTime("2024-01-15T10:00:05Z"),
+					Messages: []api.Message{
+						{Role: "assistant", ToolCalls: []api.ToolCall{
+							{ID: "call_1", Name: "get_weather", Arguments: `{"location":"NYC"}`},
+						}},
+					},
+				})
+			},
+			responseID:   "resp_tools",
+			expectStatus: http.StatusOK,
+			validate: func(t *testing.T, resp *api.Response) {
+				assert.Len(t, resp.Output, 1)
+				assert.Equal(t, "function_call", resp.Output[0].Type)
+				assert.Equal(t, "call_1", resp.Output[0].CallID)
+				assert.Equal(t, "get_weather", resp.Output[0].Name)
+				assert.JSONEq(t, `{"location":"NYC"}`, resp.Output[0].Arguments)
+			},
+		},
+		{
+			name: "retrieve non-existent response returns 404",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger())
+			},
+			setupStore:   func(store *mockConversationStore) {},
+			responseID:   "nonexistent",
+			expectStatus: http.StatusNotFound,
+		},
+		{
+			name: "retrieve with ownership enforcement - same user",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger(), WithAdminConfig(auth.AdminConfig{Enabled: true}))
+			},
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_owned", &conversation.Conversation{
+					ID:        "resp_owned",
+					Model:     "gpt-4",
+					OwnerIss:  "https://auth.example.com",
+					OwnerSub:  "user-1",
+					TenantID:  "tenant-a",
+					CreatedAt: mustParseTime("2024-01-15T10:00:00Z"),
+					UpdatedAt: mustParseTime("2024-01-15T10:00:05Z"),
+					Messages: []api.Message{
+						{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "response"}}},
+					},
+				})
+			},
+			responseID: "resp_owned",
+			principal: &auth.Principal{
+				Issuer:   "https://auth.example.com",
+				Subject:  "user-1",
+				TenantID: "tenant-a",
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "retrieve with ownership enforcement - different user denied",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger(), WithAdminConfig(auth.AdminConfig{Enabled: true}))
+			},
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_denied", &conversation.Conversation{
+					ID:        "resp_denied",
+					Model:     "gpt-4",
+					OwnerIss:  "https://auth.example.com",
+					OwnerSub:  "user-1",
+					TenantID:  "tenant-a",
+					CreatedAt: mustParseTime("2024-01-15T10:00:00Z"),
+					UpdatedAt: mustParseTime("2024-01-15T10:00:05Z"),
+					Messages: []api.Message{
+						{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "response"}}},
+					},
+				})
+			},
+			responseID: "resp_denied",
+			principal: &auth.Principal{
+				Issuer:   "https://auth.example.com",
+				Subject:  "user-2",
+				TenantID: "tenant-a",
+			},
+			expectStatus: http.StatusNotFound,
+		},
+		{
+			name: "admin can retrieve any response",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				return New(registry, newMockConversationStore(), newMockLogger().asLogger(), WithAdminConfig(auth.AdminConfig{
+					Enabled:       true,
+					AllowedValues: []string{"admin"},
+				}))
+			},
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_admin", &conversation.Conversation{
+					ID:        "resp_admin",
+					Model:     "gpt-4",
+					OwnerIss:  "https://auth.example.com",
+					OwnerSub:  "user-1",
+					TenantID:  "tenant-a",
+					CreatedAt: mustParseTime("2024-01-15T10:00:00Z"),
+					UpdatedAt: mustParseTime("2024-01-15T10:00:05Z"),
+					Messages: []api.Message{
+						{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "response"}}},
+					},
+				})
+			},
+			responseID: "resp_admin",
+			principal: &auth.Principal{
+				Issuer:   "https://auth.example.com",
+				Subject:  "admin-user",
+				TenantID: "tenant-admin",
+				Roles:    []string{"admin"},
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "store error returns 500",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				registry.addProvider("openai", newMockProvider("openai"))
+				store := newMockConversationStore()
+				store.getErr = fmt.Errorf("database error")
+				return New(registry, store, newMockLogger().asLogger())
+			},
+			setupStore:   func(store *mockConversationStore) {},
+			responseID:   "any",
+			expectStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+
+			// Get the store from the server and configure it
+			store := server.convs.(*mockConversationStore)
+			tt.setupStore(store)
+
+			req := httptest.NewRequest(http.MethodGet, "/v1/responses/"+tt.responseID, nil)
+			if tt.principal != nil {
+				req = req.WithContext(auth.ContextWithPrincipal(req.Context(), tt.principal))
+			}
+			rec := httptest.NewRecorder()
+
+			server.handleResponseByID(rec, req)
+
+			assert.Equal(t, tt.expectStatus, rec.Code)
+
+			if tt.validate != nil && rec.Code == http.StatusOK {
+				var resp api.Response
+				err := json.Unmarshal(rec.Body.Bytes(), &resp)
+				require.NoError(t, err)
+				tt.validate(t, &resp)
+			}
+		})
+	}
+}
+
+func TestHandleResponseByID_Delete(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupStore   func(store *mockConversationStore)
+		responseID   string
+		expectStatus int
+		expectSize   int
+	}{
+		{
+			name: "delete existing response",
+			setupStore: func(store *mockConversationStore) {
+				store.setConversation("resp_del", &conversation.Conversation{
+					ID:    "resp_del",
+					Model: "gpt-4",
+					Messages: []api.Message{
+						{Role: "assistant", Content: []api.ContentBlock{{Type: "output_text", Text: "response"}}},
+					},
+				})
+			},
+			responseID:   "resp_del",
+			expectStatus: http.StatusNoContent,
+			expectSize:   0,
+		},
+		{
+			name:         "delete non-existent response returns 404",
+			setupStore:   func(store *mockConversationStore) {},
+			responseID:   "nonexistent",
+			expectStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := newMockRegistry()
+			registry.addProvider("openai", newMockProvider("openai"))
+			store := newMockConversationStore()
+			tt.setupStore(store)
+			server := New(registry, store, newMockLogger().asLogger())
+
+			req := httptest.NewRequest(http.MethodDelete, "/v1/responses/"+tt.responseID, nil)
+			rec := httptest.NewRecorder()
+
+			server.handleResponseByID(rec, req)
+
+			assert.Equal(t, tt.expectStatus, rec.Code)
+			if tt.expectSize > 0 || tt.name == "delete existing response" {
+				assert.Equal(t, tt.expectSize, store.Size())
+			}
+		})
+	}
+}
+
+func TestHandleResponseByID_MethodNotAllowed(t *testing.T) {
+	registry := newMockRegistry()
+	registry.addProvider("openai", newMockProvider("openai"))
+	server := New(registry, newMockConversationStore(), newMockLogger().asLogger())
+
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch}
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/v1/responses/resp_123", nil)
+			rec := httptest.NewRecorder()
+
+			server.handleResponseByID(rec, req)
+
+			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+		})
+	}
+}
+
+func mustParseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
