@@ -141,7 +141,10 @@ func (a *API) HandleTokenLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.oidcClient != nil {
-		a.oidcClient.clearSession(w, r)
+		if err := a.oidcClient.clearSession(w, r); err != nil {
+			writeJSONError(w, "Failed to clear existing session", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.SetCookie(w, &http.Cookie{ // #nosec G124
@@ -185,7 +188,10 @@ func (a *API) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if a.oidcClient != nil {
-		a.oidcClient.clearSession(w, r)
+		if err := a.oidcClient.clearSession(w, r); err != nil {
+			writeJSONError(w, "Logout failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	writeJSONSuccess(w, map[string]string{"message": "logged out"})

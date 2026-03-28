@@ -218,8 +218,18 @@ The following auth endpoints are available:
 ### Session expires too quickly
 
 - Sessions default to 24 hours
-- Modify session TTL in `internal/auth/session.go` if needed
+- Set `SESSION_TTL` environment variable to customize (e.g., `SESSION_TTL=48h`)
 - Consider implementing refresh token rotation for longer sessions
+
+### Multiple replicas / distributed deployment
+
+- By default, sessions are stored in-memory (single instance only)
+- For multi-instance deployments, configure Redis-backed sessions:
+  ```bash
+  SESSION_REDIS_URL=redis://redis:6379/2
+  ```
+- Redis-backed sessions allow all replicas to share session state
+- Use a dedicated Redis database (different from rate limiting) to avoid key conflicts
 
 ## Migration from JWT Bearer Tokens
 
@@ -239,7 +249,7 @@ To force JWT auth for UI (disable OIDC):
 
 Potential improvements:
 
-- [ ] Redis-backed sessions for multi-instance deployments
+- [x] Redis-backed sessions for multi-instance deployments
 - [ ] Refresh token rotation
 - [ ] Remember me (extended sessions)
 - [ ] Session revocation API

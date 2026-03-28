@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -496,13 +497,19 @@ func TestHandleCallback_HappyPath(t *testing.T) {
 
 	assert.Equal(t, http.StatusFound, rr.Code)
 	// Session cookie must be set.
-	found := false
+	var sessionCookie *http.Cookie
 	for _, c := range rr.Result().Cookies() {
 		if c.Name == OIDCSessionCookieName {
-			found = true
+			sessionCookie = c
 		}
 	}
-	assert.True(t, found, "session cookie not set")
+	require.NotNil(t, sessionCookie, "session cookie not set")
+	assert.Equal(t, int(time.Hour/time.Second), sessionCookie.MaxAge)
+
+	session, exists := client.sessionStore.Get(sessionCookie.Value)
+	require.True(t, exists)
+	require.NotNil(t, session)
+	assert.NotEmpty(t, session.IDToken)
 }
 
 // ---- logout tests ----
@@ -544,6 +551,25 @@ func TestHandleLogout_MethodNotAllowed(t *testing.T) {
 	rr := httptest.NewRecorder()
 	client.HandleLogout(rr, req)
 	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+}
+
+func TestHandleLogout_DeleteFailure(t *testing.T) {
+	srv := newMockOIDCServer(t)
+	sessionStore := NewSessionStore(time.Hour, failingSessionBackend{deleteErr: errors.New("delete failed")})
+	client, err := NewOIDCClient(OIDCClientConfig{
+		Issuer:      srv.server.URL,
+		ClientID:    "test-client",
+		RedirectURI: "http://localhost/callback",
+	}, sessionStore, nil, newNopLogger())
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: OIDCSessionCookieName, Value: "session-1"})
+	rr := httptest.NewRecorder()
+
+	client.HandleLogout(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestHandleLogout_NoSession(t *testing.T) {
@@ -777,4 +803,3 @@ func TestHandleCallback_AdminAutoPromotion(t *testing.T) {
 func newNopLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
-

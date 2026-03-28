@@ -23,7 +23,6 @@ import (
 const (
 	oidcStateCookieName    = "oidc_state"
 	oidcVerifierCookieName = "oidc_verifier"
-
 )
 
 // OIDCClientConfig holds OIDC client configuration.
@@ -292,10 +291,10 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-provision or get existing user from database
 	user, err := c.userStore.GetOrCreate(ctx,
-		getClaimString(claims, "iss"),    // OIDC issuer
-		getClaimString(claims, "sub"),    // OIDC subject
-		getClaimString(claims, "email"),  // Email from OIDC
-		getClaimString(claims, "name"),   // Name from OIDC
+		getClaimString(claims, "iss"),   // OIDC issuer
+		getClaimString(claims, "sub"),   // OIDC subject
+		getClaimString(claims, "email"), // Email from OIDC
+		getClaimString(claims, "name"),  // Name from OIDC
 	)
 	if err != nil {
 		c.logger.Error("failed to provision user", slog.String("error", err.Error()))
@@ -333,16 +332,14 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Create session with application user data
 	sessionData := &SessionData{
-		UserID:       user.ID,           // Our database ID (not OIDC sub)
-		Email:        user.Email,
-		Name:         user.Name,
-		IDToken:      tokens.IDToken,
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
-		IsAdmin:      user.IsAdmin(),    // From database users.role column
-		OwnerIss:     getClaimString(claims, "iss"), // OIDC issuer
-		OwnerSub:     getClaimString(claims, "sub"), // OIDC subject
-		TenantID:     getTenantID(claims),             // Tenant from claims
+		UserID:   user.ID, // Our database ID (not OIDC sub)
+		Email:    user.Email,
+		Name:     user.Name,
+		IDToken:  tokens.IDToken,
+		IsAdmin:  user.IsAdmin(),                // From database users.role column
+		OwnerIss: getClaimString(claims, "iss"), // OIDC issuer
+		OwnerSub: getClaimString(claims, "sub"), // OIDC subject
+		TenantID: getTenantID(claims),           // Tenant from claims
 	}
 
 	sessionID, err := c.sessionStore.Create(sessionData)
@@ -362,7 +359,8 @@ func (c *OIDCClient) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionID,
 		Domain:   cookieDomain,
 		Path:     "/",
-		MaxAge:   86400, // 24 hours
+		Expires:  sessionData.ExpiresAt,
+		MaxAge:   sessionCookieMaxAge(c.sessionStore.TTL()),
 		HttpOnly: true,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
@@ -392,7 +390,15 @@ func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.clearSession(w, r)
+	if err := c.clearSession(w, r); err != nil {
+		c.logger.Error("failed to clear session", slog.String("error", err.Error()))
+		if r.Method == http.MethodPost || wantsJSON(r) {
+			writeJSONError(w, "Logout failed", http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "Logout failed", http.StatusInternalServerError)
+		return
+	}
 
 	if r.Method == http.MethodPost || wantsJSON(r) {
 		writeJSONSuccess(w, map[string]string{"message": "logged out"})
@@ -409,11 +415,13 @@ func (c *OIDCClient) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
-func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) {
+func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) error {
+	var deleteErr error
+
 	// Get session cookie
 	cookie, err := r.Cookie(OIDCSessionCookieName)
 	if err == nil {
-		c.sessionStore.Delete(cookie.Value)
+		deleteErr = c.sessionStore.DeleteWithError(cookie.Value)
 	}
 
 	// Clear session cookie with same domain strategy as login
@@ -432,6 +440,8 @@ func (c *OIDCClient) clearSession(w http.ResponseWriter, r *http.Request) {
 		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	return deleteErr
 }
 
 func (c *OIDCClient) getSession(r *http.Request) (*SessionData, bool) {
@@ -483,6 +493,13 @@ func writeJSONSuccess(w http.ResponseWriter, data interface{}) {
 		"success": true,
 		"data":    data,
 	})
+}
+
+func sessionCookieMaxAge(ttl time.Duration) int {
+	if ttl <= 0 {
+		return 1
+	}
+	return int((ttl + time.Second - 1) / time.Second)
 }
 
 // SessionMiddleware checks for a valid session cookie.

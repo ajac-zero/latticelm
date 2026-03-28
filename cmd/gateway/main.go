@@ -176,13 +176,18 @@ func main() {
 
 	// Initialize OIDC client for UI authentication
 	var oidcClient *auth.OIDCClient
+	var sessionStore *auth.SessionStore
 	if cfg.Auth.Enabled && cfg.UI.Enabled && cfg.Auth.ClientID != "" {
 		if userStore == nil {
 			logger.Error("OIDC authentication requires a database for user management")
 			logger.Error("please set DATABASE_URL and enable conversations")
 			os.Exit(1)
 		}
-		sessionStore := auth.NewSessionStore(24 * time.Hour)
+		sessionStore, err = initSessionStore(cfg.Session, logger)
+		if err != nil {
+			logger.Error("failed to initialize session store", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
 		oidcClientConfig := auth.OIDCClientConfig{
 			Issuer:       cfg.Auth.Issuer,
 			DiscoveryURL: cfg.Auth.DiscoveryURL,
@@ -610,6 +615,14 @@ func main() {
 			logger.Error("error closing conversation store", slog.String("error", err.Error()))
 		}
 
+		// Close session store
+		if sessionStore != nil {
+			logger.Info("closing session store")
+			if err := sessionStore.Close(); err != nil {
+				logger.Error("error closing session store", slog.String("error", err.Error()))
+			}
+		}
+
 		// Close config store DB connection if DB-backed config is in use
 		if configStore != nil {
 			if err := configStore.Close(); err != nil {
@@ -808,6 +821,50 @@ func initConversationStore(cfg config.ConversationConfig, logger *slog.Logger) (
 		slog.Duration("conn_max_idle_time", connMaxIdleTime),
 	)
 	return store, "sql", nil
+}
+
+func initSessionStore(cfg config.SessionConfig, logger *slog.Logger) (*auth.SessionStore, error) {
+	var ttl time.Duration = 24 * time.Hour
+	if cfg.TTL != "" {
+		parsed, err := time.ParseDuration(cfg.TTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid session ttl %q: %w", cfg.TTL, err)
+		}
+		ttl = parsed
+	}
+
+	// Use Redis backend if configured
+	if cfg.RedisURL != "" {
+		opts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse session redis URL: %w", err)
+		}
+		client := redis.NewClient(opts)
+
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer pingCancel()
+		if err := client.Ping(pingCtx).Err(); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("ping session redis: %w", err)
+		}
+
+		backend := auth.NewRedisSessionBackend(client)
+		store := auth.NewSessionStore(ttl, backend)
+		logger.Info("session store initialized",
+			slog.String("backend", "redis"),
+			slog.Duration("ttl", ttl),
+		)
+		return store, nil
+	}
+
+	// Default to in-memory backend
+	store := auth.NewSessionStore(ttl, nil)
+	logger.Info("session store initialized",
+		slog.String("backend", "memory"),
+		slog.Duration("ttl", ttl),
+		slog.String("warning", "in-memory sessions do not work with multiple replicas"),
+	)
+	return store, nil
 }
 
 type responseWriter struct {
