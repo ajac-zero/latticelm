@@ -34,7 +34,7 @@ type ListResult struct {
 // Store defines the interface for conversation storage backends.
 type Store interface {
 	Get(ctx context.Context, id string) (*Conversation, error)
-	Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo, request *api.ResponseRequest) (*Conversation, error)
+	Create(ctx context.Context, id string, model string, messages []api.Message, owner OwnerInfo, request *api.ResponseRequest, replayState *api.ReplayState) (*Conversation, error)
 	Append(ctx context.Context, id string, messages ...api.Message) (*Conversation, error)
 	Delete(ctx context.Context, id string) error
 	Size() int
@@ -46,6 +46,7 @@ type Store interface {
 type Conversation struct {
 	ID        string
 	Messages  []api.Message
+	Replay    *api.ReplayState
 	Model     string
 	Request   *api.ResponseRequest
 	OwnerIss  string

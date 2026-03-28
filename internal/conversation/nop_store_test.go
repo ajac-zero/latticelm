@@ -19,7 +19,7 @@ func TestNopStore_Get(t *testing.T) {
 func TestNopStore_Create(t *testing.T) {
 	store := NewNopStore()
 	msgs := []api.Message{{Role: "user", Content: []api.ContentBlock{{Type: "input_text", Text: "hi"}}}}
-	conv, err := store.Create(context.Background(), "id", "model", msgs, OwnerInfo{}, nil)
+	conv, err := store.Create(context.Background(), "id", "model", msgs, OwnerInfo{}, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, conv)
 }

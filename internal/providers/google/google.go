@@ -412,6 +412,8 @@ func buildGeminiTextParts(blocks []api.ContentBlock, role string) ([]*genai.Part
 				return nil, fmt.Errorf("build video part: %w", err)
 			}
 			parts = append(parts, videoPart)
+		case "encrypted_reasoning":
+			continue
 		default:
 			return nil, fmt.Errorf("%s messages do not support %q content in the Google provider", role, block.Type)
 		}
@@ -554,6 +556,9 @@ func buildGeminiToolResponse(blocks []api.ContentBlock) (map[string]any, error) 
 
 	content := make([]map[string]any, 0, len(blocks))
 	for _, block := range blocks {
+		if block.Type == "encrypted_reasoning" {
+			continue
+		}
 		text, ok := block.TextValue()
 		if !ok {
 			return nil, fmt.Errorf("tool results only support text content in the Google provider; found %q", block.Type)

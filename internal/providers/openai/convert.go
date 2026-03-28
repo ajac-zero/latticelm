@@ -166,9 +166,14 @@ func buildOAIAssistantContent(blocks []api.ContentBlock) (openai.ChatCompletionA
 			parts = append(parts, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
 				OfRefusal: &openai.ChatCompletionContentPartRefusalParam{Refusal: block.Refusal},
 			})
+		case "encrypted_reasoning":
+			continue
 		default:
 			return openai.ChatCompletionAssistantMessageParamContentUnion{}, false, fmt.Errorf("unsupported assistant content block type %q", block.Type)
 		}
+	}
+	if len(parts) == 0 {
+		return openai.ChatCompletionAssistantMessageParamContentUnion{}, false, nil
 	}
 
 	if len(parts) == 1 && textOnly && parts[0].OfText != nil {
@@ -230,6 +235,9 @@ func buildOAIToolContent(blocks []api.ContentBlock) (openai.ChatCompletionToolMe
 func buildOAITextOnlyParts(blocks []api.ContentBlock, role string) ([]openai.ChatCompletionContentPartTextParam, error) {
 	parts := make([]openai.ChatCompletionContentPartTextParam, 0, len(blocks))
 	for _, block := range blocks {
+		if block.Type == "encrypted_reasoning" {
+			continue
+		}
 		text, ok := block.TextValue()
 		if !ok || block.Type == "refusal" {
 			return nil, fmt.Errorf("%s messages only support text content; found %q", role, block.Type)
