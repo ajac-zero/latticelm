@@ -25,20 +25,23 @@ func sanitizeToolCallID(id string) string {
 // Any tool call IDs longer than maxToolCallIDLen are truncated consistently across
 // assistant tool_calls and the corresponding tool result messages so that the
 // conversation remains coherent when sent to OpenAI / Azure OpenAI.
-func buildOAIMessages(messages []api.Message) []openai.ChatCompletionMessageParamUnion {
+func buildOAIMessages(messages []api.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
 	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 	for _, msg := range messages {
-		var content string
-		for _, block := range msg.Content {
-			if block.Type == "input_text" || block.Type == "output_text" {
-				content += block.Text
-			}
-		}
-
 		switch msg.Role {
 		case "user":
-			oaiMessages = append(oaiMessages, openai.UserMessage(content))
+			content, err := buildOAIUserContent(msg.Content)
+			if err != nil {
+				return nil, fmt.Errorf("convert user message: %w", err)
+			}
+			oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+				OfUser: &openai.ChatCompletionUserMessageParam{Content: content},
+			})
 		case "assistant":
+			content, hasContent, err := buildOAIAssistantContent(msg.Content)
+			if err != nil {
+				return nil, fmt.Errorf("convert assistant message: %w", err)
+			}
 			if len(msg.ToolCalls) > 0 {
 				toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, len(msg.ToolCalls))
 				for i, tc := range msg.ToolCalls {
@@ -55,24 +58,184 @@ func buildOAIMessages(messages []api.Message) []openai.ChatCompletionMessagePara
 				msgParam := openai.ChatCompletionAssistantMessageParam{
 					ToolCalls: toolCalls,
 				}
-				if content != "" {
-					msgParam.Content.OfString = openai.String(content)
+				if hasContent {
+					msgParam.Content = content
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
 					OfAssistant: &msgParam,
 				})
 			} else {
-				oaiMessages = append(oaiMessages, openai.AssistantMessage(content))
+				if !hasContent {
+					content.OfString = openai.String("")
+				}
+				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+					OfAssistant: &openai.ChatCompletionAssistantMessageParam{Content: content},
+				})
 			}
 		case "system":
-			oaiMessages = append(oaiMessages, openai.SystemMessage(content))
+			content, err := buildOAISystemContent(msg.Content)
+			if err != nil {
+				return nil, fmt.Errorf("convert system message: %w", err)
+			}
+			oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+				OfSystem: &openai.ChatCompletionSystemMessageParam{Content: content},
+			})
 		case "developer":
-			oaiMessages = append(oaiMessages, openai.SystemMessage(content))
+			content, err := buildOAIDeveloperContent(msg.Content)
+			if err != nil {
+				return nil, fmt.Errorf("convert developer message: %w", err)
+			}
+			oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+				OfDeveloper: &openai.ChatCompletionDeveloperMessageParam{Content: content},
+			})
 		case "tool":
-			oaiMessages = append(oaiMessages, openai.ToolMessage(content, sanitizeToolCallID(msg.CallID)))
+			content, err := buildOAIToolContent(msg.Content)
+			if err != nil {
+				return nil, fmt.Errorf("convert tool message: %w", err)
+			}
+			oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{
+				OfTool: &openai.ChatCompletionToolMessageParam{
+					Content:    content,
+					ToolCallID: sanitizeToolCallID(msg.CallID),
+				},
+			})
 		}
 	}
-	return oaiMessages
+	return oaiMessages, nil
+}
+
+func buildOAIUserContent(blocks []api.ContentBlock) (openai.ChatCompletionUserMessageParamContentUnion, error) {
+	textParts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(blocks))
+	textOnly := true
+
+	for _, block := range blocks {
+		switch block.Type {
+		case "text", "input_text", "output_text":
+			textParts = append(textParts, openai.TextContentPart(block.Text))
+		case "input_image":
+			textOnly = false
+			textParts = append(textParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+				URL:    block.ImageURL,
+				Detail: block.Detail,
+			}))
+		case "input_file":
+			textOnly = false
+			if block.FileURL != "" {
+				return openai.ChatCompletionUserMessageParamContentUnion{}, fmt.Errorf("input_file with file_url is not supported by OpenAI chat completions")
+			}
+			textParts = append(textParts, openai.FileContentPart(openai.ChatCompletionContentPartFileFileParam{
+				FileData: openai.String(block.FileData),
+				Filename: openai.String(block.Filename),
+			}))
+		case "input_video":
+			return openai.ChatCompletionUserMessageParamContentUnion{}, fmt.Errorf("input_video is not supported by OpenAI chat completions")
+		case "refusal":
+			return openai.ChatCompletionUserMessageParamContentUnion{}, fmt.Errorf("refusal content is not valid in user messages")
+		default:
+			return openai.ChatCompletionUserMessageParamContentUnion{}, fmt.Errorf("unsupported user content block type %q", block.Type)
+		}
+	}
+
+	if len(textParts) == 1 && textOnly && textParts[0].OfText != nil {
+		return openai.ChatCompletionUserMessageParamContentUnion{
+			OfString: openai.String(textParts[0].OfText.Text),
+		}, nil
+	}
+
+	return openai.ChatCompletionUserMessageParamContentUnion{
+		OfArrayOfContentParts: textParts,
+	}, nil
+}
+
+func buildOAIAssistantContent(blocks []api.ContentBlock) (openai.ChatCompletionAssistantMessageParamContentUnion, bool, error) {
+	if len(blocks) == 0 {
+		return openai.ChatCompletionAssistantMessageParamContentUnion{}, false, nil
+	}
+
+	parts := make([]openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion, 0, len(blocks))
+	textOnly := true
+	for _, block := range blocks {
+		switch block.Type {
+		case "text", "input_text", "output_text":
+			parts = append(parts, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
+				OfText: &openai.ChatCompletionContentPartTextParam{Text: block.Text},
+			})
+		case "refusal":
+			textOnly = false
+			parts = append(parts, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
+				OfRefusal: &openai.ChatCompletionContentPartRefusalParam{Refusal: block.Refusal},
+			})
+		default:
+			return openai.ChatCompletionAssistantMessageParamContentUnion{}, false, fmt.Errorf("unsupported assistant content block type %q", block.Type)
+		}
+	}
+
+	if len(parts) == 1 && textOnly && parts[0].OfText != nil {
+		return openai.ChatCompletionAssistantMessageParamContentUnion{
+			OfString: openai.String(parts[0].OfText.Text),
+		}, true, nil
+	}
+
+	return openai.ChatCompletionAssistantMessageParamContentUnion{
+		OfArrayOfContentParts: parts,
+	}, true, nil
+}
+
+func buildOAISystemContent(blocks []api.ContentBlock) (openai.ChatCompletionSystemMessageParamContentUnion, error) {
+	parts, err := buildOAITextOnlyParts(blocks, "system")
+	if err != nil {
+		return openai.ChatCompletionSystemMessageParamContentUnion{}, err
+	}
+	if len(parts) == 1 {
+		return openai.ChatCompletionSystemMessageParamContentUnion{
+			OfString: openai.String(parts[0].Text),
+		}, nil
+	}
+	return openai.ChatCompletionSystemMessageParamContentUnion{
+		OfArrayOfContentParts: parts,
+	}, nil
+}
+
+func buildOAIDeveloperContent(blocks []api.ContentBlock) (openai.ChatCompletionDeveloperMessageParamContentUnion, error) {
+	parts, err := buildOAITextOnlyParts(blocks, "developer")
+	if err != nil {
+		return openai.ChatCompletionDeveloperMessageParamContentUnion{}, err
+	}
+	if len(parts) == 1 {
+		return openai.ChatCompletionDeveloperMessageParamContentUnion{
+			OfString: openai.String(parts[0].Text),
+		}, nil
+	}
+	return openai.ChatCompletionDeveloperMessageParamContentUnion{
+		OfArrayOfContentParts: parts,
+	}, nil
+}
+
+func buildOAIToolContent(blocks []api.ContentBlock) (openai.ChatCompletionToolMessageParamContentUnion, error) {
+	parts, err := buildOAITextOnlyParts(blocks, "tool")
+	if err != nil {
+		return openai.ChatCompletionToolMessageParamContentUnion{}, err
+	}
+	if len(parts) == 1 {
+		return openai.ChatCompletionToolMessageParamContentUnion{
+			OfString: openai.String(parts[0].Text),
+		}, nil
+	}
+	return openai.ChatCompletionToolMessageParamContentUnion{
+		OfArrayOfContentParts: parts,
+	}, nil
+}
+
+func buildOAITextOnlyParts(blocks []api.ContentBlock, role string) ([]openai.ChatCompletionContentPartTextParam, error) {
+	parts := make([]openai.ChatCompletionContentPartTextParam, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok || block.Type == "refusal" {
+			return nil, fmt.Errorf("%s messages only support text content; found %q", role, block.Type)
+		}
+		parts = append(parts, openai.ChatCompletionContentPartTextParam{Text: text})
+	}
+	return parts, nil
 }
 
 // parseTools converts Open Responses tools to OpenAI format

@@ -73,7 +73,10 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 
 	model := req.Model
 
-	contents, systemText := convertMessages(messages)
+	contents, systemInstruction, err := convertMessages(messages)
+	if err != nil {
+		return nil, fmt.Errorf("convert messages: %w", err)
+	}
 
 	// Parse tools if present
 	var tools []*genai.Tool
@@ -95,7 +98,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		}
 	}
 
-	config := buildConfig(systemText, req, tools, toolConfig)
+	config := buildConfig(systemInstruction, req, tools, toolConfig)
 
 	resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
@@ -151,7 +154,11 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 
 		model := req.Model
 
-		contents, systemText := convertMessages(messages)
+		contents, systemInstruction, err := convertMessages(messages)
+		if err != nil {
+			errChan <- fmt.Errorf("convert messages: %w", err)
+			return
+		}
 
 		// Parse tools if present
 		var tools []*genai.Tool
@@ -175,7 +182,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			}
 		}
 
-		config := buildConfig(systemText, req, tools, toolConfig)
+		config := buildConfig(systemInstruction, req, tools, toolConfig)
 
 		stream := p.client.Models.GenerateContentStream(ctx, model, contents, config)
 
@@ -236,10 +243,10 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 	return deltaChan, errChan
 }
 
-// convertMessages splits messages into Gemini contents and system text.
-func convertMessages(messages []api.Message) ([]*genai.Content, string) {
+// convertMessages splits messages into Gemini contents and system instructions.
+func convertMessages(messages []api.Message) ([]*genai.Content, *genai.Content, error) {
 	var contents []*genai.Content
-	var systemText string
+	var systemParts []*genai.Part
 
 	// Build a map of CallID -> Name from assistant tool calls
 	// This allows us to look up function names when processing tool results
@@ -256,28 +263,18 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 
 	for _, msg := range messages {
 		if msg.Role == "system" || msg.Role == "developer" {
-			for _, block := range msg.Content {
-				if block.Type == "input_text" || block.Type == "output_text" {
-					systemText += block.Text
-				}
+			parts, err := buildGeminiTextParts(msg.Content, msg.Role)
+			if err != nil {
+				return nil, nil, err
 			}
+			systemParts = append(systemParts, parts...)
 			continue
 		}
 
 		if msg.Role == "tool" {
-			// Tool results are sent as FunctionResponse in user role message
-			var output string
-			for _, block := range msg.Content {
-				if block.Type == "input_text" || block.Type == "output_text" {
-					output += block.Text
-				}
-			}
-
-			// Parse output as JSON map, or wrap in {"output": "..."} if not JSON
-			var responseMap map[string]any
-			if err := json.Unmarshal([]byte(output), &responseMap); err != nil {
-				// Not JSON, wrap it
-				responseMap = map[string]any{"output": output}
+			responseMap, err := buildGeminiToolResponse(msg.Content)
+			if err != nil {
+				return nil, nil, err
 			}
 
 			// Get function name from message or look it up from CallID
@@ -303,11 +300,9 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 			continue
 		}
 
-		var parts []*genai.Part
-		for _, block := range msg.Content {
-			if block.Type == "input_text" || block.Type == "output_text" {
-				parts = append(parts, genai.NewPartFromText(block.Text))
-			}
+		parts, err := buildGeminiTextParts(msg.Content, msg.Role)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		// Add tool calls for assistant messages
@@ -342,24 +337,27 @@ func convertMessages(messages []api.Message) ([]*genai.Content, string) {
 		})
 	}
 
-	return contents, systemText
+	var systemInstruction *genai.Content
+	if len(systemParts) > 0 {
+		systemInstruction = &genai.Content{Parts: systemParts}
+	}
+
+	return contents, systemInstruction, nil
 }
 
-// buildConfig constructs a GenerateContentConfig from system text and request params.
-func buildConfig(systemText string, req *api.ResponseRequest, tools []*genai.Tool, toolConfig *genai.ToolConfig) *genai.GenerateContentConfig {
+// buildConfig constructs a GenerateContentConfig from system instructions and request params.
+func buildConfig(systemInstruction *genai.Content, req *api.ResponseRequest, tools []*genai.Tool, toolConfig *genai.ToolConfig) *genai.GenerateContentConfig {
 	var cfg *genai.GenerateContentConfig
 
-	needsCfg := systemText != "" || req.MaxOutputTokens != nil || req.Temperature != nil || req.TopP != nil || tools != nil || toolConfig != nil
+	needsCfg := systemInstruction != nil || req.MaxOutputTokens != nil || req.Temperature != nil || req.TopP != nil || tools != nil || toolConfig != nil
 	if !needsCfg {
 		return nil
 	}
 
 	cfg = &genai.GenerateContentConfig{}
 
-	if systemText != "" {
-		cfg.SystemInstruction = &genai.Content{
-			Parts: []*genai.Part{genai.NewPartFromText(systemText)},
-		}
+	if systemInstruction != nil {
+		cfg.SystemInstruction = systemInstruction
 	}
 
 	if req.MaxOutputTokens != nil {
@@ -385,6 +383,46 @@ func buildConfig(systemText string, req *api.ResponseRequest, tools []*genai.Too
 	}
 
 	return cfg
+}
+
+func buildGeminiTextParts(blocks []api.ContentBlock, role string) ([]*genai.Part, error) {
+	parts := make([]*genai.Part, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok {
+			return nil, fmt.Errorf("%s messages only support text content in the Google provider; found %q", role, block.Type)
+		}
+		parts = append(parts, genai.NewPartFromText(text))
+	}
+	return parts, nil
+}
+
+func buildGeminiToolResponse(blocks []api.ContentBlock) (map[string]any, error) {
+	if len(blocks) == 1 {
+		if text, ok := blocks[0].TextValue(); ok && blocks[0].Type != "refusal" {
+			var responseMap map[string]any
+			if err := json.Unmarshal([]byte(text), &responseMap); err == nil {
+				return responseMap, nil
+			}
+			return map[string]any{"output": text}, nil
+		}
+	}
+
+	content := make([]map[string]any, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok {
+			return nil, fmt.Errorf("tool results only support text content in the Google provider; found %q", block.Type)
+		}
+		entry := map[string]any{"type": block.Type}
+		if block.Type == "refusal" {
+			entry["refusal"] = text
+		} else {
+			entry["text"] = text
+		}
+		content = append(content, entry)
+	}
+	return map[string]any{"content": content}, nil
 }
 
 func chooseModel(requested, defaultModel string) string {

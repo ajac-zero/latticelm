@@ -244,7 +244,8 @@ func TestBuildOAIMessages_SanitizesLongToolCallIDs(t *testing.T) {
 		},
 	}
 
-	oaiMessages := buildOAIMessages(messages)
+	oaiMessages, err := buildOAIMessages(messages)
+	require.NoError(t, err)
 	require.Len(t, oaiMessages, 2)
 
 	assistantMsg := oaiMessages[0].OfAssistant
@@ -255,6 +256,75 @@ func TestBuildOAIMessages_SanitizesLongToolCallIDs(t *testing.T) {
 	toolMsg := oaiMessages[1].OfTool
 	require.NotNil(t, toolMsg)
 	assert.Equal(t, longID[:40], toolMsg.ToolCallID)
+}
+
+func TestBuildOAIMessages_PreservesUserContentParts(t *testing.T) {
+	messages := []api.Message{
+		{
+			Role: "user",
+			Content: []api.ContentBlock{
+				{Type: "input_text", Text: "Describe this image:"},
+				{Type: "input_image", ImageURL: "https://example.com/image.png", Detail: "high"},
+				{Type: "input_text", Text: "Be concise."},
+			},
+		},
+	}
+
+	oaiMessages, err := buildOAIMessages(messages)
+	require.NoError(t, err)
+	require.Len(t, oaiMessages, 1)
+
+	userMsg := oaiMessages[0].OfUser
+	require.NotNil(t, userMsg)
+	require.Len(t, userMsg.Content.OfArrayOfContentParts, 3)
+	assert.Equal(t, "Describe this image:", userMsg.Content.OfArrayOfContentParts[0].OfText.Text)
+	assert.Equal(t, "https://example.com/image.png", userMsg.Content.OfArrayOfContentParts[1].OfImageURL.ImageURL.URL)
+	assert.Equal(t, "Be concise.", userMsg.Content.OfArrayOfContentParts[2].OfText.Text)
+}
+
+func TestBuildOAIMessages_PreservesAssistantContentParts(t *testing.T) {
+	messages := []api.Message{
+		{
+			Role: "assistant",
+			Content: []api.ContentBlock{
+				{Type: "output_text", Text: "I can't help with that."},
+				{Type: "refusal", Refusal: "This request violates policy."},
+			},
+		},
+	}
+
+	oaiMessages, err := buildOAIMessages(messages)
+	require.NoError(t, err)
+	require.Len(t, oaiMessages, 1)
+
+	assistantMsg := oaiMessages[0].OfAssistant
+	require.NotNil(t, assistantMsg)
+	require.Len(t, assistantMsg.Content.OfArrayOfContentParts, 2)
+	assert.Equal(t, "I can't help with that.", assistantMsg.Content.OfArrayOfContentParts[0].OfText.Text)
+	assert.Equal(t, "This request violates policy.", assistantMsg.Content.OfArrayOfContentParts[1].OfRefusal.Refusal)
+}
+
+func TestBuildOAIMessages_PreservesToolTextParts(t *testing.T) {
+	messages := []api.Message{
+		{
+			Role:   "tool",
+			CallID: "call_123",
+			Content: []api.ContentBlock{
+				{Type: "input_text", Text: "line 1"},
+				{Type: "input_text", Text: "line 2"},
+			},
+		},
+	}
+
+	oaiMessages, err := buildOAIMessages(messages)
+	require.NoError(t, err)
+	require.Len(t, oaiMessages, 1)
+
+	toolMsg := oaiMessages[0].OfTool
+	require.NotNil(t, toolMsg)
+	require.Len(t, toolMsg.Content.OfArrayOfContentParts, 2)
+	assert.Equal(t, "line 1", toolMsg.Content.OfArrayOfContentParts[0].Text)
+	assert.Equal(t, "line 2", toolMsg.Content.OfArrayOfContentParts[1].Text)
 }
 
 func TestExtractToolCalls(t *testing.T) {
