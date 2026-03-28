@@ -138,29 +138,29 @@ type ServerConfig struct {
 
 // CircuitBreakerEntry holds circuit breaker configuration overrides for a provider.
 type CircuitBreakerEntry struct {
-	MaxRequests  uint32  `json:"max_requests,omitempty"`
-	Interval     string  `json:"interval,omitempty"`
-	Timeout      string  `json:"timeout,omitempty"`
-	MinRequests  uint32  `json:"min_requests,omitempty"`
-	FailureRatio float64 `json:"failure_ratio,omitempty"`
+	MaxRequests  uint32  `json:"max_requests,omitempty"  yaml:"max_requests,omitempty"`
+	Interval     string  `json:"interval,omitempty"      yaml:"interval,omitempty"`
+	Timeout      string  `json:"timeout,omitempty"       yaml:"timeout,omitempty"`
+	MinRequests  uint32  `json:"min_requests,omitempty"  yaml:"min_requests,omitempty"`
+	FailureRatio float64 `json:"failure_ratio,omitempty" yaml:"failure_ratio,omitempty"`
 }
 
 // ProviderEntry defines a named provider instance.
 type ProviderEntry struct {
-	Type           string               `json:"type"`
-	APIKey         string               `json:"api_key,omitempty"`
-	Endpoint       string               `json:"endpoint,omitempty"`
-	APIVersion     string               `json:"api_version,omitempty"`
-	Project        string               `json:"project,omitempty"`
-	Location       string               `json:"location,omitempty"`
-	CircuitBreaker *CircuitBreakerEntry `json:"circuit_breaker,omitempty"`
+	Type           string               `json:"type"                      yaml:"type"`
+	APIKey         string               `json:"api_key,omitempty"         yaml:"api_key,omitempty"`
+	Endpoint       string               `json:"endpoint,omitempty"        yaml:"endpoint,omitempty"`
+	APIVersion     string               `json:"api_version,omitempty"     yaml:"api_version,omitempty"`
+	Project        string               `json:"project,omitempty"         yaml:"project,omitempty"`
+	Location       string               `json:"location,omitempty"        yaml:"location,omitempty"`
+	CircuitBreaker *CircuitBreakerEntry `json:"circuit_breaker,omitempty" yaml:"circuit_breaker,omitempty"`
 }
 
 // ModelEntry maps a model name to a provider.
 type ModelEntry struct {
-	Name            string `json:"name"`
-	Provider        string `json:"provider"`
-	ProviderModelID string `json:"provider_model_id,omitempty"`
+	Name            string `json:"name"                       yaml:"name"`
+	Provider        string `json:"provider"                   yaml:"provider"`
+	ProviderModelID string `json:"provider_model_id,omitempty" yaml:"provider_model_id,omitempty"`
 }
 
 // ProviderConfig contains shared provider configuration fields used internally by providers.
@@ -190,8 +190,9 @@ type VertexAIConfig struct {
 	Location string
 }
 
-// LoadFromEnv builds a Config entirely from environment variables.
-// Providers and models are not set here — they come from the DB store.
+// LoadFromEnv builds a Config from environment variables.
+// Providers and Models are not populated here; they require a database-backed
+// config store (DATABASE_URL + ENCRYPTION_KEY) and are loaded by loadConfig in main.
 func LoadFromEnv() (*Config, error) {
 	var cfg Config
 	if err := applyEnvOverrides(&cfg); err != nil {
@@ -204,8 +205,7 @@ func LoadFromEnv() (*Config, error) {
 }
 
 // Validate checks that all model entries reference a known, correctly
-// configured provider. Call this after populating Providers and Models
-// from the DB store.
+// configured provider.
 func (cfg *Config) Validate() error {
 	for _, m := range cfg.Models {
 		providerEntry, ok := cfg.Providers[m.Provider]

@@ -7,9 +7,8 @@ import (
 	"os"
 )
 
-// applyEnvOverrides reads well-known environment variables and overrides the
-// corresponding fields in cfg. Env vars always take precedence over values
-// loaded from the config file or GATEWAY_CONFIG. Unset vars are ignored.
+// applyEnvOverrides reads well-known environment variables and populates cfg.
+// Unset vars are ignored.
 //
 // Naming convention: field path in SCREAMING_SNAKE_CASE.
 // Lists (slices) are comma-separated strings.
