@@ -159,6 +159,7 @@ func (s *Store) SeedIfEmpty(ctx context.Context, providers map[string]ProviderEn
 	sort.Strings(providerNames)
 	for _, name := range providerNames {
 		entry := providers[name]
+		// #nosec G117 - Data is encrypted via encryptBlob() before storage, so the marshaled API key is never exposed.
 		data, err := json.Marshal(entry)
 		if err != nil {
 			return fmt.Errorf("marshal provider %q seed config: %w", name, err)
