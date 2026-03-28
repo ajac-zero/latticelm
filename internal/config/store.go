@@ -121,6 +121,79 @@ func (s *Store) IsSeeded(ctx context.Context) (bool, error) {
 	return exists, err
 }
 
+// SeedIfEmpty inserts providers and models only when the store does not yet
+// contain any providers. The existence check and seed happen in one
+// transaction so concurrent startups cannot double-seed.
+func (s *Store) SeedIfEmpty(ctx context.Context, providers map[string]ProviderEntry, models []ModelEntry) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin seed transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE providers IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return fmt.Errorf("lock providers for seed: %w", err)
+	}
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM providers)`).Scan(&exists); err != nil {
+		return fmt.Errorf("check providers for seed: %w", err)
+	}
+	if exists {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit empty seed transaction: %w", err)
+		}
+		committed = true
+		return nil
+	}
+
+	providerNames := make([]string, 0, len(providers))
+	for name := range providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+	for _, name := range providerNames {
+		entry := providers[name]
+		// #nosec G117 - Data is encrypted via encryptBlob() before storage, so the marshaled API key is never exposed.
+		data, err := json.Marshal(entry)
+		if err != nil {
+			return fmt.Errorf("marshal provider %q seed config: %w", name, err)
+		}
+		encConfig, err := s.encryptBlob(data)
+		if err != nil {
+			return fmt.Errorf("encrypt provider %q seed config: %w", name, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO providers (name, type, config, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+			ON CONFLICT (name) DO UPDATE SET type = EXCLUDED.type, config = EXCLUDED.config, updated_at = NOW()
+		`, name, entry.Type, encConfig); err != nil {
+			return fmt.Errorf("seed provider %q: %w", name, err)
+		}
+	}
+
+	for _, m := range models {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO models (name, provider, provider_model_id, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+			ON CONFLICT (name) DO UPDATE SET provider = EXCLUDED.provider, provider_model_id = EXCLUDED.provider_model_id, updated_at = NOW()
+		`, m.Name, m.Provider, m.ProviderModelID); err != nil {
+			return fmt.Errorf("seed model %q: %w", m.Name, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit seed transaction: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 // Seed inserts providers and models from a seed config. Existing rows are
 // overwritten via upsert.
 func (s *Store) Seed(ctx context.Context, providers map[string]ProviderEntry, models []ModelEntry) error {
