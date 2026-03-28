@@ -69,47 +69,9 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		return nil, fmt.Errorf("anthropic client not initialized")
 	}
 
-	// Convert messages to Anthropic format
-	anthropicMsgs := make([]anthropic.MessageParam, 0, len(messages))
-	var system string
-
-	for _, msg := range messages {
-		var content string
-		for _, block := range msg.Content {
-			if block.Type == "input_text" || block.Type == "output_text" {
-				content += block.Text
-			}
-		}
-
-		switch msg.Role {
-		case "user":
-			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
-		case "assistant":
-			// Build content blocks including text and tool calls
-			var contentBlocks []anthropic.ContentBlockParamUnion
-			if content != "" {
-				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(content))
-			}
-			// Add tool use blocks
-			for _, tc := range msg.ToolCalls {
-				var input map[string]interface{}
-				if err := json.Unmarshal([]byte(tc.Arguments), &input); err != nil {
-					// If unmarshal fails, skip this tool call
-					continue
-				}
-				contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
-			}
-			if len(contentBlocks) > 0 {
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(contentBlocks...))
-			}
-		case "tool":
-			// Tool results must be in user message with tool_result blocks
-			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
-				anthropic.NewToolResultBlock(msg.CallID, content, false),
-			))
-		case "system", "developer":
-			system = content
-		}
+	anthropicMsgs, systemBlocks, err := buildAnthropicMessages(messages)
+	if err != nil {
+		return nil, fmt.Errorf("convert messages: %w", err)
 	}
 
 	// Build request params
@@ -124,10 +86,7 @@ func (p *Provider) Generate(ctx context.Context, messages []api.Message, req *ap
 		MaxTokens: maxTokens,
 	}
 
-	if system != "" {
-		systemBlocks := []anthropic.TextBlockParam{
-			{Text: system, Type: "text"},
-		}
+	if len(systemBlocks) > 0 {
 		params.System = systemBlocks
 	}
 
@@ -213,47 +172,10 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			return
 		}
 
-		// Convert messages to Anthropic format
-		anthropicMsgs := make([]anthropic.MessageParam, 0, len(messages))
-		var system string
-
-		for _, msg := range messages {
-			var content string
-			for _, block := range msg.Content {
-				if block.Type == "input_text" || block.Type == "output_text" {
-					content += block.Text
-				}
-			}
-
-			switch msg.Role {
-			case "user":
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(anthropic.NewTextBlock(content)))
-			case "assistant":
-				// Build content blocks including text and tool calls
-				var contentBlocks []anthropic.ContentBlockParamUnion
-				if content != "" {
-					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(content))
-				}
-				// Add tool use blocks
-				for _, tc := range msg.ToolCalls {
-					var input map[string]interface{}
-					if err := json.Unmarshal([]byte(tc.Arguments), &input); err != nil {
-						// If unmarshal fails, skip this tool call
-						continue
-					}
-					contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
-				}
-				if len(contentBlocks) > 0 {
-					anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(contentBlocks...))
-				}
-			case "tool":
-				// Tool results must be in user message with tool_result blocks
-				anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
-					anthropic.NewToolResultBlock(msg.CallID, content, false),
-				))
-			case "system", "developer":
-				system = content
-			}
+		anthropicMsgs, systemBlocks, err := buildAnthropicMessages(messages)
+		if err != nil {
+			errChan <- fmt.Errorf("convert messages: %w", err)
+			return
 		}
 
 		// Build params
@@ -268,10 +190,7 @@ func (p *Provider) GenerateStream(ctx context.Context, messages []api.Message, r
 			MaxTokens: maxTokens,
 		}
 
-		if system != "" {
-			systemBlocks := []anthropic.TextBlockParam{
-				{Text: system, Type: "text"},
-			}
+		if len(systemBlocks) > 0 {
 			params.System = systemBlocks
 		}
 
@@ -395,4 +314,102 @@ func chooseModel(requested, defaultModel string) string {
 		return defaultModel
 	}
 	return "claude-3-5-sonnet"
+}
+
+func buildAnthropicMessages(messages []api.Message) ([]anthropic.MessageParam, []anthropic.TextBlockParam, error) {
+	anthropicMsgs := make([]anthropic.MessageParam, 0, len(messages))
+	systemBlocks := make([]anthropic.TextBlockParam, 0)
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			blocks, err := buildAnthropicTextBlocks(msg.Content, msg.Role)
+			if err != nil {
+				return nil, nil, err
+			}
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(blocks...))
+		case "assistant":
+			blocks, err := buildAnthropicAssistantBlocks(msg.Content, msg.ToolCalls)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(blocks) > 0 {
+				anthropicMsgs = append(anthropicMsgs, anthropic.NewAssistantMessage(blocks...))
+			}
+		case "tool":
+			content, err := buildAnthropicToolResultContent(msg.Content)
+			if err != nil {
+				return nil, nil, err
+			}
+			anthropicMsgs = append(anthropicMsgs, anthropic.NewUserMessage(
+				anthropic.ContentBlockParamUnion{
+					OfToolResult: &anthropic.ToolResultBlockParam{
+						ToolUseID: msg.CallID,
+						Content:   content,
+					},
+				},
+			))
+		case "system", "developer":
+			blocks, err := buildAnthropicSystemBlocks(msg.Content, msg.Role)
+			if err != nil {
+				return nil, nil, err
+			}
+			systemBlocks = append(systemBlocks, blocks...)
+		}
+	}
+
+	return anthropicMsgs, systemBlocks, nil
+}
+
+func buildAnthropicSystemBlocks(blocks []api.ContentBlock, role string) ([]anthropic.TextBlockParam, error) {
+	result := make([]anthropic.TextBlockParam, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok {
+			return nil, fmt.Errorf("%s messages only support text content in the Anthropic provider; found %q", role, block.Type)
+		}
+		result = append(result, anthropic.TextBlockParam{Text: text, Type: "text"})
+	}
+	return result, nil
+}
+
+func buildAnthropicTextBlocks(blocks []api.ContentBlock, role string) ([]anthropic.ContentBlockParamUnion, error) {
+	result := make([]anthropic.ContentBlockParamUnion, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok {
+			return nil, fmt.Errorf("%s messages only support text content in the Anthropic provider; found %q", role, block.Type)
+		}
+		result = append(result, anthropic.NewTextBlock(text))
+	}
+	return result, nil
+}
+
+func buildAnthropicAssistantBlocks(blocks []api.ContentBlock, toolCalls []api.ToolCall) ([]anthropic.ContentBlockParamUnion, error) {
+	contentBlocks, err := buildAnthropicTextBlocks(blocks, "assistant")
+	if err != nil {
+		return nil, err
+	}
+	for _, tc := range toolCalls {
+		var input map[string]interface{}
+		if err := json.Unmarshal([]byte(tc.Arguments), &input); err != nil {
+			continue
+		}
+		contentBlocks = append(contentBlocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
+	}
+	return contentBlocks, nil
+}
+
+func buildAnthropicToolResultContent(blocks []api.ContentBlock) ([]anthropic.ToolResultBlockParamContentUnion, error) {
+	content := make([]anthropic.ToolResultBlockParamContentUnion, 0, len(blocks))
+	for _, block := range blocks {
+		text, ok := block.TextValue()
+		if !ok {
+			return nil, fmt.Errorf("tool results only support text content in the Anthropic provider; found %q", block.Type)
+		}
+		content = append(content, anthropic.ToolResultBlockParamContentUnion{
+			OfText: &anthropic.TextBlockParam{Text: text},
+		})
+	}
+	return content, nil
 }

@@ -84,7 +84,7 @@ type InputItem struct {
 	CallID    string          `json:"call_id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Arguments string          `json:"arguments,omitempty"`
-	Output    string          `json:"output,omitempty"`
+	Output    any             `json:"output,omitempty"`
 	Status    string          `json:"status,omitempty"`
 }
 
@@ -103,8 +103,26 @@ type Message struct {
 
 // ContentBlock is a typed content element.
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Refusal  string `json:"refusal,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	FileData string `json:"file_data,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	VideoURL string `json:"video_url,omitempty"`
+}
+
+func (b ContentBlock) TextValue() (string, bool) {
+	switch b.Type {
+	case "text", "input_text", "output_text":
+		return b.Text, true
+	case "refusal":
+		return b.Refusal, true
+	default:
+		return "", false
+	}
 }
 
 // NormalizeInput converts the request Input into messages for providers.
@@ -113,7 +131,7 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 	if r.Input.String != nil {
 		return []Message{{
 			Role:    "user",
-			Content: []ContentBlock{{Type: "input_text", Text: *r.Input.String}},
+			Content: []ContentBlock{textContentBlock("user", *r.Input.String)},
 		}}
 	}
 
@@ -123,44 +141,7 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 		case "message", "":
 			msg := Message{Role: item.Role}
 			if item.Content != nil {
-				var s string
-				if err := json.Unmarshal(item.Content, &s); err == nil {
-					contentType := "input_text"
-					if item.Role == "assistant" {
-						contentType = "output_text"
-					}
-					msg.Content = []ContentBlock{{Type: contentType, Text: s}}
-				} else {
-					// Content is an array of blocks - parse them
-					var rawBlocks []map[string]interface{}
-					if err := json.Unmarshal(item.Content, &rawBlocks); err == nil {
-						// Extract content blocks and tool calls
-						for _, block := range rawBlocks {
-							blockType, _ := block["type"].(string)
-
-							if blockType == "tool_use" {
-								// Extract tool call information
-								toolCall := ToolCall{
-									ID:   getStringField(block, "id"),
-									Name: getStringField(block, "name"),
-								}
-								// input field contains the arguments as a map
-								if input, ok := block["input"].(map[string]interface{}); ok {
-									if inputJSON, err := json.Marshal(input); err == nil {
-										toolCall.Arguments = string(inputJSON)
-									}
-								}
-								msg.ToolCalls = append(msg.ToolCalls, toolCall)
-							} else if blockType == "output_text" || blockType == "input_text" {
-								// Regular text content block
-								msg.Content = append(msg.Content, ContentBlock{
-									Type: blockType,
-									Text: getStringField(block, "text"),
-								})
-							}
-						}
-					}
-				}
+				msg.Content, msg.ToolCalls = normalizeMessageContent(item.Role, item.Content)
 			}
 			msgs = append(msgs, msg)
 		case "function_call":
@@ -184,7 +165,7 @@ func (r *ResponseRequest) NormalizeInput() []Message {
 		case "function_call_output":
 			msgs = append(msgs, Message{
 				Role:    "tool",
-				Content: []ContentBlock{{Type: "input_text", Text: item.Output}},
+				Content: normalizeToolOutputContent(item.Output),
 				CallID:  item.CallID,
 				Name:    item.Name,
 			})
@@ -392,4 +373,126 @@ func getStringField(m map[string]interface{}, key string) string {
 		return val
 	}
 	return ""
+}
+
+func textContentBlock(role, text string) ContentBlock {
+	contentType := "input_text"
+	if role == "assistant" {
+		contentType = "output_text"
+	}
+	return ContentBlock{
+		Type: contentType,
+		Text: text,
+	}
+}
+
+func normalizeMessageContent(role string, raw json.RawMessage) ([]ContentBlock, []ToolCall) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []ContentBlock{textContentBlock(role, s)}, nil
+	}
+
+	var rawBlocks []map[string]interface{}
+	if err := json.Unmarshal(raw, &rawBlocks); err != nil {
+		return nil, nil
+	}
+
+	content := make([]ContentBlock, 0, len(rawBlocks))
+	toolCalls := make([]ToolCall, 0)
+	for _, block := range rawBlocks {
+		blockType, _ := block["type"].(string)
+
+		if blockType == "tool_use" {
+			toolCall := ToolCall{
+				ID:   getStringField(block, "id"),
+				Name: getStringField(block, "name"),
+			}
+			if input, ok := block["input"].(map[string]interface{}); ok {
+				if inputJSON, err := json.Marshal(input); err == nil {
+					toolCall.Arguments = string(inputJSON)
+				}
+			}
+			toolCalls = append(toolCalls, toolCall)
+			continue
+		}
+
+		if normalized, ok := normalizeContentBlockMap(block); ok {
+			content = append(content, normalized)
+		}
+	}
+
+	return content, toolCalls
+}
+
+func normalizeToolOutputContent(raw any) []ContentBlock {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		return []ContentBlock{{Type: "input_text", Text: v}}
+	case json.RawMessage:
+		return normalizeToolOutputRaw(v)
+	default:
+		rawJSON, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		return normalizeToolOutputRaw(rawJSON)
+	}
+}
+
+func normalizeToolOutputRaw(raw json.RawMessage) []ContentBlock {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []ContentBlock{{Type: "input_text", Text: s}}
+	}
+
+	var rawBlocks []map[string]interface{}
+	if err := json.Unmarshal(raw, &rawBlocks); err != nil {
+		return nil
+	}
+
+	content := make([]ContentBlock, 0, len(rawBlocks))
+	for _, block := range rawBlocks {
+		if normalized, ok := normalizeContentBlockMap(block); ok {
+			content = append(content, normalized)
+		}
+	}
+	return content
+}
+
+func normalizeContentBlockMap(block map[string]interface{}) (ContentBlock, bool) {
+	blockType, _ := block["type"].(string)
+	switch blockType {
+	case "text", "input_text", "output_text":
+		return ContentBlock{
+			Type: blockType,
+			Text: getStringField(block, "text"),
+		}, true
+	case "refusal":
+		return ContentBlock{
+			Type:    blockType,
+			Refusal: getStringField(block, "refusal"),
+		}, true
+	case "input_image":
+		return ContentBlock{
+			Type:     blockType,
+			ImageURL: getStringField(block, "image_url"),
+			Detail:   getStringField(block, "detail"),
+		}, true
+	case "input_file":
+		return ContentBlock{
+			Type:     blockType,
+			FileData: getStringField(block, "file_data"),
+			FileURL:  getStringField(block, "file_url"),
+			Filename: getStringField(block, "filename"),
+		}, true
+	case "input_video":
+		return ContentBlock{
+			Type:     blockType,
+			VideoURL: getStringField(block, "video_url"),
+		}, true
+	default:
+		return ContentBlock{}, false
+	}
 }
