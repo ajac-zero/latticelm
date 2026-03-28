@@ -15,17 +15,15 @@ const OIDCSessionCookieName = "session"
 
 // SessionData holds information about an authenticated user session.
 type SessionData struct {
-	UserID       string    `json:"user_id"`
-	Email        string    `json:"email"`
-	Name         string    `json:"name"`
-	IDToken      string    `json:"id_token"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	IsAdmin      bool      `json:"is_admin"`
-	OwnerIss     string    `json:"owner_iss"` // OIDC issuer for conversation ownership
-	OwnerSub     string    `json:"owner_sub"` // OIDC subject for conversation ownership
-	TenantID     string    `json:"tenant_id"` // Tenant ID for multi-tenancy
+	UserID    string    `json:"user_id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	IDToken   string    `json:"id_token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	IsAdmin   bool      `json:"is_admin"`
+	OwnerIss  string    `json:"owner_iss"` // OIDC issuer for conversation ownership
+	OwnerSub  string    `json:"owner_sub"` // OIDC subject for conversation ownership
+	TenantID  string    `json:"tenant_id"` // Tenant ID for multi-tenancy
 }
 
 // SessionStore manages user sessions with a pluggable backend.
@@ -71,8 +69,6 @@ func (s *SessionStore) Create(data *SessionData) (string, error) {
 
 	data.ExpiresAt = time.Now().Add(s.ttl)
 	storedData := *data
-	storedData.AccessToken = ""
-	storedData.RefreshToken = ""
 
 	// Use backend if configured
 	if s.backend != nil {

@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,58 @@ func TestAuthAPIHandleSessionPrefersOIDCSession(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "oidc@example.com", user["email"])
 	assert.Equal(t, true, user["is_admin"])
+}
+
+func TestAuthAPITokenLoginFailsWhenClearingOIDCSessionFails(t *testing.T) {
+	mockServer := newMockJWKSServer(testPublicKey, testKID)
+	defer mockServer.close()
+
+	middleware, err := New(Config{Enabled: true, Issuer: mockServer.server.URL}, slog.Default())
+	require.NoError(t, err)
+
+	claims := jwt.MapClaims{
+		"iss":   mockServer.server.URL,
+		"sub":   "user-123",
+		"email": "admin@example.com",
+		"name":  "Admin User",
+		"role":  "admin",
+		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+		"iat":   time.Now().Unix(),
+	}
+	token, err := generateTestJWT(testPrivateKey, claims, testKID)
+	require.NoError(t, err)
+
+	body, err := json.Marshal(map[string]string{"token": token})
+	require.NoError(t, err)
+
+	api := NewAPI(true, true, middleware, &OIDCClient{
+		sessionStore: NewSessionStore(time.Hour, failingSessionBackend{deleteErr: errors.New("delete failed")}),
+	}, nil, AdminConfig{})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/token-login", bytes.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: OIDCSessionCookieName, Value: "stale-session"})
+	rec := httptest.NewRecorder()
+
+	api.HandleTokenLogin(rec, req)
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	for _, cookie := range rec.Result().Cookies() {
+		assert.NotEqual(t, SessionCookieName, cookie.Name)
+	}
+}
+
+func TestAuthAPIHandleLogoutFailsWhenClearingOIDCSessionFails(t *testing.T) {
+	api := NewAPI(true, true, nil, &OIDCClient{
+		sessionStore: NewSessionStore(time.Hour, failingSessionBackend{deleteErr: errors.New("delete failed")}),
+	}, nil, AdminConfig{})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: OIDCSessionCookieName, Value: "stale-session"})
+	rec := httptest.NewRecorder()
+
+	api.HandleLogout(rec, req)
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func decodeResponseData(t *testing.T, rec *httptest.ResponseRecorder) map[string]interface{} {

@@ -91,16 +91,14 @@ func TestRedisSessionBackend(t *testing.T) {
 	defer backend.Close()
 
 	data := &SessionData{
-		UserID:       "user-789",
-		Email:        "redis@example.com",
-		Name:         "Redis User",
-		IsAdmin:      false,
-		OwnerIss:     "https://issuer.example.com",
-		OwnerSub:     "oidc-sub-123",
-		TenantID:     "tenant-456",
-		IDToken:      "id-token-value",
-		AccessToken:  "access-token-value",
-		RefreshToken: "refresh-token-value",
+		UserID:   "user-789",
+		Email:    "redis@example.com",
+		Name:     "Redis User",
+		IsAdmin:  false,
+		OwnerIss: "https://issuer.example.com",
+		OwnerSub: "oidc-sub-123",
+		TenantID: "tenant-456",
+		IDToken:  "id-token-value",
 	}
 
 	// Test Create
@@ -187,8 +185,6 @@ func TestSessionStore_WithMemoryBackend(t *testing.T) {
 	assert.True(t, exists)
 	require.NotNil(t, retrieved)
 	assert.Equal(t, "user-123", retrieved.UserID)
-	assert.Empty(t, retrieved.AccessToken)
-	assert.Empty(t, retrieved.RefreshToken)
 
 	// Test Delete
 	store.Delete(sessionID)
@@ -251,6 +247,7 @@ func TestSessionStore_WithNilBackend(t *testing.T) {
 
 	retrieved, exists = store.Get(sessionID)
 	assert.False(t, exists)
+	assert.Nil(t, retrieved)
 }
 
 func TestSessionStore_DeleteWithError(t *testing.T) {

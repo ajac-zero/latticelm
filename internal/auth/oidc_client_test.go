@@ -509,8 +509,7 @@ func TestHandleCallback_HappyPath(t *testing.T) {
 	session, exists := client.sessionStore.Get(sessionCookie.Value)
 	require.True(t, exists)
 	require.NotNil(t, session)
-	assert.Empty(t, session.AccessToken)
-	assert.Empty(t, session.RefreshToken)
+	assert.NotEmpty(t, session.IDToken)
 }
 
 // ---- logout tests ----
