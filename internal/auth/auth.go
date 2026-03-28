@@ -422,7 +422,7 @@ func (m *Middleware) refreshJWKS() error {
 		return err
 	}
 
-	resp, err := m.client.Get(jwksURL)
+	resp, err := m.client.Get(jwksURL) //#nosec G704 -- jwksURL is trusted from OIDC discovery
 	if err != nil {
 		return fmt.Errorf("JWKS fetch failed: %w", err)
 	}
@@ -502,7 +502,7 @@ func (m *Middleware) discoverJWKSURL() (string, error) {
 		discoveryURL = strings.TrimSuffix(m.cfg.Issuer, "/") + "/.well-known/openid-configuration"
 	}
 
-	resp, err := m.client.Get(discoveryURL)
+	resp, err := m.client.Get(discoveryURL) //#nosec G704 -- discoveryURL is constructed from trusted config
 	if err != nil {
 		return "", fmt.Errorf("OIDC discovery request failed: %w", err)
 	}
