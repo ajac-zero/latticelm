@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -376,13 +377,98 @@ func buildAnthropicSystemBlocks(blocks []api.ContentBlock, role string) ([]anthr
 func buildAnthropicTextBlocks(blocks []api.ContentBlock, role string) ([]anthropic.ContentBlockParamUnion, error) {
 	result := make([]anthropic.ContentBlockParamUnion, 0, len(blocks))
 	for _, block := range blocks {
-		text, ok := block.TextValue()
-		if !ok {
-			return nil, fmt.Errorf("%s messages only support text content in the Anthropic provider; found %q", role, block.Type)
+		switch block.Type {
+		case "text", "input_text", "output_text":
+			result = append(result, anthropic.NewTextBlock(block.Text))
+		case "input_image":
+			imgBlock, err := buildAnthropicImageBlock(block)
+			if err != nil {
+				return nil, fmt.Errorf("build image block: %w", err)
+			}
+			result = append(result, imgBlock)
+		case "input_file":
+			docBlock, err := buildAnthropicDocumentBlock(block)
+			if err != nil {
+				return nil, fmt.Errorf("build document block: %w", err)
+			}
+			result = append(result, docBlock)
+		default:
+			return nil, fmt.Errorf("%s messages do not support %q content in the Anthropic provider", role, block.Type)
 		}
-		result = append(result, anthropic.NewTextBlock(text))
 	}
 	return result, nil
+}
+
+func buildAnthropicImageBlock(block api.ContentBlock) (anthropic.ContentBlockParamUnion, error) {
+	if block.ImageURL != "" {
+		if strings.HasPrefix(block.ImageURL, "data:") {
+			mediaType, data, err := parseDataURL(block.ImageURL)
+			if err != nil {
+				return anthropic.ContentBlockParamUnion{}, fmt.Errorf("parse image data: %w", err)
+			}
+			return anthropic.NewImageBlockBase64(mediaType, data), nil
+		}
+		// URL-based image
+		return anthropic.NewImageBlock(anthropic.URLImageSourceParam{
+			URL: block.ImageURL,
+		}), nil
+	}
+	// Note: Base64 images would be passed via FileData field, but that's not currently
+	// populated in the ContentBlock. When that's added, we can support base64 images here.
+	return anthropic.ContentBlockParamUnion{}, fmt.Errorf("image input requires image_url field")
+}
+
+func buildAnthropicDocumentBlock(block api.ContentBlock) (anthropic.ContentBlockParamUnion, error) {
+	if block.FileURL != "" {
+		if inferAnthropicDocumentMediaType(block.FileURL) != "application/pdf" {
+			return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic only supports PDF document URLs")
+		}
+		// URL-based document (PDF)
+		return anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{
+			URL: block.FileURL,
+		}), nil
+	}
+	if block.FileData != "" {
+		mediaType, data, err := parseBase64Payload(block.FileData, inferAnthropicDocumentMediaType(block.Filename))
+		if err != nil {
+			return anthropic.ContentBlockParamUnion{}, fmt.Errorf("parse file data: %w", err)
+		}
+		switch mediaType {
+		case "application/pdf":
+			return anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{
+				Data: data,
+			}), nil
+		case "text/plain":
+			text, err := decodeBase64Text(data)
+			if err != nil {
+				return anthropic.ContentBlockParamUnion{}, err
+			}
+			return anthropic.NewDocumentBlock(anthropic.PlainTextSourceParam{
+				Data: text,
+			}), nil
+		default:
+			return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic only supports PDF or text documents, got %q", mediaType)
+		}
+	}
+	return anthropic.ContentBlockParamUnion{}, fmt.Errorf("document input requires file_url or file_data field")
+}
+
+func inferAnthropicDocumentMediaType(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".pdf"):
+		return "application/pdf"
+	case strings.HasSuffix(lower, ".txt"),
+		strings.HasSuffix(lower, ".md"),
+		strings.HasSuffix(lower, ".csv"),
+		strings.HasSuffix(lower, ".json"),
+		strings.HasSuffix(lower, ".xml"),
+		strings.HasSuffix(lower, ".yaml"),
+		strings.HasSuffix(lower, ".yml"):
+		return "text/plain"
+	default:
+		return ""
+	}
 }
 
 func buildAnthropicAssistantBlocks(blocks []api.ContentBlock, toolCalls []api.ToolCall) ([]anthropic.ContentBlockParamUnion, error) {
