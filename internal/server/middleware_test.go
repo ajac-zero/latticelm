@@ -272,19 +272,19 @@ func TestWriteJSONError(t *testing.T) {
 			name:         "simple error message",
 			message:      "something went wrong",
 			statusCode:   http.StatusBadRequest,
-			expectedBody: `{"error":{"message":"something went wrong"}}`,
+			expectedBody: `{"error":{"message":"something went wrong","type":"invalid_request"}}`,
 		},
 		{
 			name:         "internal server error",
 			message:      "internal error",
 			statusCode:   http.StatusInternalServerError,
-			expectedBody: `{"error":{"message":"internal error"}}`,
+			expectedBody: `{"error":{"message":"internal error","type":"server_error"}}`,
 		},
 		{
 			name:         "unauthorized error",
 			message:      "unauthorized",
 			statusCode:   http.StatusUnauthorized,
-			expectedBody: `{"error":{"message":"unauthorized"}}`,
+			expectedBody: `{"error":{"message":"unauthorized","type":"server_error"}}`,
 		},
 	}
 

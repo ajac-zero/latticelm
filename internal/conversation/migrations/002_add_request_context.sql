@@ -1,0 +1,2 @@
+ALTER TABLE conversations
+ADD COLUMN IF NOT EXISTS request TEXT NOT NULL DEFAULT 'null';

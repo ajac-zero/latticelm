@@ -93,7 +93,7 @@ func (s *InstrumentedStore) Get(ctx context.Context, id string) (*conversation.C
 }
 
 // Create wraps the store's Create method with metrics and tracing.
-func (s *InstrumentedStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner conversation.OwnerInfo) (*conversation.Conversation, error) {
+func (s *InstrumentedStore) Create(ctx context.Context, id string, model string, messages []api.Message, owner conversation.OwnerInfo, request *api.ResponseRequest) (*conversation.Conversation, error) {
 	// Start span if tracing is enabled
 	if s.tracer != nil {
 		var span trace.Span
@@ -112,7 +112,7 @@ func (s *InstrumentedStore) Create(ctx context.Context, id string, model string,
 	start := time.Now()
 
 	// Call underlying store
-	conv, err := s.base.Create(ctx, id, model, messages, owner)
+	conv, err := s.base.Create(ctx, id, model, messages, owner, request)
 
 	// Record metrics
 	duration := time.Since(start).Seconds()

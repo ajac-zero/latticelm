@@ -21,7 +21,7 @@ func TestMigrate_Fresh(t *testing.T) {
 	// schema_migrations table should exist with one row
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count))
-	assert.Equal(t, 1, count)
+	assert.Equal(t, expectedSchemaVersion, count)
 
 	// conversations table should exist
 	var tableName sql.NullString
@@ -44,7 +44,7 @@ func TestMigrate_Idempotent(t *testing.T) {
 
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count))
-	assert.Equal(t, 1, count)
+	assert.Equal(t, expectedSchemaVersion, count)
 }
 
 func TestCheckSchemaVersion_Match(t *testing.T) {

@@ -41,6 +41,12 @@ type ResponseRequest struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+type ParsedToolChoice struct {
+	Mode             string
+	RequiredToolName string
+	AllowedTools     map[string]struct{}
+}
+
 // InputUnion handles the polymorphic "input" field: string or []InputItem.
 type InputUnion struct {
 	String *string
@@ -250,6 +256,7 @@ type ResponseError struct {
 	Type    string  `json:"type"`
 	Message string  `json:"message"`
 	Code    *string `json:"code"`
+	Param   *string `json:"param,omitempty"`
 }
 
 // ============================================================
@@ -361,10 +368,201 @@ func (r *ResponseRequest) Validate() error {
 	if r.Model == "" {
 		return errors.New("model is required")
 	}
-	if r.Input.String == nil && len(r.Input.Items) == 0 {
+	if r.Input.String == nil && len(r.Input.Items) == 0 && (r.PreviousResponseID == nil || *r.PreviousResponseID == "") {
 		return errors.New("input is required")
 	}
+	if r.Truncation != nil && *r.Truncation != "auto" && *r.Truncation != "disabled" {
+		return errors.New(`truncation must be "auto" or "disabled"`)
+	}
+	toolChoice, err := r.ParseToolChoice()
+	if err != nil {
+		return err
+	}
+	if toolChoice.Mode == "" || toolChoice.Mode == "auto" || toolChoice.Mode == "none" {
+		return nil
+	}
+	toolNames, err := r.DeclaredToolNames()
+	if err != nil {
+		return err
+	}
+	if len(toolNames) == 0 {
+		return errors.New("tool_choice requires tools to be declared")
+	}
+	switch toolChoice.Mode {
+	case "required", "any":
+		return nil
+	case "function":
+		if _, ok := toolNames[toolChoice.RequiredToolName]; !ok {
+			return fmt.Errorf("tool_choice references unknown tool %q", toolChoice.RequiredToolName)
+		}
+	case "allowed_tools":
+		for name := range toolChoice.AllowedTools {
+			if _, ok := toolNames[name]; !ok {
+				return fmt.Errorf("allowed_tools references unknown tool %q", name)
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported tool_choice mode %q", toolChoice.Mode)
+	}
 	return nil
+}
+
+func (r *ResponseRequest) ParseToolChoice() (ParsedToolChoice, error) {
+	parsed := ParsedToolChoice{Mode: "auto"}
+	if r == nil || len(r.ToolChoice) == 0 {
+		return parsed, nil
+	}
+
+	var choice interface{}
+	if err := json.Unmarshal(r.ToolChoice, &choice); err != nil {
+		return parsed, fmt.Errorf("invalid tool_choice: %w", err)
+	}
+
+	if str, ok := choice.(string); ok {
+		switch str {
+		case "auto", "none", "required", "any":
+			parsed.Mode = str
+			return parsed, nil
+		default:
+			return parsed, fmt.Errorf("invalid tool_choice value %q", str)
+		}
+	}
+
+	obj, ok := choice.(map[string]interface{})
+	if !ok {
+		return parsed, errors.New("invalid tool_choice format")
+	}
+
+	switch objType, _ := obj["type"].(string); objType {
+	case "function", "tool":
+		name := parseToolChoiceName(obj)
+		if name == "" {
+			return parsed, errors.New("tool_choice function name is required")
+		}
+		parsed.Mode = "function"
+		parsed.RequiredToolName = name
+		return parsed, nil
+	case "allowed_tools":
+		tools, _ := obj["tools"].([]interface{})
+		if len(tools) == 0 {
+			return parsed, errors.New("allowed_tools requires at least one tool")
+		}
+		parsed.Mode = "allowed_tools"
+		parsed.AllowedTools = make(map[string]struct{}, len(tools))
+		for _, rawTool := range tools {
+			tool, ok := rawTool.(map[string]interface{})
+			if !ok {
+				return parsed, errors.New("allowed_tools entries must be objects")
+			}
+			name := parseToolChoiceName(tool)
+			if name == "" {
+				return parsed, errors.New("allowed_tools entries require a tool name")
+			}
+			parsed.AllowedTools[name] = struct{}{}
+		}
+		return parsed, nil
+	default:
+		return parsed, errors.New("invalid tool_choice format")
+	}
+}
+
+func (r *ResponseRequest) DeclaredToolNames() (map[string]struct{}, error) {
+	names := map[string]struct{}{}
+	if r == nil || len(r.Tools) == 0 {
+		return names, nil
+	}
+
+	var toolDefs []map[string]interface{}
+	if err := json.Unmarshal(r.Tools, &toolDefs); err != nil {
+		return nil, fmt.Errorf("invalid tools: %w", err)
+	}
+
+	for _, toolDef := range toolDefs {
+		name := parseToolChoiceName(toolDef)
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+
+	return names, nil
+}
+
+func (r *ResponseRequest) InheritMissingContext(prev *ResponseRequest) {
+	if r == nil || prev == nil {
+		return
+	}
+
+	if r.Instructions == nil && prev.Instructions != nil {
+		v := *prev.Instructions
+		r.Instructions = &v
+	}
+	if len(r.Tools) == 0 && len(prev.Tools) > 0 {
+		r.Tools = cloneRawMessage(prev.Tools)
+	}
+	if len(r.ToolChoice) == 0 && len(prev.ToolChoice) > 0 {
+		r.ToolChoice = cloneRawMessage(prev.ToolChoice)
+	}
+	if r.MaxOutputTokens == nil && prev.MaxOutputTokens != nil {
+		v := *prev.MaxOutputTokens
+		r.MaxOutputTokens = &v
+	}
+	if r.Temperature == nil && prev.Temperature != nil {
+		v := *prev.Temperature
+		r.Temperature = &v
+	}
+	if r.TopP == nil && prev.TopP != nil {
+		v := *prev.TopP
+		r.TopP = &v
+	}
+	if r.FrequencyPenalty == nil && prev.FrequencyPenalty != nil {
+		v := *prev.FrequencyPenalty
+		r.FrequencyPenalty = &v
+	}
+	if r.PresencePenalty == nil && prev.PresencePenalty != nil {
+		v := *prev.PresencePenalty
+		r.PresencePenalty = &v
+	}
+	if r.TopLogprobs == nil && prev.TopLogprobs != nil {
+		v := *prev.TopLogprobs
+		r.TopLogprobs = &v
+	}
+	if r.Truncation == nil && prev.Truncation != nil {
+		v := *prev.Truncation
+		r.Truncation = &v
+	}
+	if r.ParallelToolCalls == nil && prev.ParallelToolCalls != nil {
+		v := *prev.ParallelToolCalls
+		r.ParallelToolCalls = &v
+	}
+	if r.Text == nil && prev.Text != nil {
+		r.Text = cloneRawMessage(prev.Text)
+	}
+	if r.Reasoning == nil && prev.Reasoning != nil {
+		r.Reasoning = cloneRawMessage(prev.Reasoning)
+	}
+	if len(r.Include) == 0 && len(prev.Include) > 0 {
+		r.Include = append([]string(nil), prev.Include...)
+	}
+	if r.ServiceTier == nil && prev.ServiceTier != nil {
+		v := *prev.ServiceTier
+		r.ServiceTier = &v
+	}
+	if r.MaxToolCalls == nil && prev.MaxToolCalls != nil {
+		v := *prev.MaxToolCalls
+		r.MaxToolCalls = &v
+	}
+	if len(r.StreamOptions) == 0 && len(prev.StreamOptions) > 0 {
+		r.StreamOptions = cloneRawMessage(prev.StreamOptions)
+	}
+	if r.Provider == "" {
+		r.Provider = prev.Provider
+	}
+	if len(r.Metadata) == 0 && len(prev.Metadata) > 0 {
+		r.Metadata = make(map[string]string, len(prev.Metadata))
+		for k, v := range prev.Metadata {
+			r.Metadata[k] = v
+		}
+	}
 }
 
 // getStringField is a helper to safely extract string fields from a map
@@ -495,4 +693,25 @@ func normalizeContentBlockMap(block map[string]interface{}) (ContentBlock, bool)
 	default:
 		return ContentBlock{}, false
 	}
+}
+
+func parseToolChoiceName(obj map[string]interface{}) string {
+	if name, ok := obj["name"].(string); ok {
+		return name
+	}
+	if function, ok := obj["function"].(map[string]interface{}); ok {
+		if name, ok := function["name"].(string); ok {
+			return name
+		}
+	}
+	return ""
+}
+
+func cloneRawMessage(v json.RawMessage) json.RawMessage {
+	if len(v) == 0 {
+		return nil
+	}
+	out := make(json.RawMessage, len(v))
+	copy(out, v)
+	return out
 }

@@ -190,7 +190,7 @@ func TestHandleResponses_Sync_Success(t *testing.T) {
 		},
 		{
 			name:        "response with tool calls",
-			requestBody: `{"model": "gpt-4", "input": "what's the weather?"}`,
+			requestBody: `{"model": "gpt-4", "input": "what's the weather?", "tools":[{"type":"function","name":"get_weather","parameters":{"type":"object"}}]}`,
 			setupMock: func(p *mockProvider) {
 				p.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 					return &api.ProviderResult{
@@ -225,7 +225,7 @@ func TestHandleResponses_Sync_Success(t *testing.T) {
 		},
 		{
 			name:        "response with multiple tool calls",
-			requestBody: `{"model": "gpt-4", "input": "check NYC and LA weather"}`,
+			requestBody: `{"model": "gpt-4", "input": "check NYC and LA weather", "tools":[{"type":"function","name":"get_weather","parameters":{"type":"object"}}]}`,
 			setupMock: func(p *mockProvider) {
 				p.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 					return &api.ProviderResult{
@@ -249,7 +249,7 @@ func TestHandleResponses_Sync_Success(t *testing.T) {
 		},
 		{
 			name:        "response with only tool calls (no text)",
-			requestBody: `{"model": "gpt-4", "input": "search"}`,
+			requestBody: `{"model": "gpt-4", "input": "search", "tools":[{"type":"function","name":"search","parameters":{"type":"object"}}]}`,
 			setupMock: func(p *mockProvider) {
 				p.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
 					return &api.ProviderResult{
@@ -394,6 +394,47 @@ func TestHandleResponses_Sync_ConversationHistory(t *testing.T) {
 			expectStatus: http.StatusOK,
 		},
 		{
+			name: "inherits previous request context",
+			setupServer: func() *GatewayServer {
+				registry := newMockRegistry()
+				provider := newMockProvider("openai")
+				provider.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
+					if len(messages) < 1 || messages[0].Role != "developer" {
+						return nil, fmt.Errorf("expected inherited developer message first")
+					}
+					if len(req.Tools) == 0 {
+						return nil, fmt.Errorf("expected inherited tools")
+					}
+					return &api.ProviderResult{
+						Model: req.Model,
+						Text:  "response",
+					}, nil
+				}
+				registry.addProvider("openai", provider)
+				registry.addModel("gpt-4", "openai")
+
+				store := newMockConversationStore()
+				store.setConversation("prev-with-config", &conversation.Conversation{
+					ID:    "prev-with-config",
+					Model: "gpt-4",
+					Messages: []api.Message{
+						{
+							Role:    "user",
+							Content: []api.ContentBlock{{Type: "input_text", Text: "previous message"}},
+						},
+					},
+					Request: &api.ResponseRequest{
+						Model:        "gpt-4",
+						Instructions: stringPtr("Use the provided tools"),
+						Tools:        json.RawMessage(`[{"type":"function","name":"search","parameters":{"type":"object"}}]`),
+					},
+				})
+				return New(registry, store, newMockLogger().asLogger())
+			},
+			requestBody:  `{"model": "gpt-4", "input": "new message", "previous_response_id": "prev-with-config"}`,
+			expectStatus: http.StatusOK,
+		},
+		{
 			name: "nonexistent conversation returns 404",
 			setupServer: func() *GatewayServer {
 				registry := newMockRegistry()
@@ -453,6 +494,32 @@ func TestHandleResponses_Sync_ConversationHistory(t *testing.T) {
 	}
 }
 
+func TestHandleResponses_ToolChoiceEnforcement(t *testing.T) {
+	registry := newMockRegistry()
+	provider := newMockProvider("openai")
+	provider.generateFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (*api.ProviderResult, error) {
+		return &api.ProviderResult{
+			Model: "gpt-4",
+			ToolCalls: []api.ToolCall{
+				{ID: "call_1", Name: "search", Arguments: `{}`},
+			},
+		}, nil
+	}
+	registry.addProvider("openai", provider)
+	registry.addModel("gpt-4", "openai")
+
+	server := New(registry, newMockConversationStore(), newMockLogger().asLogger())
+	body := `{"model":"gpt-4","input":"hello","tool_choice":"none","tools":[{"type":"function","name":"search","parameters":{"type":"object"}}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.handleResponses(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "tool_choice was none")
+}
+
 func TestHandleResponses_Sync_ProviderErrors(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -467,7 +534,7 @@ func TestHandleResponses_Sync_ProviderErrors(t *testing.T) {
 					return nil, fmt.Errorf("rate limit exceeded")
 				}
 			},
-			expectStatus: http.StatusBadGateway,
+			expectStatus: http.StatusInternalServerError,
 			expectBody:   "provider error",
 		},
 		{
@@ -475,7 +542,7 @@ func TestHandleResponses_Sync_ProviderErrors(t *testing.T) {
 			setupMock: func(p *mockProvider) {
 				// Don't set up this provider, request will use explicit provider
 			},
-			expectStatus: http.StatusBadGateway,
+			expectStatus: http.StatusBadRequest,
 			expectBody:   "provider nonexistent not configured",
 		},
 	}
@@ -536,10 +603,10 @@ func TestHandleResponses_Stream_Success(t *testing.T) {
 				}
 			},
 			validate: func(t *testing.T, events []api.StreamEvent) {
-				require.GreaterOrEqual(t, len(events), 5)
-				assert.Equal(t, "response.created", events[0].Type)
-				assert.Equal(t, "response.in_progress", events[1].Type)
-				assert.Equal(t, "response.output_item.added", events[2].Type)
+				require.GreaterOrEqual(t, len(events), 7)
+				assert.Equal(t, "response.in_progress", events[0].Type)
+				assert.Equal(t, "response.output_item.added", events[1].Type)
+				assert.Equal(t, "response.content_part.added", events[2].Type)
 
 				// Find text deltas
 				var textDeltas []string
@@ -560,7 +627,7 @@ func TestHandleResponses_Stream_Success(t *testing.T) {
 		},
 		{
 			name:        "streaming with tool calls",
-			requestBody: `{"model": "gpt-4", "input": "weather?", "stream": true}`,
+			requestBody: `{"model": "gpt-4", "input": "weather?", "stream": true, "tools":[{"type":"function","name":"get_weather","parameters":{"type":"object"}}]}`,
 			setupMock: func(p *mockProvider) {
 				p.streamFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
 					deltaChan := make(chan *api.ProviderStreamDelta)
@@ -607,7 +674,7 @@ func TestHandleResponses_Stream_Success(t *testing.T) {
 		},
 		{
 			name:        "streaming with multiple tool calls",
-			requestBody: `{"model": "gpt-4", "input": "check multiple", "stream": true}`,
+			requestBody: `{"model": "gpt-4", "input": "check multiple", "stream": true, "tools":[{"type":"function","name":"tool_a","parameters":{"type":"object"}},{"type":"function","name":"tool_b","parameters":{"type":"object"}}]}`,
 			setupMock: func(p *mockProvider) {
 				p.streamFunc = func(ctx context.Context, messages []api.Message, req *api.ResponseRequest) (<-chan *api.ProviderStreamDelta, <-chan error) {
 					deltaChan := make(chan *api.ProviderStreamDelta)
@@ -680,6 +747,7 @@ func TestHandleResponses_Stream_Success(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+			assert.Contains(t, rec.Body.String(), "data: [DONE]")
 
 			events, err := parseSSEEvents(rec.Body)
 			require.NoError(t, err)
@@ -746,6 +814,7 @@ func TestHandleResponses_Stream_Errors(t *testing.T) {
 			rec := newFlushableRecorder()
 
 			server.handleResponses(rec, req)
+			assert.Contains(t, rec.Body.String(), "data: [DONE]")
 
 			events, err := parseSSEEvents(rec.Body)
 			require.NoError(t, err)

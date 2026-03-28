@@ -60,60 +60,33 @@ func parseTools(req *api.ResponseRequest) ([]anthropic.ToolUnionParam, error) {
 func parseToolChoice(req *api.ResponseRequest) (anthropic.ToolChoiceUnionParam, error) {
 	var result anthropic.ToolChoiceUnionParam
 
+	parsed, err := req.ParseToolChoice()
+	if err != nil {
+		return result, err
+	}
 	if len(req.ToolChoice) == 0 {
 		return result, nil
 	}
 
-	var choice interface{}
-	if err := json.Unmarshal(req.ToolChoice, &choice); err != nil {
-		return result, fmt.Errorf("unmarshal tool_choice: %w", err)
-	}
-
-	// Handle string values: "auto", "any", "required"
-	if str, ok := choice.(string); ok {
-		switch str {
-		case "auto":
-			result.OfAuto = &anthropic.ToolChoiceAutoParam{
-				Type: "auto",
-			}
-		case "any", "required":
-			result.OfAny = &anthropic.ToolChoiceAnyParam{
-				Type: "any",
-			}
-		case "none":
-			result.OfNone = &anthropic.ToolChoiceNoneParam{
-				Type: "none",
-			}
-		default:
-			return result, fmt.Errorf("unknown tool_choice string: %s", str)
+	switch parsed.Mode {
+	case "auto", "allowed_tools":
+		result.OfAuto = &anthropic.ToolChoiceAutoParam{Type: "auto"}
+		return result, nil
+	case "any", "required":
+		result.OfAny = &anthropic.ToolChoiceAnyParam{Type: "any"}
+		return result, nil
+	case "none":
+		result.OfNone = &anthropic.ToolChoiceNoneParam{Type: "none"}
+		return result, nil
+	case "function":
+		result.OfTool = &anthropic.ToolChoiceToolParam{
+			Type: "tool",
+			Name: parsed.RequiredToolName,
 		}
 		return result, nil
+	default:
+		return result, fmt.Errorf("invalid tool_choice format")
 	}
-
-	// Handle specific tool selection: {"type": "tool", "function": {"name": "..."}}
-	if obj, ok := choice.(map[string]interface{}); ok {
-		// Check for OpenAI format: {"type": "function", "function": {"name": "..."}}
-		if funcObj, ok := obj["function"].(map[string]interface{}); ok {
-			if name, ok := funcObj["name"].(string); ok {
-				result.OfTool = &anthropic.ToolChoiceToolParam{
-					Type: "tool",
-					Name: name,
-				}
-				return result, nil
-			}
-		}
-
-		// Check for direct name field
-		if name, ok := obj["name"].(string); ok {
-			result.OfTool = &anthropic.ToolChoiceToolParam{
-				Type: "tool",
-				Name: name,
-			}
-			return result, nil
-		}
-	}
-
-	return result, fmt.Errorf("invalid tool_choice format")
 }
 
 // extractToolCalls converts Anthropic content blocks to api.ToolCall
