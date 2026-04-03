@@ -9,17 +9,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// ProviderRegistry defines the interface for provider registries.
-// This matches the interface expected by the server.
-type ProviderRegistry interface {
-	Get(name string) (providers.Provider, bool)
-	Models() []struct{ Provider, Model string }
-	ResolveModelID(model string) string
-	Default(model string) (providers.Provider, error)
-}
-
 // WrapProviderRegistry wraps all providers in a registry with observability.
-func WrapProviderRegistry(registry ProviderRegistry, metricsRegistry *prometheus.Registry, tp *sdktrace.TracerProvider) ProviderRegistry {
+func WrapProviderRegistry(registry providers.ProviderRegistry, metricsRegistry *prometheus.Registry, tp *sdktrace.TracerProvider) providers.ProviderRegistry {
 	if registry == nil {
 		return nil
 	}
@@ -37,7 +28,7 @@ func WrapProviderRegistry(registry ProviderRegistry, metricsRegistry *prometheus
 // InstrumentedRegistry wraps a provider registry to return instrumented providers.
 type InstrumentedRegistry struct {
 	mu               sync.RWMutex
-	base             ProviderRegistry
+	base             providers.ProviderRegistry
 	metrics          *prometheus.Registry
 	tracer           *sdktrace.TracerProvider
 	wrappedProviders map[string]providers.Provider

@@ -10,14 +10,6 @@ import (
 	"github.com/ajac-zero/latticelm/internal/providers"
 )
 
-// ProviderRegistry is an interface for provider registries.
-type ProviderRegistry interface {
-	Get(name string) (providers.Provider, bool)
-	Models() []struct{ Provider, Model string }
-	ResolveModelID(model string) string
-	Default(model string) (providers.Provider, error)
-}
-
 // BuildInfo contains build-time information.
 type BuildInfo struct {
 	Version   string
@@ -28,7 +20,7 @@ type BuildInfo struct {
 
 // Server hosts the admin API and UI.
 type Server struct {
-	registry    ProviderRegistry
+	registry    providers.ProviderRegistry
 	convStore   conversation.Store
 	cfg         *config.Config
 	configStore *config.Store
@@ -38,7 +30,7 @@ type Server struct {
 }
 
 // New creates a Server instance.
-func New(registry ProviderRegistry, convStore conversation.Store, cfg *config.Config, configStore *config.Store, logger *slog.Logger, buildInfo BuildInfo) *Server {
+func New(registry providers.ProviderRegistry, convStore conversation.Store, cfg *config.Config, configStore *config.Store, logger *slog.Logger, buildInfo BuildInfo) *Server {
 	return &Server{
 		registry:    registry,
 		convStore:   convStore,
